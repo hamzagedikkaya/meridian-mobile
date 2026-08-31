@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import '../../core/session.dart';
+import '../../l10n/app_l10n.dart';
 import '../../theme/app_colors.dart';
 
 enum _Ping { idle, checking, ok, fail }
@@ -71,6 +72,7 @@ class _ServerUrlFieldState extends State<ServerUrlField> {
   Widget build(BuildContext context) {
     final c = context.nok;
     final text = Theme.of(context).textTheme;
+    final l = context.l10n;
 
     if (_collapsed) {
       final host = normalizeServerUrl(_controller.text)
@@ -95,7 +97,7 @@ class _ServerUrlFieldState extends State<ServerUrlField> {
                   overflow: TextOverflow.ellipsis,
                 ),
               ),
-              Text('Değiştir',
+              Text(l.labelChange,
                   style: text.labelLarge!.copyWith(color: c.gold)),
             ],
           ),
@@ -113,10 +115,10 @@ class _ServerUrlFieldState extends State<ServerUrlField> {
         _check();
       },
       decoration: InputDecoration(
-        labelText: 'Sunucu adresi',
+        labelText: l.serverAddress,
         hintText: 'http://192.168.1.20:3000',
         errorText: _ping == _Ping.fail
-            ? 'Sunucuya ulaşılamadı — adresi ve Wi-Fi\'yi kontrol et'
+            ? l.serverAddressUnreachable
             : null,
         suffixIcon: switch (_ping) {
           _Ping.idle => Icon(Icons.public, size: 24, color: c.inkLow),

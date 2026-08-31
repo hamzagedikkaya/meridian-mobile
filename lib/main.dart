@@ -4,14 +4,17 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/date_symbol_data_local.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import 'core/locale_mode.dart';
 import 'core/session.dart';
 import 'core/theme_mode.dart';
+import 'l10n/app_l10n.dart';
 import 'router/app_router.dart';
 import 'theme/app_theme.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  await initializeDateFormatting('tr_TR', null);
+  // Both shipped languages, since the user can switch at runtime.
+  await initializeDateFormatting();
   final prefs = await SharedPreferences.getInstance();
 
   runApp(
@@ -29,6 +32,7 @@ class MeridianApp extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final router = ref.watch(routerProvider);
     final themeMode = ref.watch(themeModeProvider);
+    final locale = ref.watch(localeProvider);
 
     return MaterialApp.router(
       title: 'Meridian',
@@ -37,9 +41,10 @@ class MeridianApp extends ConsumerWidget {
       theme: buildTheme(Brightness.light),
       darkTheme: buildTheme(Brightness.dark),
       routerConfig: router,
-      locale: const Locale('tr'),
-      supportedLocales: const [Locale('tr'), Locale('en')],
+      locale: locale,
+      supportedLocales: AppL10n.supportedLocales,
       localizationsDelegates: const [
+        AppL10n.delegate,
         GlobalMaterialLocalizations.delegate,
         GlobalWidgetsLocalizations.delegate,
         GlobalCupertinoLocalizations.delegate,

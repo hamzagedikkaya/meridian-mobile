@@ -4,6 +4,7 @@ import 'package:go_router/go_router.dart';
 
 import '../../../core/haptics.dart';
 import '../../../data/providers.dart';
+import '../../../l10n/app_l10n.dart';
 import '../../../theme/app_colors.dart';
 
 class _Tab {
@@ -13,14 +14,14 @@ class _Tab {
   const _Tab(this.label, this.icon, this.activeIcon);
 }
 
-const _tabs = [
-  _Tab('Bugün', Icons.wb_sunny_outlined, Icons.wb_sunny),
-  _Tab('Para', Icons.account_balance_wallet_outlined,
-      Icons.account_balance_wallet),
-  _Tab('Alışkanlıklar', Icons.check_circle_outline, Icons.check_circle),
-  _Tab('Hedefler', Icons.flag_outlined, Icons.flag),
-  _Tab('Günlük', Icons.auto_stories_outlined, Icons.auto_stories),
-];
+List<_Tab> _tabsFor(AppL10n l) => [
+      _Tab(l.tabToday, Icons.wb_sunny_outlined, Icons.wb_sunny),
+      _Tab(l.tabFinance, Icons.account_balance_wallet_outlined,
+          Icons.account_balance_wallet),
+      _Tab(l.tabHabits, Icons.check_circle_outline, Icons.check_circle),
+      _Tab(l.tabGoals, Icons.flag_outlined, Icons.flag),
+      _Tab(l.tabJournal, Icons.auto_stories_outlined, Icons.auto_stories),
+    ];
 
 class AppScaffold extends ConsumerWidget {
   final StatefulNavigationShell shell;
@@ -35,6 +36,7 @@ class AppScaffold extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final c = context.nok;
+    final tabs = _tabsFor(context.l10n);
     final overdue = ref.watch(homeProvider).value?.data.overdueCount ?? 0;
 
     return Scaffold(
@@ -48,12 +50,12 @@ class AppScaffold extends ConsumerWidget {
           selectedIndex: shell.currentIndex,
           onDestinationSelected: _onTap,
           destinations: [
-            for (var i = 0; i < _tabs.length; i++)
+            for (var i = 0; i < tabs.length; i++)
               NavigationDestination(
-                icon: _icon(context, Icon(_tabs[i].icon), i, overdue),
+                icon: _icon(context, Icon(tabs[i].icon), i, overdue),
                 selectedIcon:
-                    _icon(context, Icon(_tabs[i].activeIcon), i, overdue),
-                label: _tabs[i].label,
+                    _icon(context, Icon(tabs[i].activeIcon), i, overdue),
+                label: tabs[i].label,
               ),
           ],
         ),
@@ -61,7 +63,7 @@ class AppScaffold extends ConsumerWidget {
     );
   }
 
-  // Only Bugün (index 0) carries the error-colored overdue count badge.
+  // Only the first tab (Today) carries the error-colored overdue count badge.
   Widget _icon(BuildContext context, Icon icon, int index, int overdue) {
     if (index != 0 || overdue <= 0) return icon;
     return Badge(

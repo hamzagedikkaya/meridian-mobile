@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../../core/formats.dart';
+import '../../l10n/app_l10n.dart';
 import '../../theme/app_colors.dart';
 
 /// Hairline banner over cached last-good data (design §4.3 error policy).
@@ -17,6 +18,7 @@ class OfflineBanner extends StatelessWidget {
   Widget build(BuildContext context) {
     final c = context.nok;
     final text = Theme.of(context).textTheme;
+    final l = context.l10n;
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
@@ -30,14 +32,14 @@ class OfflineBanner extends StatelessWidget {
           const SizedBox(width: 8),
           Expanded(
             child: Text(
-              'Çevrimdışı · son güncelleme ${formatTime(lastUpdated)}',
+              l.offlineLastUpdated(formatTime(lastUpdated)),
               style: text.bodySmall!.copyWith(color: c.inkMid),
             ),
           ),
           GestureDetector(
             onTap: onRetry,
             child: Text(
-              'Tekrar dene',
+              l.actionRetry,
               style: text.labelLarge!.copyWith(color: c.gold),
             ),
           ),

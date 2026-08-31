@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../../l10n/app_l10n.dart';
 import '../../theme/app_colors.dart';
 import 'pressable_scale.dart';
 
@@ -13,6 +14,7 @@ class SectionHeader extends StatelessWidget {
   Widget build(BuildContext context) {
     final c = context.nok;
     final text = Theme.of(context).textTheme;
+    final l = context.l10n;
     return Padding(
       padding: const EdgeInsets.only(bottom: 12),
       child: Row(
@@ -30,7 +32,7 @@ class SectionHeader extends StatelessWidget {
                   child: Align(
                     alignment: Alignment.centerRight,
                     child: Text(
-                      'Tümü →',
+                      l.actionSeeAll,
                       style: text.labelLarge!.copyWith(color: c.gold),
                     ),
                   ),

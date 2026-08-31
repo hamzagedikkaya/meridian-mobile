@@ -1,0 +1,12 @@
+# The golden suite renders every screen in both languages for visual review.
+# Its fixtures are relative to "now" on purpose — the screenshots should look
+# like a live phone — so the images drift as the clock moves and would turn
+# `flutter test` red every day. Keep it out of the default run and shoot it
+# deliberately:
+#
+#   flutter test                                     # unit + widget suites
+#   flutter test test/golden                         # compare screenshots
+#   flutter test --update-goldens test/golden        # refresh them
+tags:
+  golden:
+    skip: "visual-review harness — run: flutter test test/golden"

@@ -4,18 +4,18 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../core/session.dart';
-import '../ui/screens/aliskanliklar/aliskanliklar_screen.dart';
-import '../ui/screens/bugun/bugun_screen.dart';
-import '../ui/screens/gunluk/gunluk_detail_screen.dart';
-import '../ui/screens/gunluk/gunluk_screen.dart';
-import '../ui/screens/hedefler/hedef_detail_screen.dart';
-import '../ui/screens/hedefler/hedefler_screen.dart';
+import '../ui/screens/habits/habits_screen.dart';
+import '../ui/screens/today/today_screen.dart';
+import '../ui/screens/journal/journal_detail_screen.dart';
+import '../ui/screens/journal/journal_screen.dart';
+import '../ui/screens/goals/goal_detail_screen.dart';
+import '../ui/screens/goals/goals_screen.dart';
 import '../ui/screens/login_screen.dart';
-import '../ui/screens/para/hesap_detail_screen.dart';
-import '../ui/screens/para/islemler_screen.dart';
-import '../ui/screens/para/para_screen.dart';
-import '../ui/screens/profil/profil_screen.dart';
-import '../ui/screens/profil/sunucu_screen.dart';
+import '../ui/screens/finance/account_detail_screen.dart';
+import '../ui/screens/finance/transactions_screen.dart';
+import '../ui/screens/finance/finance_screen.dart';
+import '../ui/screens/profile/profile_screen.dart';
+import '../ui/screens/profile/server_screen.dart';
 import '../ui/screens/shell/app_scaffold.dart';
 import '../ui/screens/splash_screen.dart';
 
@@ -66,9 +66,9 @@ final routerProvider = Provider<GoRouter>((ref) {
         return loc == '/splash' ? null : '/splash';
       }
       if (session is SessionLoggedOut) {
-        return loc == '/giris' ? null : '/giris';
+        return loc == '/login' ? null : '/login';
       }
-      if (loc == '/splash' || loc == '/giris') return '/bugun';
+      if (loc == '/splash' || loc == '/login') return '/today';
       return null;
     },
     routes: [
@@ -81,7 +81,7 @@ final routerProvider = Provider<GoRouter>((ref) {
         ),
       ),
       GoRoute(
-        path: '/giris',
+        path: '/login',
         // 350ms in (Splash → Giriş); its 400ms reverse animation is the exit
         // that plays on login success, giving the Login → Bugün 400ms feel.
         pageBuilder: (_, state) => _fadeThrough(
@@ -92,14 +92,14 @@ final routerProvider = Provider<GoRouter>((ref) {
         ),
       ),
       GoRoute(
-        path: '/profil',
+        path: '/profile',
         parentNavigatorKey: _rootKey,
-        builder: (_, _) => const ProfilScreen(),
+        builder: (_, _) => const ProfileScreen(),
       ),
       GoRoute(
-        path: '/profil/sunucu',
+        path: '/profile/server',
         parentNavigatorKey: _rootKey,
-        builder: (_, _) => const SunucuScreen(),
+        builder: (_, _) => const ServerScreen(),
       ),
       StatefulShellRoute.indexedStack(
         parentNavigatorKey: _rootKey,
@@ -109,26 +109,26 @@ final routerProvider = Provider<GoRouter>((ref) {
             navigatorKey: _shellKey,
             routes: [
               GoRoute(
-                path: '/bugun',
-                pageBuilder: (_, state) => _fadeThrough(const BugunScreen(), state),
+                path: '/today',
+                pageBuilder: (_, state) => _fadeThrough(const TodayScreen(), state),
               ),
             ],
           ),
           StatefulShellBranch(
             routes: [
               GoRoute(
-                path: '/para',
-                pageBuilder: (_, state) => _fadeThrough(const ParaScreen(), state),
+                path: '/finance',
+                pageBuilder: (_, state) => _fadeThrough(const FinanceScreen(), state),
                 routes: [
                   GoRoute(
-                    path: 'islemler',
+                    path: 'transactions',
                     parentNavigatorKey: _rootKey,
-                    builder: (_, _) => const IslemlerScreen(),
+                    builder: (_, _) => const TransactionsScreen(),
                   ),
                   GoRoute(
-                    path: 'hesap/:id',
+                    path: 'account/:id',
                     parentNavigatorKey: _rootKey,
-                    builder: (_, state) => HesapDetailScreen(
+                    builder: (_, state) => AccountDetailScreen(
                       accountId: int.parse(state.pathParameters['id']!),
                     ),
                   ),
@@ -139,23 +139,23 @@ final routerProvider = Provider<GoRouter>((ref) {
           StatefulShellBranch(
             routes: [
               GoRoute(
-                path: '/aliskanliklar',
+                path: '/habits',
                 pageBuilder: (_, state) =>
-                    _fadeThrough(const AliskanliklarScreen(), state),
+                    _fadeThrough(const HabitsScreen(), state),
               ),
             ],
           ),
           StatefulShellBranch(
             routes: [
               GoRoute(
-                path: '/hedefler',
+                path: '/goals',
                 pageBuilder: (_, state) =>
-                    _fadeThrough(const HedeflerScreen(), state),
+                    _fadeThrough(const GoalsScreen(), state),
                 routes: [
                   GoRoute(
                     path: ':id',
                     parentNavigatorKey: _rootKey,
-                    builder: (_, state) => HedefDetailScreen(
+                    builder: (_, state) => GoalDetailScreen(
                       goalId: int.parse(state.pathParameters['id']!),
                     ),
                   ),
@@ -166,14 +166,14 @@ final routerProvider = Provider<GoRouter>((ref) {
           StatefulShellBranch(
             routes: [
               GoRoute(
-                path: '/gunluk',
+                path: '/journal',
                 pageBuilder: (_, state) =>
-                    _fadeThrough(const GunlukScreen(), state),
+                    _fadeThrough(const JournalScreen(), state),
                 routes: [
                   GoRoute(
                     path: ':id',
                     parentNavigatorKey: _rootKey,
-                    builder: (_, state) => GunlukDetailScreen(
+                    builder: (_, state) => JournalDetailScreen(
                       entryId: int.parse(state.pathParameters['id']!),
                     ),
                   ),

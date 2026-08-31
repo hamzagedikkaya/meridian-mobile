@@ -1,11 +1,16 @@
+@Tags(['golden'])
 /// GOLDEN RENDER HARNESS (visual review, not correctness assertions).
 ///
 /// Renders every screen at phone size (360×780 logical, dpr 3.0) with the REAL
 /// bundled fonts (Fraunces + Inter) and rich, realistic Turkish fixtures, then
 /// writes one PNG per screen under test/golden/images/ via `matchesGoldenFile`.
 ///
-/// Generate with:
-///   flutter test --update-goldens test/golden/render_screens_test.dart
+/// Tagged `golden` and skipped by default (see dart_test.yaml) because the
+/// fixtures are relative to "now": the images drift as the clock moves, which
+/// would turn `flutter test` red every day. Run it deliberately:
+///
+///   flutter test --run-skipped test/golden                  # compare
+///   flutter test --run-skipped --update-goldens test/golden # refresh
 ///
 /// The fixtures reuse the provider-override patterns from test/screens/*.dart
 /// but are fully populated so the design can be judged from the images.
@@ -34,15 +39,16 @@ import 'package:meridian_mobile/models/home.dart';
 import 'package:meridian_mobile/models/journal.dart';
 import 'package:meridian_mobile/models/transaction.dart';
 import 'package:meridian_mobile/models/user.dart';
+import 'package:meridian_mobile/l10n/app_l10n.dart';
 import 'package:meridian_mobile/theme/app_theme.dart';
-import 'package:meridian_mobile/ui/screens/aliskanliklar/aliskanliklar_screen.dart';
-import 'package:meridian_mobile/ui/screens/bugun/bugun_screen.dart';
-import 'package:meridian_mobile/ui/screens/gunluk/gunluk_screen.dart';
-import 'package:meridian_mobile/ui/screens/hedefler/hedefler_screen.dart';
+import 'package:meridian_mobile/ui/screens/habits/habits_screen.dart';
+import 'package:meridian_mobile/ui/screens/today/today_screen.dart';
+import 'package:meridian_mobile/ui/screens/journal/journal_screen.dart';
+import 'package:meridian_mobile/ui/screens/goals/goals_screen.dart';
 import 'package:meridian_mobile/ui/screens/login_screen.dart';
-import 'package:meridian_mobile/ui/screens/para/islemler_screen.dart';
-import 'package:meridian_mobile/ui/screens/para/para_screen.dart';
-import 'package:meridian_mobile/ui/screens/profil/profil_screen.dart';
+import 'package:meridian_mobile/ui/screens/finance/transactions_screen.dart';
+import 'package:meridian_mobile/ui/screens/finance/finance_screen.dart';
+import 'package:meridian_mobile/ui/screens/profile/profile_screen.dart';
 
 // --- Dates (relative to "now" so Bugün/Dün/deadlines render correctly) --------
 
@@ -56,6 +62,89 @@ String _ymd(DateTime d) =>
 
 DateTime _daysAgo(int n) => _now.subtract(Duration(days: n));
 DateTime _daysAhead(int n) => _now.add(Duration(days: n));
+
+// --- Fixture copy -------------------------------------------------------------
+
+/// The screens are rendered in both shipped languages, so the *data* in them is
+/// translated too — an English screenshot with Turkish account names would not
+/// show what an English user actually sees. The Turkish string is the key; a
+/// missing translation simply falls back to it.
+String _lang = 'tr';
+
+String _fx(String tr) => _lang == 'en' ? (_fxEn[tr] ?? tr) : tr;
+
+const _fxEn = <String, String>{
+      'Sabah koşusu': 'Morning run',
+      '2 litre su iç': 'Drink 2 L of water',
+      '30 dakika kitap oku': 'Read for 30 minutes',
+      'Meditasyon': 'Meditation',
+      'Almanca çalış': 'Study German',
+      'Spor salonu': 'Gym',
+      'Her sabah 3 km': '3 km every morning',
+      'Gün içinde 8 bardak': '8 glasses through the day',
+      'Haftada 3 gün': '3 days a week',
+      '10 dakika': '10 minutes',
+      'Vergi beyannamesini gönder': 'File the tax return',
+      'Sunum slaytlarını hazırla': 'Prepare the slide deck',
+      'Market alışverişi yap': 'Do the grocery run',
+      'İş': 'Work',
+      'Ev': 'Home',
+      'Takım toplantısı': 'Team meeting',
+      'Diş hekimi randevusu': 'Dentist appointment',
+      'Annemin doğum günü': "Mum's birthday",
+      '100 günde 100 kitap': '100 books in 100 days',
+      'Almanca A2 seviyesi': 'German A2 level',
+      'İlk 5K koşusu': 'First 5K run',
+      '100 günde 100 kitap oku': 'Read 100 books in 100 days',
+      'Almanca A2 seviyesine ulaş': 'Reach German A2',
+      'İlk 5K koşuma hazırlan': 'Train for my first 5K',
+      'Acil vergi ödemesi': 'Urgent tax payment',
+      '3 ayda 50.000 ₺ biriktir': 'Save 50,000 ₺ in 3 months',
+      'kitap': 'books',
+      'ders': 'lessons',
+      'antrenman': 'workouts',
+      'Altın': 'Gold',
+      'Maaş hesabı': 'Salary account',
+      'Kredi kartı': 'Credit card',
+      'Cüzdan': 'Wallet',
+      'Birikim': 'Savings',
+      'Kira': 'Rent',
+      'Market': 'Groceries',
+      'Restoran': 'Restaurants',
+      'Eğlence': 'Entertainment',
+      'Ulaşım': 'Transport',
+      'Maaş': 'Salary',
+      'Serbest Gelir': 'Freelance',
+      'Kira Geliri': 'Rental income',
+      'Faturalar': 'Bills',
+      'Kafe': 'Cafés',
+      'Temmuz maaşı': 'July salary',
+      'Migros alışverişi': 'Supermarket run',
+      'Benzin': 'Petrol',
+      '5 gr altın alımı': 'Bought 5 g of gold',
+      'Freelance ödemesi': 'Freelance payment',
+      'Öğle yemeği': 'Lunch',
+      'Kahve': 'Coffee',
+      'Haftalık market': 'Weekly groceries',
+      'Kira geliri': 'Rental income',
+      'Elektrik faturası': 'Electricity bill',
+      'Sinema': 'Cinema',
+      'Harika bir gün': 'A great day',
+      'Sakin bir akşam': 'A quiet evening',
+      'Yorucu ama verimli': 'Tiring but productive',
+      'Güneşli': 'Sunny',
+      'Yağmurlu': 'Rainy',
+      'Parçalı bulutlu': 'Partly cloudy',
+      'spor': 'sport',
+      'aile': 'family',
+      'okuma': 'reading',
+      'iş': 'work',
+      'proje': 'project',
+      'Sabah yoga ile başladım, öğleden sonra ekiple güzel bir toplantı yaptık. Akşam ailemle yemek yedik — enerjim gün boyu yüksek kaldı.': 'Started with yoga, had a good session with the team in the afternoon. Dinner with family — my energy stayed high all day.',
+      'Yağmurlu bir gündü. İçeride kalıp uzun süredir okumak istediğim kitabı bitirdim.': 'A rainy day. Stayed in and finally finished the book I had been meaning to read.',
+      'Kısa bir not aldım, gün nötr geçti.': 'Just a short note — a neutral day.',
+      'Proje teslimine yetiştirdik. Yorgunum ama başardığımız için mutluyum.': 'We made the project deadline. Tired, but glad we pulled it off.',
+};
 
 // --- Fixtures -----------------------------------------------------------------
 
@@ -111,26 +200,26 @@ HomeSummary _home() => HomeSummary.fromJson({
         {'date': _ymd(_now), 'cents': 52000},
       ],
       'today_habits': [
-        {'id': 1, 'name': 'Sabah koşusu', 'color': '#6B8E5A', 'target_count': 1, 'completed_today': true, 'today_count': 1, 'current_streak': 12},
-        {'id': 2, 'name': '2 litre su iç', 'color': '#6B8FA0', 'target_count': 8, 'completed_today': false, 'today_count': 5, 'current_streak': 6},
-        {'id': 3, 'name': '30 dakika kitap oku', 'color': '#B8860B', 'target_count': 1, 'completed_today': false, 'today_count': 0, 'current_streak': 3},
-        {'id': 4, 'name': 'Meditasyon', 'color': '#8B5A00', 'target_count': 1, 'completed_today': true, 'today_count': 1, 'current_streak': 20},
-        {'id': 5, 'name': 'Almanca çalış', 'color': '#B85450', 'target_count': 1, 'completed_today': false, 'today_count': 0, 'current_streak': 0},
+        {'id': 1, 'name': _fx('Sabah koşusu'), 'color': '#6B8E5A', 'target_count': 1, 'completed_today': true, 'today_count': 1, 'current_streak': 12},
+        {'id': 2, 'name': _fx('2 litre su iç'), 'color': '#6B8FA0', 'target_count': 8, 'completed_today': false, 'today_count': 5, 'current_streak': 6},
+        {'id': 3, 'name': _fx('30 dakika kitap oku'), 'color': '#B8860B', 'target_count': 1, 'completed_today': false, 'today_count': 0, 'current_streak': 3},
+        {'id': 4, 'name': _fx('Meditasyon'), 'color': '#8B5A00', 'target_count': 1, 'completed_today': true, 'today_count': 1, 'current_streak': 20},
+        {'id': 5, 'name': _fx('Almanca çalış'), 'color': '#B85450', 'target_count': 1, 'completed_today': false, 'today_count': 0, 'current_streak': 0},
       ],
       'upcoming_todos': [
-        {'id': 11, 'title': 'Vergi beyannamesini gönder', 'status': 'pending', 'priority': 'urgent', 'due_at': '${_ymd(_daysAgo(1))}T17:00:00.000Z', 'overdue': true, 'position': 1, 'todo_list': {'id': 1, 'name': 'İş', 'color': '#6B8FA0'}, 'subtask_count': 2},
-        {'id': 12, 'title': 'Sunum slaytlarını hazırla', 'status': 'pending', 'priority': 'high', 'due_at': '${_ymd(_now)}T15:30:00.000Z', 'overdue': false, 'position': 2, 'todo_list': {'id': 1, 'name': 'İş', 'color': '#6B8FA0'}, 'subtask_count': 0},
-        {'id': 13, 'title': 'Market alışverişi yap', 'status': 'pending', 'priority': 'low', 'due_at': '${_ymd(_now)}T19:00:00.000Z', 'overdue': false, 'position': 3, 'todo_list': {'id': 2, 'name': 'Ev', 'color': '#6B8E5A'}, 'subtask_count': 0},
+        {'id': 11, 'title': _fx('Vergi beyannamesini gönder'), 'status': 'pending', 'priority': 'urgent', 'due_at': '${_ymd(_daysAgo(1))}T17:00:00.000Z', 'overdue': true, 'position': 1, 'todo_list': {'id': 1, 'name': _fx('İş'), 'color': '#6B8FA0'}, 'subtask_count': 2},
+        {'id': 12, 'title': _fx('Sunum slaytlarını hazırla'), 'status': 'pending', 'priority': 'high', 'due_at': '${_ymd(_now)}T15:30:00.000Z', 'overdue': false, 'position': 2, 'todo_list': {'id': 1, 'name': _fx('İş'), 'color': '#6B8FA0'}, 'subtask_count': 0},
+        {'id': 13, 'title': _fx('Market alışverişi yap'), 'status': 'pending', 'priority': 'low', 'due_at': '${_ymd(_now)}T19:00:00.000Z', 'overdue': false, 'position': 3, 'todo_list': {'id': 2, 'name': _fx('Ev'), 'color': '#6B8E5A'}, 'subtask_count': 0},
       ],
       'today_events': [
-        {'id': 21, 'title': 'Takım toplantısı', 'start_at': '${_ymd(_now)}T09:30:00.000Z', 'end_at': '${_ymd(_now)}T10:15:00.000Z', 'all_day': false, 'color': '#6B8FA0'},
-        {'id': 22, 'title': 'Diş hekimi randevusu', 'start_at': '${_ymd(_now)}T14:00:00.000Z', 'end_at': '${_ymd(_now)}T14:45:00.000Z', 'all_day': false, 'color': '#B85450'},
-        {'id': 23, 'title': 'Annemin doğum günü', 'start_at': null, 'end_at': null, 'all_day': true, 'color': '#B8860B'},
+        {'id': 21, 'title': _fx('Takım toplantısı'), 'start_at': '${_ymd(_now)}T09:30:00.000Z', 'end_at': '${_ymd(_now)}T10:15:00.000Z', 'all_day': false, 'color': '#6B8FA0'},
+        {'id': 22, 'title': _fx('Diş hekimi randevusu'), 'start_at': '${_ymd(_now)}T14:00:00.000Z', 'end_at': '${_ymd(_now)}T14:45:00.000Z', 'all_day': false, 'color': '#B85450'},
+        {'id': 23, 'title': _fx('Annemin doğum günü'), 'start_at': null, 'end_at': null, 'all_day': true, 'color': '#B8860B'},
       ],
       'active_goals': [
-        {'id': 31, 'name': '100 günde 100 kitap', 'color': '#6B8E5A', 'progress_percent': 68.0},
-        {'id': 32, 'name': 'Almanca A2 seviyesi', 'color': '#6B8FA0', 'progress_percent': 35.0},
-        {'id': 33, 'name': 'İlk 5K koşusu', 'color': '#B8860B', 'progress_percent': 90.0},
+        {'id': 31, 'name': _fx('100 günde 100 kitap'), 'color': '#6B8E5A', 'progress_percent': 68.0},
+        {'id': 32, 'name': _fx('Almanca A2 seviyesi'), 'color': '#6B8FA0', 'progress_percent': 35.0},
+        {'id': 33, 'name': _fx('İlk 5K koşusu'), 'color': '#B8860B', 'progress_percent': 90.0},
       ],
       'perfect_day': {
         'chain': [{'date': _ymd(_now), 'status': 'today_pending'}],
@@ -140,11 +229,11 @@ HomeSummary _home() => HomeSummary.fromJson({
     });
 
 List<Account> _accounts() => [
-      Account.fromJson(const {'id': 1, 'name': 'Altın', 'account_type': 'savings', 'currency': 'GAU', 'subunit_to_unit': 1, 'color': '#B8860B', 'initial_balance_cents': 300, 'balance_cents': 412, 'archived': false}),
-      Account.fromJson(const {'id': 2, 'name': 'Maaş hesabı', 'account_type': 'bank', 'currency': 'TRY', 'subunit_to_unit': 100, 'color': '#6B8FA0', 'initial_balance_cents': 850000, 'balance_cents': 4569050, 'archived': false}),
-      Account.fromJson(const {'id': 3, 'name': 'Kredi kartı', 'account_type': 'credit_card', 'currency': 'TRY', 'subunit_to_unit': 100, 'color': '#B85450', 'initial_balance_cents': 0, 'balance_cents': -1284730, 'archived': false}),
-      Account.fromJson(const {'id': 4, 'name': 'Cüzdan', 'account_type': 'cash', 'currency': 'TRY', 'subunit_to_unit': 100, 'color': '#D4A574', 'initial_balance_cents': 50000, 'balance_cents': 325000, 'archived': false}),
-      Account.fromJson(const {'id': 5, 'name': 'Birikim', 'account_type': 'savings', 'currency': 'TRY', 'subunit_to_unit': 100, 'color': '#6B8E5A', 'initial_balance_cents': 10000000, 'balance_cents': 12840000, 'archived': false}),
+      Account.fromJson({'id': 1, 'name': _fx('Altın'), 'account_type': 'savings', 'currency': 'GAU', 'subunit_to_unit': 1, 'color': '#B8860B', 'initial_balance_cents': 300, 'balance_cents': 412, 'archived': false}),
+      Account.fromJson({'id': 2, 'name': _fx('Maaş hesabı'), 'account_type': 'bank', 'currency': 'TRY', 'subunit_to_unit': 100, 'color': '#6B8FA0', 'initial_balance_cents': 850000, 'balance_cents': 4569050, 'archived': false}),
+      Account.fromJson({'id': 3, 'name': _fx('Kredi kartı'), 'account_type': 'credit_card', 'currency': 'TRY', 'subunit_to_unit': 100, 'color': '#B85450', 'initial_balance_cents': 0, 'balance_cents': -1284730, 'archived': false}),
+      Account.fromJson({'id': 4, 'name': _fx('Cüzdan'), 'account_type': 'cash', 'currency': 'TRY', 'subunit_to_unit': 100, 'color': '#D4A574', 'initial_balance_cents': 50000, 'balance_cents': 325000, 'archived': false}),
+      Account.fromJson({'id': 5, 'name': _fx('Birikim'), 'account_type': 'savings', 'currency': 'TRY', 'subunit_to_unit': 100, 'color': '#6B8E5A', 'initial_balance_cents': 10000000, 'balance_cents': 12840000, 'archived': false}),
     ];
 
 FinanceDashboard _dashboard() => FinanceDashboard.fromJson({
@@ -158,27 +247,27 @@ FinanceDashboard _dashboard() => FinanceDashboard.fromJson({
         'expense_cents': [3210000, 3670000, 2980000, 4120000, 3540000, 3320000],
       },
       'pie': [
-        {'id': 70, 'name': 'Kira', 'color': '#6B8FA0', 'amount_cents': 1800000, 'breakdown': const []},
-        {'id': 61, 'name': 'Market', 'color': '#D4915A', 'amount_cents': 1240000, 'breakdown': [{'id': 61, 'name': 'Market', 'amount_cents': 1240000, 'is_root': true}]},
-        {'id': 64, 'name': 'Restoran', 'color': '#6B8E5A', 'amount_cents': 890000, 'breakdown': const []},
-        {'id': 63, 'name': 'Eğlence', 'color': '#8B5A00', 'amount_cents': 620000, 'breakdown': const []},
-        {'id': 62, 'name': 'Ulaşım', 'color': '#B85450', 'amount_cents': 480000, 'breakdown': const []},
+        {'id': 70, 'name': _fx('Kira'), 'color': '#6B8FA0', 'amount_cents': 1800000, 'breakdown': const []},
+        {'id': 61, 'name': _fx('Market'), 'color': '#D4915A', 'amount_cents': 1240000, 'breakdown': [{'id': 61, 'name': _fx('Market'), 'amount_cents': 1240000, 'is_root': true}]},
+        {'id': 64, 'name': _fx('Restoran'), 'color': '#6B8E5A', 'amount_cents': 890000, 'breakdown': const []},
+        {'id': 63, 'name': _fx('Eğlence'), 'color': '#8B5A00', 'amount_cents': 620000, 'breakdown': const []},
+        {'id': 62, 'name': _fx('Ulaşım'), 'color': '#B85450', 'amount_cents': 480000, 'breakdown': const []},
       ],
       'budgets': [
-        {'category': {'id': 61, 'name': 'Market'}, 'color': '#D4915A', 'limit_cents': 1500000, 'spent_cents': 1240000, 'remaining_cents': 260000, 'percent_used': 82.7, 'pace_percent': 75.0, 'projected_cents': 1650000, 'state': 'warning'},
-        {'category': {'id': 64, 'name': 'Restoran'}, 'color': '#6B8E5A', 'limit_cents': 800000, 'spent_cents': 890000, 'remaining_cents': -90000, 'percent_used': 111.0, 'pace_percent': 90.0, 'projected_cents': 980000, 'state': 'over'},
-        {'category': {'id': 63, 'name': 'Eğlence'}, 'color': '#8B5A00', 'limit_cents': 1000000, 'spent_cents': 450000, 'remaining_cents': 550000, 'percent_used': 45.0, 'pace_percent': 60.0, 'projected_cents': 800000, 'state': 'under'},
+        {'category': {'id': 61, 'name': _fx('Market')}, 'color': '#D4915A', 'limit_cents': 1500000, 'spent_cents': 1240000, 'remaining_cents': 260000, 'percent_used': 82.7, 'pace_percent': 75.0, 'projected_cents': 1650000, 'state': 'warning'},
+        {'category': {'id': 64, 'name': _fx('Restoran')}, 'color': '#6B8E5A', 'limit_cents': 800000, 'spent_cents': 890000, 'remaining_cents': -90000, 'percent_used': 111.0, 'pace_percent': 90.0, 'projected_cents': 980000, 'state': 'over'},
+        {'category': {'id': 63, 'name': _fx('Eğlence')}, 'color': '#8B5A00', 'limit_cents': 1000000, 'spent_cents': 450000, 'remaining_cents': 550000, 'percent_used': 45.0, 'pace_percent': 60.0, 'projected_cents': 800000, 'state': 'under'},
       ],
       'upcoming_subscriptions': [
-        {'id': 81, 'name': 'Netflix', 'amount_cents': 18999, 'frequency': 'monthly', 'next_charge_on': _ymd(_daysAhead(9)), 'account': _acctRef(2, 'Maaş hesabı', '#6B8FA0')},
-        {'id': 82, 'name': 'Spotify', 'amount_cents': 7999, 'frequency': 'monthly', 'next_charge_on': _ymd(_daysAhead(4)), 'account': _acctRef(2, 'Maaş hesabı', '#6B8FA0')},
+        {'id': 81, 'name': 'Netflix', 'amount_cents': 18999, 'frequency': 'monthly', 'next_charge_on': _ymd(_daysAhead(9)), 'account': _acctRef(2, _fx('Maaş hesabı'), '#6B8FA0')},
+        {'id': 82, 'name': 'Spotify', 'amount_cents': 7999, 'frequency': 'monthly', 'next_charge_on': _ymd(_daysAhead(4)), 'account': _acctRef(2, _fx('Maaş hesabı'), '#6B8FA0')},
       ],
       'recent_transactions': [
-        {'id': 501, 'kind': 'income', 'amount_cents': 5780000, 'date': _ymd(_now), 'description': 'Temmuz maaşı', 'note': null, 'account': _acctRef(2, 'Maaş hesabı', '#6B8FA0'), 'category': _cat(60, 'Maaş', '#6B8E5A', kind: 'income'), 'related_account': null},
-        {'id': 502, 'kind': 'expense', 'amount_cents': 23450, 'date': _ymd(_now), 'description': 'Migros alışverişi', 'note': null, 'account': _acctRef(3, 'Kredi kartı', '#B85450'), 'category': _cat(61, 'Market', '#D4915A'), 'related_account': null},
-        {'id': 503, 'kind': 'transfer', 'amount_cents': 500000, 'date': _ymd(_daysAgo(1)), 'description': null, 'note': null, 'account': _acctRef(4, 'Cüzdan', '#D4A574'), 'category': null, 'related_account': _acctRef(5, 'Birikim', '#6B8E5A')},
-        {'id': 504, 'kind': 'expense', 'amount_cents': 124000, 'date': _ymd(_daysAgo(1)), 'description': 'Benzin', 'note': null, 'account': _acctRef(3, 'Kredi kartı', '#B85450'), 'category': _cat(62, 'Ulaşım', '#B85450'), 'related_account': null},
-        {'id': 505, 'kind': 'income', 'amount_cents': 5, 'date': _ymd(_daysAgo(2)), 'description': '5 gr altın alımı', 'note': null, 'account': _acctRef(1, 'Altın', '#B8860B', currency: 'GAU', subunit: 1), 'category': null, 'related_account': null},
+        {'id': 501, 'kind': 'income', 'amount_cents': 5780000, 'date': _ymd(_now), 'description': _fx('Temmuz maaşı'), 'note': null, 'account': _acctRef(2, _fx('Maaş hesabı'), '#6B8FA0'), 'category': _cat(60, _fx('Maaş'), '#6B8E5A', kind: 'income'), 'related_account': null},
+        {'id': 502, 'kind': 'expense', 'amount_cents': 23450, 'date': _ymd(_now), 'description': _fx('Migros alışverişi'), 'note': null, 'account': _acctRef(3, _fx('Kredi kartı'), '#B85450'), 'category': _cat(61, _fx('Market'), '#D4915A'), 'related_account': null},
+        {'id': 503, 'kind': 'transfer', 'amount_cents': 500000, 'date': _ymd(_daysAgo(1)), 'description': null, 'note': null, 'account': _acctRef(4, _fx('Cüzdan'), '#D4A574'), 'category': null, 'related_account': _acctRef(5, _fx('Birikim'), '#6B8E5A')},
+        {'id': 504, 'kind': 'expense', 'amount_cents': 124000, 'date': _ymd(_daysAgo(1)), 'description': _fx('Benzin'), 'note': null, 'account': _acctRef(3, _fx('Kredi kartı'), '#B85450'), 'category': _cat(62, _fx('Ulaşım'), '#B85450'), 'related_account': null},
+        {'id': 505, 'kind': 'income', 'amount_cents': 5, 'date': _ymd(_daysAgo(2)), 'description': _fx('5 gr altın alımı'), 'note': null, 'account': _acctRef(1, _fx('Altın'), '#B8860B', currency: 'GAU', subunit: 1), 'category': null, 'related_account': null},
       ],
     });
 
@@ -187,14 +276,14 @@ Transaction _tx(Map<String, dynamic> json) => Transaction.fromJson(json);
 /// A rich İşlemler feed spanning Bugün / Dün / older across all kinds.
 TransactionsFeed _txFeed() {
   final items = [
-    _tx({'id': 901, 'kind': 'income', 'amount_cents': 850000, 'date': _ymd(_now), 'description': 'Freelance ödemesi', 'note': null, 'account': _acctRef(2, 'Maaş hesabı', '#6B8FA0'), 'category': _cat(60, 'Serbest Gelir', '#6B8E5A', kind: 'income'), 'related_account': null}),
-    _tx({'id': 902, 'kind': 'expense', 'amount_cents': 18500, 'date': _ymd(_now), 'description': 'Öğle yemeği', 'note': null, 'account': _acctRef(3, 'Kredi kartı', '#B85450'), 'category': _cat(64, 'Restoran', '#B85450'), 'related_account': null}),
-    _tx({'id': 903, 'kind': 'expense', 'amount_cents': 9550, 'date': _ymd(_now), 'description': 'Kahve', 'note': null, 'account': _acctRef(4, 'Cüzdan', '#D4A574'), 'category': _cat(65, 'Kafe', '#8B5A00'), 'related_account': null}),
-    _tx({'id': 904, 'kind': 'transfer', 'amount_cents': 300000, 'date': _ymd(_daysAgo(1)), 'description': null, 'note': null, 'account': _acctRef(4, 'Cüzdan', '#D4A574'), 'category': null, 'related_account': _acctRef(5, 'Birikim', '#6B8E5A')}),
-    _tx({'id': 905, 'kind': 'expense', 'amount_cents': 45675, 'date': _ymd(_daysAgo(1)), 'description': 'Haftalık market', 'note': null, 'account': _acctRef(3, 'Kredi kartı', '#B85450'), 'category': _cat(61, 'Market', '#D4915A'), 'related_account': null}),
-    _tx({'id': 906, 'kind': 'income', 'amount_cents': 1200000, 'date': _ymd(_daysAgo(5)), 'description': 'Kira geliri', 'note': null, 'account': _acctRef(2, 'Maaş hesabı', '#6B8FA0'), 'category': _cat(66, 'Kira Geliri', '#6B8E5A', kind: 'income'), 'related_account': null}),
-    _tx({'id': 907, 'kind': 'expense', 'amount_cents': 89000, 'date': _ymd(_daysAgo(5)), 'description': 'Elektrik faturası', 'note': null, 'account': _acctRef(2, 'Maaş hesabı', '#6B8FA0'), 'category': _cat(67, 'Faturalar', '#6B8FA0'), 'related_account': null}),
-    _tx({'id': 908, 'kind': 'expense', 'amount_cents': 24000, 'date': _ymd(_daysAgo(5)), 'description': 'Sinema', 'note': null, 'account': _acctRef(4, 'Cüzdan', '#D4A574'), 'category': _cat(63, 'Eğlence', '#8B5A00'), 'related_account': null}),
+    _tx({'id': 901, 'kind': 'income', 'amount_cents': 850000, 'date': _ymd(_now), 'description': _fx('Freelance ödemesi'), 'note': null, 'account': _acctRef(2, _fx('Maaş hesabı'), '#6B8FA0'), 'category': _cat(60, _fx('Serbest Gelir'), '#6B8E5A', kind: 'income'), 'related_account': null}),
+    _tx({'id': 902, 'kind': 'expense', 'amount_cents': 18500, 'date': _ymd(_now), 'description': _fx('Öğle yemeği'), 'note': null, 'account': _acctRef(3, _fx('Kredi kartı'), '#B85450'), 'category': _cat(64, _fx('Restoran'), '#B85450'), 'related_account': null}),
+    _tx({'id': 903, 'kind': 'expense', 'amount_cents': 9550, 'date': _ymd(_now), 'description': _fx('Kahve'), 'note': null, 'account': _acctRef(4, _fx('Cüzdan'), '#D4A574'), 'category': _cat(65, _fx('Kafe'), '#8B5A00'), 'related_account': null}),
+    _tx({'id': 904, 'kind': 'transfer', 'amount_cents': 300000, 'date': _ymd(_daysAgo(1)), 'description': null, 'note': null, 'account': _acctRef(4, _fx('Cüzdan'), '#D4A574'), 'category': null, 'related_account': _acctRef(5, _fx('Birikim'), '#6B8E5A')}),
+    _tx({'id': 905, 'kind': 'expense', 'amount_cents': 45675, 'date': _ymd(_daysAgo(1)), 'description': _fx('Haftalık market'), 'note': null, 'account': _acctRef(3, _fx('Kredi kartı'), '#B85450'), 'category': _cat(61, _fx('Market'), '#D4915A'), 'related_account': null}),
+    _tx({'id': 906, 'kind': 'income', 'amount_cents': 1200000, 'date': _ymd(_daysAgo(5)), 'description': _fx('Kira geliri'), 'note': null, 'account': _acctRef(2, _fx('Maaş hesabı'), '#6B8FA0'), 'category': _cat(66, _fx('Kira Geliri'), '#6B8E5A', kind: 'income'), 'related_account': null}),
+    _tx({'id': 907, 'kind': 'expense', 'amount_cents': 89000, 'date': _ymd(_daysAgo(5)), 'description': _fx('Elektrik faturası'), 'note': null, 'account': _acctRef(2, _fx('Maaş hesabı'), '#6B8FA0'), 'category': _cat(67, _fx('Faturalar'), '#6B8FA0'), 'related_account': null}),
+    _tx({'id': 908, 'kind': 'expense', 'amount_cents': 24000, 'date': _ymd(_daysAgo(5)), 'description': _fx('Sinema'), 'note': null, 'account': _acctRef(4, _fx('Cüzdan'), '#D4A574'), 'category': _cat(63, _fx('Eğlence'), '#8B5A00'), 'related_account': null}),
   ];
   return TransactionsFeed(
     items: items,
@@ -234,11 +323,11 @@ List<Map<String, dynamic>> _chain(List<String> statuses) {
 
 HabitsBundle _habits() => HabitsBundle.fromJson({
       'habits': [
-        {'id': 1, 'name': 'Sabah koşusu', 'description': 'Her sabah 3 km', 'frequency': 'daily', 'target_count': 1, 'color': '#6B8E5A', 'goal_id': null, 'current_streak': 12, 'longest_streak': 21, 'completion_rate_30d': 0.86, 'today': {'date': _ymd(_now), 'completed': true, 'count': 1}, 'chain': _chain(['completed', 'completed', 'missed', 'completed', 'completed', 'completed', 'completed', 'missed', 'completed', 'completed', 'completed', 'completed', 'completed', 'completed'])},
-        {'id': 2, 'name': '2 litre su iç', 'description': 'Gün içinde 8 bardak', 'frequency': 'daily', 'target_count': 8, 'color': '#6B8FA0', 'goal_id': null, 'current_streak': 6, 'longest_streak': 15, 'completion_rate_30d': 0.70, 'today': {'date': _ymd(_now), 'completed': false, 'count': 5}, 'chain': _chain(['completed', 'missed', 'completed', 'completed', 'completed', 'missed', 'completed', 'completed', 'completed', 'missed', 'completed', 'completed', 'completed', 'today_pending'])},
-        {'id': 3, 'name': 'Spor salonu', 'description': 'Haftada 3 gün', 'frequency': 'weekly', 'target_count': 3, 'color': '#B85450', 'goal_id': null, 'current_streak': 4, 'longest_streak': 9, 'completion_rate_30d': 0.60, 'today': {'date': _ymd(_now), 'completed': false, 'count': 0}, 'chain': [{'date': _ymd(_now), 'status': 'today_pending'}], 'period': {'range_start': _ymd(_daysAgo(5)), 'range_end': _ymd(_daysAhead(1)), 'completed_count': 2, 'complete': false}},
-        {'id': 4, 'name': 'Meditasyon', 'description': '10 dakika', 'frequency': 'daily', 'target_count': 1, 'color': '#8B5A00', 'goal_id': null, 'current_streak': 20, 'longest_streak': 20, 'completion_rate_30d': 1.0, 'today': {'date': _ymd(_now), 'completed': true, 'count': 1}, 'chain': _chain(List.filled(14, 'completed'))},
-        {'id': 5, 'name': 'Almanca çalış', 'description': 'Duolingo', 'frequency': 'daily', 'target_count': 1, 'color': '#B8860B', 'goal_id': null, 'current_streak': 0, 'longest_streak': 11, 'completion_rate_30d': 0.30, 'today': {'date': _ymd(_now), 'completed': false, 'count': 0}, 'chain': _chain(['missed', 'completed', 'missed', 'missed', 'completed', 'missed', 'missed', 'completed', 'missed', 'missed', 'missed', 'completed', 'missed', 'missed'])},
+        {'id': 1, 'name': _fx('Sabah koşusu'), 'description': _fx('Her sabah 3 km'), 'frequency': 'daily', 'target_count': 1, 'color': '#6B8E5A', 'goal_id': null, 'current_streak': 12, 'longest_streak': 21, 'completion_rate_30d': 0.86, 'today': {'date': _ymd(_now), 'completed': true, 'count': 1}, 'chain': _chain(['completed', 'completed', 'missed', 'completed', 'completed', 'completed', 'completed', 'missed', 'completed', 'completed', 'completed', 'completed', 'completed', 'completed'])},
+        {'id': 2, 'name': _fx('2 litre su iç'), 'description': _fx('Gün içinde 8 bardak'), 'frequency': 'daily', 'target_count': 8, 'color': '#6B8FA0', 'goal_id': null, 'current_streak': 6, 'longest_streak': 15, 'completion_rate_30d': 0.70, 'today': {'date': _ymd(_now), 'completed': false, 'count': 5}, 'chain': _chain(['completed', 'missed', 'completed', 'completed', 'completed', 'missed', 'completed', 'completed', 'completed', 'missed', 'completed', 'completed', 'completed', 'today_pending'])},
+        {'id': 3, 'name': _fx('Spor salonu'), 'description': _fx('Haftada 3 gün'), 'frequency': 'weekly', 'target_count': 3, 'color': '#B85450', 'goal_id': null, 'current_streak': 4, 'longest_streak': 9, 'completion_rate_30d': 0.60, 'today': {'date': _ymd(_now), 'completed': false, 'count': 0}, 'chain': [{'date': _ymd(_now), 'status': 'today_pending'}], 'period': {'range_start': _ymd(_daysAgo(5)), 'range_end': _ymd(_daysAhead(1)), 'completed_count': 2, 'complete': false}},
+        {'id': 4, 'name': _fx('Meditasyon'), 'description': _fx('10 dakika'), 'frequency': 'daily', 'target_count': 1, 'color': '#8B5A00', 'goal_id': null, 'current_streak': 20, 'longest_streak': 20, 'completion_rate_30d': 1.0, 'today': {'date': _ymd(_now), 'completed': true, 'count': 1}, 'chain': _chain(List.filled(14, 'completed'))},
+        {'id': 5, 'name': _fx('Almanca çalış'), 'description': 'Duolingo', 'frequency': 'daily', 'target_count': 1, 'color': '#B8860B', 'goal_id': null, 'current_streak': 0, 'longest_streak': 11, 'completion_rate_30d': 0.30, 'today': {'date': _ymd(_now), 'completed': false, 'count': 0}, 'chain': _chain(['missed', 'completed', 'missed', 'missed', 'completed', 'missed', 'missed', 'completed', 'missed', 'missed', 'missed', 'completed', 'missed', 'missed'])},
       ],
       'meta': {
         'completed_today': 2,
@@ -284,23 +373,23 @@ Map<String, dynamic> _goalJson({
 
 GoalsBundle _goals() => GoalsBundle.fromJson({
       'active': [
-        _goalJson(id: 31, name: '100 günde 100 kitap oku', targetType: 'habit', color: '#6B8E5A', unit: 'kitap', deadline: _ymd(_daysAhead(53)), daysRemaining: 53, badge: {'state': 'far', 'days': 53}, targetValue: 100, currentValue: 20, progress: 20),
-        _goalJson(id: 32, name: 'Almanca A2 seviyesine ulaş', targetType: 'custom', color: '#6B8FA0', unit: 'ders', deadline: _ymd(_daysAhead(5)), daysRemaining: 5, badge: {'state': 'soon', 'days': 5}, targetValue: 50, currentValue: 24, progress: 48),
-        _goalJson(id: 33, name: 'İlk 5K koşuma hazırlan', targetType: 'habit', color: '#B8860B', unit: 'antrenman', deadline: _ymd(_now), daysRemaining: 0, badge: {'state': 'today', 'days': 0}, targetValue: 40, currentValue: 30, progress: 75),
-        _goalJson(id: 34, name: 'Acil vergi ödemesi', targetType: 'financial', color: '#B85450', unit: 'TRY', deadline: _ymd(_daysAgo(3)), daysRemaining: -3, badge: {'state': 'overdue', 'days': 3}, targetValue: 50000, currentValue: 47500, progress: 96),
+        _goalJson(id: 31, name: _fx('100 günde 100 kitap oku'), targetType: 'habit', color: '#6B8E5A', unit: _fx('kitap'), deadline: _ymd(_daysAhead(53)), daysRemaining: 53, badge: {'state': 'far', 'days': 53}, targetValue: 100, currentValue: 20, progress: 20),
+        _goalJson(id: 32, name: _fx('Almanca A2 seviyesine ulaş'), targetType: 'custom', color: '#6B8FA0', unit: _fx('ders'), deadline: _ymd(_daysAhead(5)), daysRemaining: 5, badge: {'state': 'soon', 'days': 5}, targetValue: 50, currentValue: 24, progress: 48),
+        _goalJson(id: 33, name: _fx('İlk 5K koşuma hazırlan'), targetType: 'habit', color: '#B8860B', unit: _fx('antrenman'), deadline: _ymd(_now), daysRemaining: 0, badge: {'state': 'today', 'days': 0}, targetValue: 40, currentValue: 30, progress: 75),
+        _goalJson(id: 34, name: _fx('Acil vergi ödemesi'), targetType: 'financial', color: '#B85450', unit: 'TRY', deadline: _ymd(_daysAgo(3)), daysRemaining: -3, badge: {'state': 'overdue', 'days': 3}, targetValue: 50000, currentValue: 47500, progress: 96),
       ],
       'achieved': [
-        _goalJson(id: 30, name: '3 ayda 50.000 ₺ biriktir', targetType: 'financial', status: 'achieved', color: '#B8860B', unit: 'TRY', deadline: null, daysRemaining: 0, badge: null, targetValue: 50000, currentValue: 52000, progress: 100),
+        _goalJson(id: 30, name: _fx('3 ayda 50.000 ₺ biriktir'), targetType: 'financial', status: 'achieved', color: '#B8860B', unit: 'TRY', deadline: null, daysRemaining: 0, badge: null, targetValue: 50000, currentValue: 52000, progress: 100),
       ],
       'abandoned': const [],
     });
 
 JournalBundle _journal() => JournalBundle.fromJson({
       'entries': [
-        {'id': 41, 'date': _ymd(_now), 'title': 'Harika bir gün', 'body_plain': 'Sabah yoga ile başladım, öğleden sonra ekiple güzel bir toplantı yaptık. Akşam ailemle yemek yedik — enerjim gün boyu yüksek kaldı.', 'mood': 'great', 'mood_emoji': '😄', 'energy_level': 5, 'weather': 'Güneşli', 'tags': ['spor', 'aile'], 'has_gratitude': true, 'created_at': '${_ymd(_now)}T20:10:00.000Z'},
-        {'id': 42, 'date': _ymd(_daysAgo(1)), 'title': 'Sakin bir akşam', 'body_plain': 'Yağmurlu bir gündü. İçeride kalıp uzun süredir okumak istediğim kitabı bitirdim.', 'mood': 'good', 'mood_emoji': '🙂', 'energy_level': 3, 'weather': 'Yağmurlu', 'tags': ['okuma'], 'has_gratitude': false, 'created_at': '${_ymd(_daysAgo(1))}T21:00:00.000Z'},
-        {'id': 43, 'date': _ymd(_daysAgo(2)), 'title': null, 'body_plain': 'Kısa bir not aldım, gün nötr geçti.', 'mood': 'neutral', 'mood_emoji': '😐', 'energy_level': 2, 'weather': null, 'tags': const <String>[], 'has_gratitude': false, 'created_at': '${_ymd(_daysAgo(2))}T18:00:00.000Z'},
-        {'id': 44, 'date': _ymd(_daysAgo(4)), 'title': 'Yorucu ama verimli', 'body_plain': 'Proje teslimine yetiştirdik. Yorgunum ama başardığımız için mutluyum.', 'mood': 'good', 'mood_emoji': '🙂', 'energy_level': 4, 'weather': 'Parçalı bulutlu', 'tags': ['iş', 'proje'], 'has_gratitude': true, 'created_at': '${_ymd(_daysAgo(4))}T22:30:00.000Z'},
+        {'id': 41, 'date': _ymd(_now), 'title': _fx('Harika bir gün'), 'body_plain': _fx('Sabah yoga ile başladım, öğleden sonra ekiple güzel bir toplantı yaptık. Akşam ailemle yemek yedik — enerjim gün boyu yüksek kaldı.'), 'mood': 'great', 'mood_emoji': '😄', 'energy_level': 5, 'weather': _fx('Güneşli'), 'tags': [_fx('spor'), _fx('aile')], 'has_gratitude': true, 'created_at': '${_ymd(_now)}T20:10:00.000Z'},
+        {'id': 42, 'date': _ymd(_daysAgo(1)), 'title': _fx('Sakin bir akşam'), 'body_plain': _fx('Yağmurlu bir gündü. İçeride kalıp uzun süredir okumak istediğim kitabı bitirdim.'), 'mood': 'good', 'mood_emoji': '🙂', 'energy_level': 3, 'weather': _fx('Yağmurlu'), 'tags': [_fx('okuma')], 'has_gratitude': false, 'created_at': '${_ymd(_daysAgo(1))}T21:00:00.000Z'},
+        {'id': 43, 'date': _ymd(_daysAgo(2)), 'title': null, 'body_plain': _fx('Kısa bir not aldım, gün nötr geçti.'), 'mood': 'neutral', 'mood_emoji': '😐', 'energy_level': 2, 'weather': null, 'tags': const <String>[], 'has_gratitude': false, 'created_at': '${_ymd(_daysAgo(2))}T18:00:00.000Z'},
+        {'id': 44, 'date': _ymd(_daysAgo(4)), 'title': _fx('Yorucu ama verimli'), 'body_plain': _fx('Proje teslimine yetiştirdik. Yorgunum ama başardığımız için mutluyum.'), 'mood': 'good', 'mood_emoji': '🙂', 'energy_level': 4, 'weather': _fx('Parçalı bulutlu'), 'tags': [_fx('iş'), _fx('proje')], 'has_gratitude': true, 'created_at': '${_ymd(_daysAgo(4))}T22:30:00.000Z'},
       ],
       'meta': {
         'entries_count': 4,
@@ -317,8 +406,9 @@ Widget _host(Widget home, List<dynamic> overrides) => ProviderScope(
       child: MaterialApp(
         debugShowCheckedModeBanner: false,
         theme: buildTheme(Brightness.dark),
-        locale: const Locale('tr'),
+        locale: Locale(_lang),
         localizationsDelegates: const [
+          AppL10n.delegate,
           GlobalMaterialLocalizations.delegate,
           GlobalWidgetsLocalizations.delegate,
           GlobalCupertinoLocalizations.delegate,
@@ -335,8 +425,10 @@ void _phone(WidgetTester tester) {
   addTearDown(tester.view.resetDevicePixelRatio);
 }
 
-Future<void> _shoot(WidgetTester tester, String name) =>
-    expectLater(find.byType(MaterialApp), matchesGoldenFile('images/$name.png'));
+Future<void> _shoot(WidgetTester tester, String name) => expectLater(
+      find.byType(MaterialApp),
+      matchesGoldenFile('images/$_lang/$name.png'),
+    );
 
 // Load a bundled font as ByteData: try the asset bundle, fall back to the file
 // system (font assets aren't in flutter_test's rootBundle manifest).
@@ -349,10 +441,9 @@ Future<ByteData> _fontData(String path) async {
   }
 }
 
-/// Load the SDK's MaterialIcons font so `Icon`s render as real glyphs (not
-/// tofu). Resolves the Flutter root from FLUTTER_ROOT, else from the Dart
-/// executable path (`root/bin/cache/dart-sdk/bin/dart`). Best-effort.
-Future<void> _loadMaterialIcons() async {
+/// Candidate Flutter SDK roots: FLUTTER_ROOT, else derived from the Dart
+/// executable path (`root/bin/cache/dart-sdk/bin/dart`).
+List<String> _flutterRoots() {
   final roots = <String>[];
   final env = Platform.environment['FLUTTER_ROOT'];
   if (env != null && env.isNotEmpty) roots.add(env);
@@ -363,8 +454,14 @@ Future<void> _loadMaterialIcons() async {
     }
     roots.add(dir.path);
   } catch (_) {/* ignore */}
+  return roots;
+}
 
-  for (final root in roots) {
+/// Load the SDK's MaterialIcons font so `Icon`s render as real glyphs (not
+/// tofu). Resolves the Flutter root from FLUTTER_ROOT, else from the Dart
+/// executable path (`root/bin/cache/dart-sdk/bin/dart`). Best-effort.
+Future<void> _loadMaterialIcons() async {
+  for (final root in _flutterRoots()) {
     final f = File(
         '$root/bin/cache/artifacts/material_fonts/MaterialIcons-Regular.otf');
     if (f.existsSync()) {
@@ -396,8 +493,7 @@ void main() {
 
     await _loadMaterialIcons();
 
-    await initializeDateFormatting('tr_TR', null);
-    await initializeDateFormatting('tr', null);
+    await initializeDateFormatting();
 
     SharedPreferences.setMockInitialValues({
       'server_url': 'http://192.168.1.24:3000',
@@ -406,111 +502,119 @@ void main() {
     _prefs = await SharedPreferences.getInstance();
   });
 
-  testWidgets('login.png', (tester) async {
-    // A zone-local fake HttpClient makes ServerUrlField's /health ping succeed,
-    // so the address field collapses to the "✓ host · Değiştir" success state
-    // and the credentials section is at full opacity.
-    await HttpOverrides.runZoned<Future<void>>(
-      () async {
+  // Every screen is shot in both shipped languages: test/golden/images/<lang>/.
+  for (final lang in const ['tr', 'en']) {
+    group(lang, () {
+      setUp(() => _lang = lang);
+
+      testWidgets('login.png', (tester) async {
+        // A zone-local fake HttpClient makes ServerUrlField's /health ping succeed,
+        // so the address field collapses to the "✓ host · Değiştir" success state
+        // and the credentials section is at full opacity.
+        await HttpOverrides.runZoned<Future<void>>(
+          () async {
+            _phone(tester);
+            await tester.pumpWidget(_host(
+              const LoginScreen(),
+              [sharedPrefsProvider.overrideWithValue(_prefs)],
+            ));
+            await tester.pumpAndSettle();
+            await _shoot(tester, 'login');
+          },
+          createHttpClient: (_) => _OkHealthClient(),
+        );
+      });
+
+      testWidgets('today.png', (tester) async {
         _phone(tester);
         await tester.pumpWidget(_host(
-          const LoginScreen(),
-          [sharedPrefsProvider.overrideWithValue(_prefs)],
+          const TodayScreen(),
+          [
+            homeProvider.overrideWith((ref) => Fetched(_home(), _at)),
+            currentUserProvider.overrideWithValue(_user),
+          ],
         ));
         await tester.pumpAndSettle();
-        await _shoot(tester, 'login');
-      },
-      createHttpClient: (_) => _OkHealthClient(),
-    );
-  });
+        await _shoot(tester, 'today');
+      });
 
-  testWidgets('bugun.png', (tester) async {
-    _phone(tester);
-    await tester.pumpWidget(_host(
-      const BugunScreen(),
-      [
-        homeProvider.overrideWith((ref) => Fetched(_home(), _at)),
-        currentUserProvider.overrideWithValue(_user),
-      ],
-    ));
-    await tester.pumpAndSettle();
-    await _shoot(tester, 'bugun');
-  });
+      testWidgets('finance.png', (tester) async {
+        _phone(tester);
+        await tester.pumpWidget(_host(
+          const FinanceScreen(),
+          [
+            financeDashboardProvider.overrideWith((ref) => Fetched(_dashboard(), _at)),
+            accountsProvider.overrideWith((ref) => Fetched(_accounts(), _at)),
+          ],
+        ));
+        await tester.pumpAndSettle();
+        await _shoot(tester, 'finance');
+      });
 
-  testWidgets('para.png', (tester) async {
-    _phone(tester);
-    await tester.pumpWidget(_host(
-      const ParaScreen(),
-      [
-        financeDashboardProvider.overrideWith((ref) => Fetched(_dashboard(), _at)),
-        accountsProvider.overrideWith((ref) => Fetched(_accounts(), _at)),
-      ],
-    ));
-    await tester.pumpAndSettle();
-    await _shoot(tester, 'para');
-  });
+      testWidgets('transactions.png', (tester) async {
+        _phone(tester);
+        await tester.pumpWidget(_host(
+          const TransactionsScreen(),
+          [
+            // ignore: deprecated_member_use
+            transactionsProvider.overrideWith(() => _StubTxNotifier(_txFeed())),
+            accountsProvider.overrideWith((ref) => Fetched(_accounts(), _at)),
+          ],
+        ));
+        await tester.pumpAndSettle();
+        await _shoot(tester, 'transactions');
+      });
 
-  testWidgets('islemler.png', (tester) async {
-    _phone(tester);
-    await tester.pumpWidget(_host(
-      const IslemlerScreen(),
-      [
-        // ignore: deprecated_member_use
-        transactionsProvider.overrideWith(() => _StubTxNotifier(_txFeed())),
-        accountsProvider.overrideWith((ref) => Fetched(_accounts(), _at)),
-      ],
-    ));
-    await tester.pumpAndSettle();
-    await _shoot(tester, 'islemler');
-  });
+      testWidgets('habits.png', (tester) async {
+        _phone(tester);
+        await tester.pumpWidget(_host(
+          const HabitsScreen(),
+          [habitsProvider.overrideWith((ref) async => Fetched(_habits(), _at))],
+        ));
+        await tester.pumpAndSettle();
+        await _shoot(tester, 'habits');
+      });
 
-  testWidgets('aliskanliklar.png', (tester) async {
-    _phone(tester);
-    await tester.pumpWidget(_host(
-      const AliskanliklarScreen(),
-      [habitsProvider.overrideWith((ref) async => Fetched(_habits(), _at))],
-    ));
-    await tester.pumpAndSettle();
-    await _shoot(tester, 'aliskanliklar');
-  });
+      testWidgets('goals.png', (tester) async {
+        _phone(tester);
+        await tester.pumpWidget(_host(
+          const GoalsScreen(),
+          [goalsProvider.overrideWith((ref) async => Fetched(_goals(), _at))],
+        ));
+        await tester.pumpAndSettle();
+        await _shoot(tester, 'goals');
+      });
 
-  testWidgets('hedefler.png', (tester) async {
-    _phone(tester);
-    await tester.pumpWidget(_host(
-      const HedeflerScreen(),
-      [goalsProvider.overrideWith((ref) async => Fetched(_goals(), _at))],
-    ));
-    await tester.pumpAndSettle();
-    await _shoot(tester, 'hedefler');
-  });
+      testWidgets('journal.png', (tester) async {
+        _phone(tester);
+        await tester.pumpWidget(_host(
+          const JournalScreen(),
+          [journalProvider.overrideWith((ref, range) => Fetched(_journal(), _at))],
+        ));
+        await tester.pumpAndSettle();
+        // Let the 650ms stagger-retire timer fire so no timer outlives the tree.
+        await tester.pump(const Duration(milliseconds: 700));
+        await _shoot(tester, 'journal');
+      });
 
-  testWidgets('gunluk.png', (tester) async {
-    _phone(tester);
-    await tester.pumpWidget(_host(
-      const GunlukScreen(),
-      [journalProvider.overrideWith((ref, range) => Fetched(_journal(), _at))],
-    ));
-    await tester.pumpAndSettle();
-    // Let the 650ms stagger-retire timer fire so no timer outlives the tree.
-    await tester.pump(const Duration(milliseconds: 700));
-    await _shoot(tester, 'gunluk');
-  });
+      testWidgets('profile.png', (tester) async {
+        _phone(tester);
+        await tester.pumpWidget(_host(
+          const ProfileScreen(),
+          [
+            sharedPrefsProvider.overrideWithValue(_prefs),
+            currentUserProvider.overrideWithValue(_user),
+            apiHealthProvider.overrideWith(
+              (ref) async => (ok: true, latencyMs: 12, version: '1.0.0'),
+            ),
+          ],
+        ));
+        await tester.pumpAndSettle();
+        await _shoot(tester, 'profile');
+      });
+    });
+  }
 
-  testWidgets('profil.png', (tester) async {
-    _phone(tester);
-    await tester.pumpWidget(_host(
-      const ProfilScreen(),
-      [
-        sharedPrefsProvider.overrideWithValue(_prefs),
-        currentUserProvider.overrideWithValue(_user),
-        apiHealthProvider.overrideWith(
-          (ref) async => (ok: true, latencyMs: 12, version: '1.0.0'),
-        ),
-      ],
-    ));
-    await tester.pumpAndSettle();
-    await _shoot(tester, 'profil');
-  });
 }
 
 // --- Fake HttpClient for the login /health ping (returns 200 {"ok":true}) -----

@@ -10,6 +10,11 @@ import 'api.dart';
 class PrefKeys {
   static const serverUrl = 'server_url';
   static const installed = 'installed';
+  static const locale = 'locale';
+  static const themeMode = 'theme_mode';
+
+  /// Device-level settings that survive a sign-out.
+  static const keptOnSignOut = [serverUrl, locale, themeMode];
 }
 
 /// Overridden with the real instance in main().
@@ -112,8 +117,10 @@ class SessionUnknown extends SessionState {
 }
 
 class SessionLoggedOut extends SessionState {
-  final String? notice;
-  const SessionLoggedOut({this.notice});
+  /// True when a mid-session 401 ejected us — the login screen turns this into
+  /// a localized notice. State carries the *reason*, never the copy.
+  final bool expired;
+  const SessionLoggedOut({this.expired = false});
 }
 
 class SessionLoggedIn extends SessionState {
@@ -176,6 +183,12 @@ class SessionController extends Notifier<SessionState> {
     }
   }
 
+  /// Adopts a fresh `/me` payload (e.g. after the language or theme changed)
+  /// without disturbing the logged-in state.
+  void replaceUser(User user) {
+    if (state is SessionLoggedIn) state = SessionLoggedIn(user: user);
+  }
+
   Future<void> logout() async {
     await _wipeLocal();
     state = const SessionLoggedOut();
@@ -184,16 +197,24 @@ class SessionController extends Notifier<SessionState> {
   void forceLogout() {
     if (state is SessionLoggedOut) return;
     _wipeLocal();
-    state = const SessionLoggedOut(notice: 'Oturum süresi doldu, tekrar giriş yap');
+    state = const SessionLoggedOut(expired: true);
   }
 
+  /// Signing out drops everything about the account but keeps the three
+  /// device-level settings: which server to talk to, and the language and theme
+  /// the login screen should still be rendered in.
   Future<void> _wipeLocal() async {
     await ref.read(tokenStoreProvider).clear();
     final prefs = ref.read(sharedPrefsProvider);
-    final server = prefs.getString(PrefKeys.serverUrl);
+    final kept = {
+      for (final key in PrefKeys.keptOnSignOut)
+        if (prefs.getString(key) != null) key: prefs.getString(key)!,
+    };
     await prefs.clear();
     await prefs.setBool(PrefKeys.installed, true);
-    if (server != null) await prefs.setString(PrefKeys.serverUrl, server);
+    for (final entry in kept.entries) {
+      await prefs.setString(entry.key, entry.value);
+    }
   }
 }
 

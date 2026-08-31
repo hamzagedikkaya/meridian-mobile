@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../core/api.dart';
 import '../../core/haptics.dart';
 import '../../core/session.dart';
+import '../../l10n/app_l10n.dart';
 import '../../theme/app_colors.dart';
 import '../widgets/monogram.dart';
 import '../widgets/primary_button.dart';
@@ -25,7 +26,9 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
   bool _serverOk = false;
   bool _obscure = true;
   bool _loading = false;
-  String? _error;
+  // Held as the exception, not a sentence, so it re-renders in the language
+  // that is active when it is shown.
+  ApiException? _error;
   bool _noticeShown = false;
 
   @override
@@ -57,7 +60,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
       // Router redirect takes over on the session change.
     } on ApiException catch (e) {
       if (!mounted) return;
-      setState(() => _error = e.message);
+      setState(() => _error = e);
     } finally {
       if (mounted) setState(() => _loading = false);
     }
@@ -67,15 +70,16 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
   Widget build(BuildContext context) {
     final c = context.nok;
     final text = Theme.of(context).textTheme;
+    final l = context.l10n;
 
     // Session-expired notice from a mid-session 401.
     final session = ref.watch(sessionProvider);
-    if (session is SessionLoggedOut && session.notice != null && !_noticeShown) {
+    if (session is SessionLoggedOut && session.expired && !_noticeShown) {
       _noticeShown = true;
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text(session.notice!)),
+            SnackBar(content: Text(l.noticeSessionExpired)),
           );
         }
       });
@@ -92,11 +96,11 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
               children: [
                 const Center(child: Monogram(size: 64)),
                 const SizedBox(height: 20),
-                Text('Meridian',
+                Text(l.appName,
                     textAlign: TextAlign.center, style: text.displayMedium),
                 const SizedBox(height: 4),
                 Text(
-                  'Kişisel yaşam merkezin',
+                  l.tagline,
                   textAlign: TextAlign.center,
                   style: text.bodyMedium!.copyWith(color: c.inkMid),
                 ),
@@ -131,7 +135,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                             },
                             onSubmitted: (_) => _passwordFocus.requestFocus(),
                             decoration:
-                                const InputDecoration(labelText: 'E-posta'),
+                                InputDecoration(labelText: l.loginEmail),
                           ),
                           const SizedBox(height: 12),
                           TextField(
@@ -147,7 +151,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                             },
                             onSubmitted: (_) => _submit(),
                             decoration: InputDecoration(
-                              labelText: 'Şifre',
+                              labelText: l.loginPassword,
                               suffixIcon: IconButton(
                                 icon: Icon(
                                   _obscure
@@ -162,13 +166,13 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                           ),
                           if (_error != null) ...[
                             const SizedBox(height: 12),
-                            Text(_error!,
+                            Text(_error!.localized(l),
                                 style:
                                     text.bodySmall!.copyWith(color: c.error)),
                           ],
                           const SizedBox(height: 20),
                           PrimaryButton(
-                            label: 'Giriş Yap',
+                            label: l.loginSubmit,
                             loading: _loading,
                             onPressed: _serverOk ? _submit : null,
                           ),

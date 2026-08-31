@@ -12,6 +12,7 @@ import '../models/journal.dart';
 import '../models/quick_capture.dart';
 import '../models/todo.dart';
 import '../models/transaction.dart';
+import '../models/user.dart';
 
 /// One async method per Meridian endpoint. Every [DioException] is normalized
 /// through [ApiException.fromDio]; models never see raw dio errors.
@@ -19,6 +20,21 @@ class MeridianRepository {
   MeridianRepository(this._dio);
 
   final Dio _dio;
+
+  // --- Me -------------------------------------------------------------------
+
+  /// The two preferences the phone owns: UI language and theme. Sending them
+  /// to the server keeps the choice with the account, so the web app and a
+  /// reinstall pick it up too.
+  Future<User> updateMe({String? locale, String? themePreference}) => _send(
+        'PATCH',
+        '/me',
+        body: _pruned({
+          'locale': locale,
+          'theme_preference': themePreference,
+        }),
+        parse: (data) => User.fromJson(_entity(data, 'user')),
+      );
 
   // --- Home -----------------------------------------------------------------
 

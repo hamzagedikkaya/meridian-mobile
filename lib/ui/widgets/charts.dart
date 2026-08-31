@@ -2,6 +2,7 @@ import 'package:fl_chart/fl_chart.dart';
 import 'package:flutter/material.dart';
 
 import '../../core/formats.dart';
+import '../../l10n/app_l10n.dart';
 import '../../theme/app_colors.dart';
 import '../../theme/app_typography.dart';
 
@@ -185,10 +186,10 @@ class SixMonthBars extends StatelessWidget {
     this.height = 160,
   });
 
-  String _compact(num cents) {
+  String _compact(num cents, AppL10n l) {
     final major = cents / subunitToUnit;
-    if (major >= 1000000) return '${(major / 1000000).toStringAsFixed(1)}Mn';
-    if (major >= 1000) return '${(major / 1000).toStringAsFixed(0)}B';
+    if (major >= 1000000) return l.compactMillions(major.toDouble());
+    if (major >= 1000) return l.compactThousands(major.toDouble());
     return major.toStringAsFixed(0);
   }
 
@@ -196,6 +197,7 @@ class SixMonthBars extends StatelessWidget {
   Widget build(BuildContext context) {
     final c = context.nok;
     final text = Theme.of(context).textTheme;
+    final l = context.l10n;
     final n = labels.length;
 
     var maxV = 0;
@@ -246,7 +248,7 @@ class SixMonthBars extends StatelessWidget {
                   return Padding(
                     padding: const EdgeInsets.only(right: 6),
                     child: Text(
-                      _compact(value),
+                      _compact(value, l),
                       style: text.labelSmall!.copyWith(color: c.inkLow),
                     ),
                   );
