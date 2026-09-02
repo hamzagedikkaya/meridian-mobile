@@ -25,6 +25,32 @@ Brand ground truth (verified in `/Users/user-hg/Documents/Personal/meridian/app/
 
 ---
 
+# Addendum — v1.2, bilingual (2026-08-27)
+
+The document below is unchanged apart from this note. Three things about it are now out of date:
+
+1. **The app ships in two languages.** Turkish and English, switchable in Profil → Dil and
+   stored both on the device and on the account (`PATCH /api/v1/me`). Copy lives in typed
+   classes under `lib/l10n/` (`AppL10n` is abstract, so a string missing from either language
+   fails the build); `core/formats.dart` keeps only value shaping and follows
+   `Intl.defaultLocale`, which the localization delegate sets. Numbers and dates follow the
+   language: `%82` / `82%`, `1.234,56 ₺` / `1,234.56 ₺`, `75B` / `75K`, `27 Ağustos` /
+   `August 27`. Server-side validation messages are shown as-is — Rails localizes them per
+   user — so the API layer raises a typed `ApiErrorKind` instead of a sentence.
+2. **"Para" is now "Finans" / "Finance"**, matching the web app's own vocabulary
+   (`config/locales/*.yml`: Finans, Alışkanlıklar, Hedefler, Günlük). The tab bar label for
+   habits is shortened to "Alışkanlık" so it fits at 360dp; the screen title stays
+   "Alışkanlıklar".
+3. **Routes, folders and class names are English**, so the code reads in one language while
+   the UI speaks two: `/today`, `/finance`, `/finance/transactions`, `/finance/account/:id`,
+   `/habits`, `/goals/:id`, `/journal/:id`, `/profile`, `/profile/server`, `/login`.
+   Read `§3`'s Turkish route table and `§4`'s screen names with that mapping in mind.
+
+Everything else — palette, typography, spacing, motion, haptics, component inventory, API
+shapes — still holds as written.
+
+---
+
 # FINAL DESIGN DOCUMENT — Meridian Mobile: **"Noktürn" v1.1**
 
 Android-first, dark-primary, Turkish UI, self-hosted Rails API over LAN. Dev preview runs as Flutter Web in Chrome; release target is a sideloaded Android APK. Every value below is final.
