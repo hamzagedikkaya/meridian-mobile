@@ -33,8 +33,8 @@ Meridian Mobile is the Flutter client for [**Meridian**](https://github.com/hamz
 Android-first, dark by default, fully bilingual — every screen speaks **Turkish and English**, switchable from the app and remembered on your account. Every number is rendered from integer cents with the right subunit per currency, in the notation the language expects.
 
 <p align="center">
+  <img src="test/golden/images/en/login.png" alt="Two-step login" width="24%" />
   <img src="test/golden/images/en/today.png" alt="Today — the day at a glance" width="24%" />
-  <img src="test/golden/images/en/finance.png" alt="Finance dashboard" width="24%" />
   <img src="test/golden/images/en/habits.png" alt="Habits" width="24%" />
   <img src="test/golden/images/en/goals.png" alt="Goals" width="24%" />
 </p>
@@ -66,13 +66,13 @@ Range pill (7d / 30d / 6mo / 1y / All), a mood distribution strip you can **tap 
 Theme (dark / light / system), **language (Türkçe / English)**, currency, live API status, app version — and a dedicated **server page** that pings `/health` and reports `✓ Connected · Meridian v1.0.0 · 38 ms`. Saving an unreachable URL asks for confirmation. Logout wipes the token and the account state, keeping only the server address, language and theme so the login screen still looks like yours.
 
 <p align="center">
-  <img src="test/golden/images/en/journal.png" alt="Journal" width="24%" />
+  <img src="test/golden/images/en/finance.png" alt="Finance dashboard" width="24%" />
   <img src="test/golden/images/en/transactions.png" alt="Transaction feed" width="24%" />
-  <img src="test/golden/images/en/login.png" alt="Two-step login" width="24%" />
+  <img src="test/golden/images/en/journal.png" alt="Journal" width="24%" />
   <img src="test/golden/images/en/profile.png" alt="Profile and settings" width="24%" />
 </p>
 
-<p align="center"><sub>Journal · Transactions · Login · Profile</sub></p>
+<p align="center"><sub>Finance · Transactions · Journal · Profile</sub></p>
 
 ### Cross-cutting behaviour
 | | |
