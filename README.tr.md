@@ -33,8 +33,8 @@ Meridian Mobile, [**Meridian**](https://github.com/hamzagedikkaya/meridian)'ın 
 Android öncelikli, varsayılanı koyu tema ve tam çift dilli — her ekran **Türkçe ve İngilizce** konuşuyor, uygulama içinden değiştiriliyor ve hesabında saklanıyor. Her sayı tam sayı kuruş değerinden, o para biriminin doğru alt birimiyle ve dilin beklediği yazımla basılır.
 
 <p align="center">
+  <img src="test/golden/images/tr/login.png" alt="İki adımlı giriş" width="24%" />
   <img src="test/golden/images/tr/today.png" alt="Bugün — günün tamamı tek ekranda" width="24%" />
-  <img src="test/golden/images/tr/finance.png" alt="Finans paneli" width="24%" />
   <img src="test/golden/images/tr/habits.png" alt="Alışkanlıklar" width="24%" />
   <img src="test/golden/images/tr/goals.png" alt="Hedefler" width="24%" />
 </p>
@@ -66,13 +66,13 @@ Aralık pili (7g / 30g / 6ay / 1y / Tümü), **dokunarak filtreleyebildiğin** m
 Tema (koyu / açık / sistem), **dil (Türkçe / English)**, para birimi, canlı API durumu, uygulama sürümü — ve `/health`'i pingleyip `✓ Bağlandı · Meridian v1.0.0 · 38 ms` raporlayan ayrı bir **sunucu sayfası**. Ulaşılamayan bir adresi kaydetmek onay ister. Çıkış, token'ı ve hesap durumunu siler; sunucu adresi, dil ve tema kalır, böylece giriş ekranı hâlâ senin ayarlarınla açılır.
 
 <p align="center">
-  <img src="test/golden/images/tr/journal.png" alt="Günlük" width="24%" />
+  <img src="test/golden/images/tr/finance.png" alt="Finans paneli" width="24%" />
   <img src="test/golden/images/tr/transactions.png" alt="İşlem akışı" width="24%" />
-  <img src="test/golden/images/tr/login.png" alt="İki adımlı giriş" width="24%" />
+  <img src="test/golden/images/tr/journal.png" alt="Günlük" width="24%" />
   <img src="test/golden/images/tr/profile.png" alt="Profil ve ayarlar" width="24%" />
 </p>
 
-<p align="center"><sub>Günlük · İşlemler · Giriş · Profil</sub></p>
+<p align="center"><sub>Finans · İşlemler · Günlük · Profil</sub></p>
 
 ### Her ekranda geçerli davranışlar
 | | |
