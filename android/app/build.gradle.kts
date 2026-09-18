@@ -1,7 +1,24 @@
+import java.util.Properties
+
 plugins {
     id("com.android.application")
     // The Flutter Gradle Plugin must be applied after the Android and Kotlin Gradle plugins.
     id("dev.flutter.flutter-gradle-plugin")
+}
+
+// Release signing is read from android/key.properties, which is never committed
+// (android/.gitignore already excludes key.properties, *.jks and *.keystore).
+val keystoreProperties = Properties().apply {
+    val f = rootProject.file("key.properties")
+    if (f.exists()) f.inputStream().use { load(it) }
+}
+val hasReleaseKeystore = keystoreProperties.getProperty("storeFile") != null
+
+if (!hasReleaseKeystore) {
+    logger.warn(
+        "meridian: android/key.properties is missing — the release build will be unsigned. " +
+        "Debug builds are unaffected."
+    )
 }
 
 android {
@@ -25,11 +42,33 @@ android {
         versionName = flutter.versionName
     }
 
+    signingConfigs {
+        if (hasReleaseKeystore) {
+            create("release") {
+                storeFile = file(keystoreProperties.getProperty("storeFile"))
+                storePassword = keystoreProperties.getProperty("storePassword")
+                keyAlias = keystoreProperties.getProperty("keyAlias")
+                keyPassword = keystoreProperties.getProperty("keyPassword")
+            }
+        }
+    }
+
     buildTypes {
         release {
-            // TODO: Add your own signing config for the release build.
-            // Signing with the debug keys for now, so `flutter run --release` works.
-            signingConfig = signingConfigs.getByName("debug")
+            // Never fall back to the debug keystore. Its key is byte-identical on
+            // every machine that has ever run the Android SDK, so an APK signed
+            // with it can be replaced in place by anyone who builds the same
+            // applicationId — the replacement inherits this app's UID, data
+            // directory and Keystore alias, and so the bearer token with it.
+            //
+            // Without android/key.properties the release build stays unsigned and
+            // will refuse to install, which is the safe failure. Create the key
+            // once, then write the four values into that (gitignored) file:
+            //
+            //   keytool -genkey -v -keystore ~/meridian-release.jks \
+            //     -keyalg RSA -keysize 2048 -validity 10000 -alias meridian
+            //
+            signingConfig = if (hasReleaseKeystore) signingConfigs.getByName("release") else null
         }
     }
 }

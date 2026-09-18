@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Meridian talks to a self-hosted server on the user's own LAN, addressed by a
+  bare IP that only they know, so there is no hostname to pin and no certificate
+  to validate. Cleartext therefore has to stay on for every build type, not just
+  debug: from targetSdk 28 onward Android blocks http:// by default, and a
+  release APK without this file cannot reach the server at all.
+
+  This is a deliberate trade-off for LAN-only use. Anyone on the same network can
+  read the traffic, including the bearer token. Put the server behind HTTPS (a
+  reverse proxy with a local CA, or Tailscale) and flip this to false.
+-->
+<network-security-config>
+    <base-config cleartextTrafficPermitted="true" />
+</network-security-config>
