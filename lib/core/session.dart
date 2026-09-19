@@ -28,14 +28,52 @@ class TokenStore {
   TokenStore(this._storage);
   final FlutterSecureStorage _storage;
   static const _key = 'api_token';
+  static const _originKey = 'api_token_origin';
 
   Future<String?> read() => _storage.read(key: _key);
-  Future<void> write(String token) => _storage.write(key: _key, value: token);
-  Future<void> clear() => _storage.delete(key: _key);
+
+  /// The token is stored together with the server that issued it. A bearer
+  /// token is only ever meaningful to that one host, so recording the origin
+  /// lets every request check before it hands the credential over.
+  Future<void> write(String token, {required String origin}) async {
+    await _storage.write(key: _key, value: token);
+    await _storage.write(key: _originKey, value: origin);
+  }
+
+  /// Returns the token only when it belongs to [origin]. Tokens written by an
+  /// older build carry no origin and are still honoured, so upgrading does not
+  /// sign anyone out.
+  Future<String?> readFor(String origin) async {
+    final issuedFor = await _storage.read(key: _originKey);
+    if (issuedFor != null && issuedFor != origin) return null;
+    return _storage.read(key: _key);
+  }
+
+  Future<void> clear() async {
+    await _storage.delete(key: _key);
+    await _storage.delete(key: _originKey);
+  }
 }
 
 final tokenStoreProvider =
     Provider<TokenStore>((ref) => TokenStore(ref.watch(secureStorageProvider)));
+
+/// An unsaved journal entry is the most private thing this app holds, and the
+/// editor autosaves it every five seconds. Keeping it in SharedPreferences
+/// would write it to a world-readable-by-root XML file; the same encrypted
+/// store the token lives in costs nothing extra here.
+class DraftStore {
+  DraftStore(this._storage);
+  final FlutterSecureStorage _storage;
+  static const _key = 'journal_draft';
+
+  Future<String?> read() => _storage.read(key: _key);
+  Future<void> write(String value) => _storage.write(key: _key, value: value);
+  Future<void> clear() => _storage.delete(key: _key);
+}
+
+final draftStoreProvider =
+    Provider<DraftStore>((ref) => DraftStore(ref.watch(secureStorageProvider)));
 
 String defaultServerUrl() {
   if (kIsWeb) return 'http://localhost:3000';
@@ -51,6 +89,10 @@ String normalizeServerUrl(String input) {
   while (url.endsWith('/')) {
     url = url.substring(0, url.length - 1);
   }
+  // Anything Dio cannot turn into a request URI is rejected here rather than
+  // thrown from deep inside the HTTP stack, where nothing catches it.
+  final uri = Uri.tryParse(url);
+  if (uri == null || !uri.hasAuthority || uri.host.isEmpty) return '';
   return url;
 }
 
@@ -63,8 +105,12 @@ class ServerUrl extends Notifier<String> {
 
   Future<void> set(String url) async {
     final normalized = normalizeServerUrl(url);
+    if (normalized == state) return;
     state = normalized;
     await ref.read(sharedPrefsProvider).setString(PrefKeys.serverUrl, normalized);
+    // A token belongs to the server that issued it. Pointing the app somewhere
+    // else must never replay the old credential against the new host.
+    await ref.read(sessionProvider.notifier).serverChanged();
   }
 }
 
@@ -75,7 +121,7 @@ final dioProvider = Provider<Dio>((ref) {
   final store = ref.watch(tokenStoreProvider);
   return buildDio(
     baseUrl: baseUrl,
-    tokenReader: store.read,
+    tokenReader: () => store.readFor(baseUrl),
     onUnauthorized: () => ref.read(sessionProvider.notifier).forceLogout(),
   );
 });
@@ -174,7 +220,10 @@ class SessionController extends Notifier<SessionState> {
         data: {'email': email.trim(), 'password': password},
       );
       final data = res.data as Map<String, dynamic>;
-      await ref.read(tokenStoreProvider).write(data['token'] as String);
+      await ref.read(tokenStoreProvider).write(
+            data['token'] as String,
+            origin: ref.read(serverUrlProvider),
+          );
       state = SessionLoggedIn(
         user: User.fromJson(data['user'] as Map<String, dynamic>),
       );
@@ -194,10 +243,17 @@ class SessionController extends Notifier<SessionState> {
     state = const SessionLoggedOut();
   }
 
-  void forceLogout() {
+  Future<void> forceLogout() async {
     if (state is SessionLoggedOut) return;
-    _wipeLocal();
+    await _wipeLocal();
     state = const SessionLoggedOut(expired: true);
+  }
+
+  /// The server address changed: drop the token and every account-scoped value
+  /// before anything can be requested from the new host.
+  Future<void> serverChanged() async {
+    await _wipeLocal();
+    if (state is! SessionLoggedOut) state = const SessionLoggedOut();
   }
 
   /// Signing out drops everything about the account but keeps the three
@@ -205,6 +261,7 @@ class SessionController extends Notifier<SessionState> {
   /// the login screen should still be rendered in.
   Future<void> _wipeLocal() async {
     await ref.read(tokenStoreProvider).clear();
+    await ref.read(draftStoreProvider).clear();
     final prefs = ref.read(sharedPrefsProvider);
     final kept = {
       for (final key in PrefKeys.keptOnSignOut)

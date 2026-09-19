@@ -20,8 +20,6 @@ import 'journal_providers.dart';
 import 'widgets/energy_dots.dart';
 import 'widgets/mood.dart';
 
-const _draftKey = 'journal_draft';
-
 /// Weather is free text on the server (the web app has a plain input), so the
 /// picker stores the label in the user's own language, like a tag.
 const _weatherOptions = <(String, IconData)>[
@@ -91,16 +89,26 @@ class _JournalEditorScreenState extends ConsumerState<JournalEditorScreen> {
       _tagsOn = e.tags.isNotEmpty;
     } else {
       _date = DateTime.now();
-      _restoreDraft();
-      _showMoodOverlay = _mood == null;
+      _showMoodOverlay = true;
       _draftTimer =
           Timer.periodic(const Duration(seconds: 5), (_) => _saveDraft());
-    }
-    if (!_showMoodOverlay) {
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (mounted) _bodyFocus.requestFocus();
+      // Secure storage is async, so the draft lands a frame later than it used
+      // to; the mood overlay and the body focus follow it rather than the other
+      // way round.
+      _restoreDraft().then((_) {
+        if (!mounted) return;
+        setState(() => _showMoodOverlay = _mood == null);
+        if (!_showMoodOverlay) _focusBody();
       });
+      return;
     }
+    if (!_showMoodOverlay) _focusBody();
+  }
+
+  void _focusBody() {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _bodyFocus.requestFocus();
+    });
   }
 
   @override
@@ -114,9 +122,9 @@ class _JournalEditorScreenState extends ConsumerState<JournalEditorScreen> {
     super.dispose();
   }
 
-  void _restoreDraft() {
+  Future<void> _restoreDraft() async {
     try {
-      final raw = ref.read(sharedPrefsProvider).getString(_draftKey);
+      final raw = await ref.read(draftStoreProvider).read();
       if (raw == null) return;
       final d = jsonDecode(raw) as Map<String, dynamic>;
       _date = DateTime.tryParse('${d['date']}') ?? DateTime.now();
@@ -137,8 +145,7 @@ class _JournalEditorScreenState extends ConsumerState<JournalEditorScreen> {
   void _saveDraft() {
     if (_isEditing) return;
     try {
-      ref.read(sharedPrefsProvider).setString(
-            _draftKey,
+      ref.read(draftStoreProvider).write(
             jsonEncode({
               'date': isoDate(_date),
               'title': _titleCtrl.text,
@@ -155,7 +162,7 @@ class _JournalEditorScreenState extends ConsumerState<JournalEditorScreen> {
 
   Future<void> _clearDraft() async {
     try {
-      await ref.read(sharedPrefsProvider).remove(_draftKey);
+      await ref.read(draftStoreProvider).clear();
     } catch (_) {}
   }
 
