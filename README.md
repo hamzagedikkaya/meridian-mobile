@@ -134,7 +134,7 @@ The address field on the login screen prefills sensibly and remembers your last 
 | Android emulator | `http://10.0.2.2:3000` |
 | Physical device | last used — enter your machine's LAN IP, e.g. `http://192.168.1.20:3000` |
 
-Type the address, wait for the ✓, then sign in with any Meridian user — the server's seeds create `demo@meridian.local` / `demo12345`. The credentials section stays dimmed until the health ping succeeds, so a wrong address can never look like a wrong password.
+Type the address, wait for the ✓, then sign in with any Meridian user — the server's seeds create `demo@meridian.local`, whose password you set when you seeded it. The credentials section stays dimmed until the health ping succeeds, so a wrong address can never look like a wrong password.
 
 Cleartext `http://` to a LAN server is enabled through `network_security_config.xml` in the **debug** manifest; a release APK needs that config promoted to the main manifest (or HTTPS).
 

@@ -496,7 +496,7 @@ void main() {
     await initializeDateFormatting();
 
     SharedPreferences.setMockInitialValues({
-      'server_url': 'http://192.168.1.24:3000',
+      'server_url': 'http://meridian.test:3000',
       'theme_mode': 'dark',
     });
     _prefs = await SharedPreferences.getInstance();

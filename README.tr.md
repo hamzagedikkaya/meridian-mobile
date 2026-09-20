@@ -134,7 +134,7 @@ Giriş ekranındaki adres alanı makul bir varsayılanla dolar ve son seçimini 
 | Android emülatör | `http://10.0.2.2:3000` |
 | Fiziksel cihaz | son kullanılan — makinenin LAN IP'sini gir, örn. `http://192.168.1.20:3000` |
 
-Adresi yaz, ✓ işaretini bekle, sonra herhangi bir Meridian kullanıcısıyla giriş yap — sunucunun seed'i `demo@meridian.local` / `demo12345` oluşturur. Health ping'i başarılı olana kadar kimlik bölümü soluk kalır; böylece yanlış bir adres asla yanlış şifre gibi görünmez.
+Adresi yaz, ✓ işaretini bekle, sonra herhangi bir Meridian kullanıcısıyla giriş yap — sunucunun seed'i `demo@meridian.local` hesabını oluşturur; şifresini seed sırasında sen belirlersin. Health ping'i başarılı olana kadar kimlik bölümü soluk kalır; böylece yanlış bir adres asla yanlış şifre gibi görünmez.
 
 LAN sunucusuna cleartext `http://` erişimi **debug** manifest'indeki `network_security_config.xml` ile açık; release APK için bu yapılandırmanın ana manifest'e taşınması (ya da HTTPS) gerekir.
 
