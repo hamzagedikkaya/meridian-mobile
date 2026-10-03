@@ -96,7 +96,7 @@ Theme (dark / light / system), **language (Türkçe / English)**, currency, live
 | Routing | `go_router` ^17.3.0 — `StatefulShellRoute.indexedStack`, 5 branches, root-level modal routes |
 | Networking | `dio` ^5.10.0 — Bearer interceptor, `401` → sign-out, errors normalised to one `ApiException` |
 | Localization | typed string classes + a `LocalizationsDelegate` (no `.arb`, no codegen) · `flutter_localizations` |
-| Storage | `flutter_secure_storage` ^10.3.1 (token) · `shared_preferences` ^2.5.5 (server URL, language, theme, drafts) |
+| Storage | `flutter_secure_storage` ^10.3.1 (token bound to its server, journal drafts) · `shared_preferences` ^2.5.5 (server URL, language, theme) |
 | Charts | `fl_chart` ^1.2.0 — donut, sparkline, grouped six-month bars |
 | Motion | `animations` ^2.2.0 (fade-through) · `flutter_animate` ^4.5.2 (entrance staggers only) |
 | Loading | `skeletonizer` ^2.1.3 |
@@ -136,7 +136,9 @@ The address field on the login screen prefills sensibly and remembers your last 
 
 Type the address, wait for the ✓, then sign in with any Meridian user — the server's seeds create `demo@meridian.local`, whose password you set when you seeded it. The credentials section stays dimmed until the health ping succeeds, so a wrong address can never look like a wrong password.
 
-Cleartext `http://` to a LAN server is enabled through `network_security_config.xml` in the **debug** manifest; a release APK needs that config promoted to the main manifest (or HTTPS).
+Cleartext `http://` to a LAN server is enabled through `network_security_config.xml` in the **main** manifest, so debug and release builds both reach a bare LAN IP. That's a deliberate trade-off: anyone on the same network can read the traffic, bearer token included. Put the server behind HTTPS (a reverse proxy with a local CA, or Tailscale) and set `cleartextTrafficPermitted` to `false` to close it.
+
+Release builds are signed only with your own key: create one with `keytool`, then write `storeFile`, `storePassword`, `keyAlias` and `keyPassword` into the gitignored `android/key.properties`. Without it the release APK stays unsigned and won't install — it never falls back to the debug keystore.
 
 ### Everyday commands
 
@@ -251,7 +253,7 @@ Not there yet:
 - **Account create/edit** — the Finance screen says adding accounts is coming soon, and means it
 - **Standalone todo and agenda pages** — todos are read and toggled from the Today sheet; events are read-only
 - **Web-only modules** — calendar, insights, weekly review, backups and global search stay on the Rails app for now
-- **Release hardening** — cleartext HTTP config is debug-only, the launcher icon and splash are still Flutter defaults, and there is no CI workflow
+- **Release polish** — the launcher icon and splash are still Flutter defaults, and there is no CI workflow
 - **Disk cache** — last-good data is in-memory per session; a cold start with no server shows the empty state
 
 ## 📄 License
