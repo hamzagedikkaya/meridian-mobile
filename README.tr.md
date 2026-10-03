@@ -96,7 +96,7 @@ Tema (koyu / açık / sistem), **dil (Türkçe / English)**, para birimi, canlı
 | Yönlendirme | `go_router` ^17.3.0 — `StatefulShellRoute.indexedStack`, 5 branch, kök seviyede modal route'lar |
 | Ağ | `dio` ^5.10.0 — Bearer interceptor, `401` → çıkış, tüm hatalar tek `ApiException`a normalize |
 | Yerelleştirme | tipli metin sınıfları + bir `LocalizationsDelegate` (`.arb` yok, codegen yok) · `flutter_localizations` |
-| Depolama | `flutter_secure_storage` ^10.3.1 (token) · `shared_preferences` ^2.5.5 (sunucu adresi, dil, tema, taslaklar) |
+| Depolama | `flutter_secure_storage` ^10.3.1 (sunucusuna bağlı token, günlük taslakları) · `shared_preferences` ^2.5.5 (sunucu adresi, dil, tema) |
 | Grafik | `fl_chart` ^1.2.0 — donut, sparkline, gruplu altı ay barları |
 | Hareket | `animations` ^2.2.0 (fade-through) · `flutter_animate` ^4.5.2 (yalnızca giriş stagger'ları) |
 | Yükleme | `skeletonizer` ^2.1.3 |
@@ -136,7 +136,9 @@ Giriş ekranındaki adres alanı makul bir varsayılanla dolar ve son seçimini 
 
 Adresi yaz, ✓ işaretini bekle, sonra herhangi bir Meridian kullanıcısıyla giriş yap — sunucunun seed'i `demo@meridian.local` hesabını oluşturur; şifresini seed sırasında sen belirlersin. Health ping'i başarılı olana kadar kimlik bölümü soluk kalır; böylece yanlış bir adres asla yanlış şifre gibi görünmez.
 
-LAN sunucusuna cleartext `http://` erişimi **debug** manifest'indeki `network_security_config.xml` ile açık; release APK için bu yapılandırmanın ana manifest'e taşınması (ya da HTTPS) gerekir.
+LAN sunucusuna cleartext `http://` erişimi **ana** manifest'teki `network_security_config.xml` ile açık; böylece hem debug hem release build çıplak bir LAN IP'sine ulaşır. Bu bilinçli bir ödünleşim: aynı ağdaki herkes trafiği, bearer token dahil, okuyabilir. Kapatmak için sunucuyu HTTPS arkasına al (yerel CA'lı bir reverse proxy ya da Tailscale) ve `cleartextTrafficPermitted` değerini `false` yap.
+
+Release build'ler yalnızca senin anahtarınla imzalanır: `keytool` ile bir anahtar oluştur, sonra `storeFile`, `storePassword`, `keyAlias` ve `keyPassword` değerlerini gitignore'daki `android/key.properties` dosyasına yaz. Bu dosya yoksa release APK imzasız kalır ve kurulmaz — debug keystore'una asla geri düşmez.
 
 ### Günlük komutlar
 
@@ -251,7 +253,7 @@ Henüz yok:
 - **Hesap oluşturma/düzenleme** — Finans ekranı "yakında" diyor ve gerçekten öyle
 - **Ayrı Görevler ve Ajanda sayfaları** — görevler Bugün'ün sayfasından okunup işaretleniyor, etkinlikler salt okunur
 - **Yalnızca web'de olan modüller** — takvim, insights, haftalık review, yedekler ve global arama şimdilik Rails uygulamasında
-- **Release sertleştirmesi** — cleartext HTTP yapılandırması yalnızca debug'da, launcher ikonu ve splash hâlâ Flutter varsayılanı, CI workflow'u yok
+- **Release rötuşları** — launcher ikonu ve splash hâlâ Flutter varsayılanı, CI workflow'u yok
 - **Disk önbelleği** — son iyi veri oturum başına bellekte; sunucusuz soğuk açılış boş durumu gösterir
 
 ## 📄 Lisans
