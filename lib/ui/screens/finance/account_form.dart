@@ -5,6 +5,7 @@ import '../../../core/api.dart';
 import '../../../core/haptics.dart';
 import '../../../core/session.dart';
 import '../../../data/providers.dart';
+import '../../../data/sync.dart';
 import '../../../l10n/app_l10n.dart';
 import '../../../models/account.dart';
 import '../../../models/currency.dart';
@@ -34,6 +35,31 @@ Future<Account?> openAccountForm(BuildContext context, {Account? existing}) {
   );
 }
 
+/// What a form's account row says while the account list is not here: that
+/// it is loading, or that it could not be loaded (a tap tries again) — null
+/// once it is here.
+///
+/// Until then, "no accounts yet" is never concluded from an empty list: the
+/// row offers no first account, which a temporary failure would otherwise
+/// turn into a duplicate.
+String? accountListProblem(AppL10n l, AsyncValue<Object?> accounts) {
+  if (accounts.hasValue) return null;
+  return accounts.isLoading ? l.txFormAccountsLoading : l.txFormAccountsFailed;
+}
+
+/// A tap on a form's account row before the account list is here: loads it
+/// again when it failed (a load still running is left to finish). True
+/// while the list is not here — the tap then opens nothing (see
+/// [accountListProblem]).
+bool reloadAccountsIfMissing(WidgetRef ref) {
+  final accounts = ref.read(accountsProvider);
+  if (accounts.hasValue) return false;
+  if (!accounts.isLoading) {
+    ref.read(dataSyncProvider).refresh([accountsProvider]);
+  }
+  return true;
+}
+
 class AccountFormScreen extends ConsumerStatefulWidget {
   final Account? existing;
 
@@ -61,6 +87,12 @@ class _AccountFormScreenState extends ConsumerState<AccountFormScreen> {
   String? _currencyError;
   String? _balanceError;
   String? _formError;
+
+  /// The server refused a currency change (`currency_locked`: something was
+  /// recorded on the account since this form learnt its currency could
+  /// change). The currency is locked here from then on, whatever the
+  /// account's detail says — before its refetch lands, or should that fail.
+  bool _currencyRefused = false;
 
   bool get _isEdit => widget.existing != null;
 
@@ -132,9 +164,14 @@ class _AccountFormScreenState extends ConsumerState<AccountFormScreen> {
   }
 
   /// A new currency keeps the typed opening balance as typed — 1.250,50
-  /// stays 1.250,50, or 1.250 in a currency without decimals.
-  void _setCurrency(String code, List<CurrencyOption> options) {
-    final before = _subunitOf(_currency, options);
+  /// stays 1.250,50, or 1.250 in a currency without decimals. [current] is
+  /// the currency shown until now.
+  void _setCurrency(
+    String code,
+    String current,
+    List<CurrencyOption> options,
+  ) {
+    final before = _subunitOf(current, options);
     final after = _subunitOf(code, options);
     final draft = AmountDraft.fromMinorUnits(_balance, before).forCurrency(after);
     final converted = draft.minorUnits(after);
@@ -198,8 +235,9 @@ class _AccountFormScreenState extends ConsumerState<AccountFormScreen> {
       if (!mounted) return;
       Haptics.danger();
       final refusal = e is ApiException ? e : null;
+      final currencyLocked = refusal?.code == 'currency_locked';
       final nameError = refusal?.fieldMessage(l, 'name');
-      final currencyError = refusal?.code == 'currency_locked'
+      final currencyError = currencyLocked
           ? l.errCurrencyLocked
           : refusal?.fieldMessage(l, 'currency');
       final balanceError = refusal?.fieldMessage(l, 'initial_balance_cents') ??
@@ -208,6 +246,14 @@ class _AccountFormScreenState extends ConsumerState<AccountFormScreen> {
           nameError != null || currencyError != null || balanceError != null;
       setState(() {
         _saving = false;
+        if (currencyLocked && existing != null) {
+          // Back to its own currency, and its own opening balance (the
+          // typed one was read in the refused currency), so the next save
+          // sends the rest of the edit without them.
+          _currencyRefused = true;
+          _currency = existing.currency;
+          _balance = existing.initialBalanceCents;
+        }
         _nameError = nameError;
         _currencyError = currencyError;
         _balanceError = balanceError;
@@ -240,8 +286,8 @@ class _AccountFormScreenState extends ConsumerState<AccountFormScreen> {
     final detail = existing == null
         ? null
         : ref.watch(accountDetailProvider(existing.id)).value?.data;
-    final currencyLocked =
-        existing != null && !(detail?.currencyEditable ?? false);
+    final currencyLocked = existing != null &&
+        (_currencyRefused || !(detail?.currencyEditable ?? false));
     final subunit = _subunitOf(currency, options);
 
     return FormScaffold(
@@ -283,23 +329,24 @@ class _AccountFormScreenState extends ConsumerState<AccountFormScreen> {
               ),
           ],
           selected: currency,
-          onChanged:
-              currencyLocked ? null : (code) => _setCurrency(code, options),
+          onChanged: currencyLocked
+              ? null
+              : (code) => _setCurrency(code, currency, options),
         ),
-        if (currencyLocked && detail != null)
-          Padding(
-            padding: const EdgeInsets.only(top: 4),
-            child: Text(
-              l.accountFormCurrencyLocked,
-              style: text.bodySmall!.copyWith(color: c.inkLow),
-            ),
-          ),
         if (_currencyError != null)
           Padding(
             padding: const EdgeInsets.only(top: 4),
             child: Text(
               _currencyError!,
               style: text.bodySmall!.copyWith(color: c.error),
+            ),
+          )
+        else if (currencyLocked && detail != null)
+          Padding(
+            padding: const EdgeInsets.only(top: 4),
+            child: Text(
+              l.accountFormCurrencyLocked,
+              style: text.bodySmall!.copyWith(color: c.inkLow),
             ),
           ),
         const SizedBox(height: 20),

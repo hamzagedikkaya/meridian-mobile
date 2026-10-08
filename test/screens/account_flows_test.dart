@@ -171,6 +171,62 @@ void main() {
       expect(find.text('Hesap güncellendi ✓'), findsOneWidget);
     });
 
+    testWidgets('a currency change refused because the account got a '
+        'transaction meanwhile: currency and opening balance go back, the '
+        'currency locks, and the next save sends the rest without them',
+        (tester) async {
+      tallPhone(tester);
+      final api = FakeApi()
+        ..on('GET /accounts', {
+          'accounts': [accountJson(initial: 125050)],
+        })
+        ..on('PATCH /accounts/1', {
+          'errors': {
+            'currency': ['An account with transactions cannot change it.'],
+          },
+          'code': 'currency_locked',
+        }, status: 422);
+      await _openAccount(tester, api);
+      await _menu(tester, 'Düzenle');
+      // Nothing is recorded on it yet: the currency can change.
+      expect(
+        find.text('Bu hesapta işlem ya da abonelik olduğu için para birimi '
+            'değişmez.'),
+        findsNothing,
+      );
+      expect(find.text('1.250,50 ₺'), findsOneWidget);
+      await tester.tap(find.text('GAU · Gram altın'));
+      await settleFrames(tester);
+      // The opening balance as typed, in grams (no decimals).
+      expect(find.text('1.250 gr'), findsOneWidget);
+      // A transaction was recorded on it on the web meanwhile.
+      api.on('GET /accounts/1', {'account': accountDetailJson(transactions: 1)});
+      await tester.tap(find.text('Kaydet'));
+      await settleFrames(tester);
+      expect(api.bodiesOf('PATCH /accounts/1').single,
+          {'currency': 'GAU', 'initial_balance_cents': 1250});
+      expect(find.text('Hesabı düzenle'), findsOneWidget, reason: 'kept open');
+      expect(
+        find.text('İşlemi ya da aboneliği olan bir hesabın para birimi '
+            'değiştirilemez'),
+        findsOneWidget,
+      );
+      expect(find.text('An account with transactions cannot change it.'),
+          findsNothing);
+      // Its own currency and opening balance again, and they stay.
+      expect(find.text('1.250,50 ₺'), findsOneWidget);
+      await tester.tap(find.text('GAU · Gram altın'));
+      await settleFrames(tester);
+      expect(find.text('1.250,50 ₺'), findsOneWidget);
+
+      api.on('PATCH /accounts/1', {'account': accountJson(name: 'Ziraat')});
+      await tester.enterText(find.byType(TextField), 'Ziraat');
+      await tester.tap(find.text('Kaydet'));
+      await settleFrames(tester);
+      expect(api.bodiesOf('PATCH /accounts/1').last, {'name': 'Ziraat'});
+      expect(find.text('Hesap güncellendi ✓'), findsOneWidget);
+    });
+
     testWidgets('archive at once, with "Geri al" that restores it',
         (tester) async {
       tallPhone(tester);
@@ -211,6 +267,31 @@ void main() {
       expect(api.requests, isNot(contains('DELETE /accounts/1')));
     });
 
+    testWidgets('a transaction recorded on it meanwhile: the delete is '
+        'refused, the account comes back, and archiving is offered',
+        (tester) async {
+      tallPhone(tester);
+      final api = FakeApi()
+        ..on('DELETE /accounts/1', {
+          'errors': {'base': ['raw server text']},
+          'code': 'has_transactions',
+          'transactions_count': 1,
+          'incoming_transfers_count': 0,
+        }, status: 422);
+      await _openAccount(tester, api);
+      await _menu(tester, 'Sil');
+      await letUndoRunOut(tester);
+      expect(api.requests, contains('DELETE /accounts/1'));
+      expect(
+        find.text('Bu hesabın 1 işlemi var; silmek yerine arşivle'),
+        findsOneWidget,
+      );
+      await tester.tap(find.text('Arşivle'));
+      await settleFrames(tester);
+      expect(api.requests, contains('PATCH /accounts/1/archive'));
+      expect(find.text('“Cüzdan” arşivlendi'), findsOneWidget);
+    });
+
     testWidgets('an account with history cannot be deleted: archiving is '
         'offered instead', (tester) async {
       tallPhone(tester);
@@ -230,6 +311,72 @@ void main() {
       await settleFrames(tester);
       expect(api.requests, contains('PATCH /accounts/1/archive'));
       expect(api.requests, isNot(contains('DELETE /accounts/1')));
+    });
+
+    testWidgets('an archived account with history cannot be deleted, and '
+        'archiving is no way out for it: that is only said — it is not '
+        'archived again, nor offered a "Geri al" that would restore it',
+        (tester) async {
+      tallPhone(tester);
+      final api = FakeApi()
+        ..on('GET /accounts', {
+          'accounts': [accountJson(archived: true)],
+        })
+        ..on('GET /accounts/1', {
+          'account': accountDetailJson(
+              archived: true, transactions: 4, incoming: 1),
+        });
+      await _openAccount(tester, api);
+      await _menu(tester, 'Sil');
+      expect(find.text('Bu hesap silinemez'), findsOneWidget);
+      expect(
+        find.text('Bu hesabın 4 işlemi ve 1 gelen transferi var. Geçmişi '
+            'olan bir hesap silinemez; arşivde kalır ve işlemleri '
+            'toplamlarda sayılmaya devam eder.'),
+        findsOneWidget,
+      );
+      expect(find.text('Arşivle'), findsNothing);
+      await tester.tap(find.widgetWithText(FilledButton, 'Tamam'));
+      await settleFrames(tester);
+      expect(find.byType(AlertDialog), findsNothing);
+      expect(find.text('Geri al'), findsNothing);
+      expect(
+        api.requests.where((r) => !r.startsWith('GET ')),
+        isEmpty,
+        reason: 'no archive, no unarchive, no delete',
+      );
+    });
+
+    testWidgets('an archived account that got a transaction meanwhile: the '
+        'refused delete brings it back and says why — without telling it to '
+        'archive itself, or offering to', (tester) async {
+      tallPhone(tester);
+      final api = FakeApi()
+        ..on('GET /accounts', {
+          'accounts': [accountJson(archived: true)],
+        })
+        ..on('GET /accounts/1', {
+          'account': accountDetailJson(archived: true),
+        })
+        ..on('DELETE /accounts/1', {
+          'errors': {'base': ['raw server text']},
+          'code': 'has_transactions',
+          'transactions_count': 1,
+          'incoming_transfers_count': 0,
+        }, status: 422);
+      await _openAccount(tester, api);
+      await _menu(tester, 'Sil');
+      expect(find.text('“Cüzdan” silindi'), findsOneWidget);
+      await letUndoRunOut(tester);
+      expect(api.requests, contains('DELETE /accounts/1'));
+      expect(
+        find.text('Bu hesabın 1 işlemi var. Geçmişi olan bir hesap '
+            'silinemez; arşivde kalır ve işlemleri toplamlarda sayılmaya '
+            'devam eder.'),
+        findsOneWidget,
+      );
+      expect(find.text('Arşivle'), findsNothing);
+      expect(api.requests.where((r) => r.contains('archive')), isEmpty);
     });
 
     testWidgets('a delete that takes subscriptions and unlinks goals says so '

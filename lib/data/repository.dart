@@ -177,6 +177,14 @@ class MeridianRepository {
         }),
       );
 
+  /// One transaction with the other row of its linked pair, if it has one —
+  /// which says whether a delete would take that row along (see
+  /// [TransactionDetail.deletesLinked]).
+  Future<TransactionDetail> fetchTransaction(int id) => _get(
+        '/transactions/$id',
+        (data) => TransactionDetail.fromJson(_entity(data, 'transaction')),
+      );
+
   Future<Transaction> createTransaction(TransactionInput input) => _write(
         'POST',
         '/transactions',
@@ -199,6 +207,8 @@ class MeridianRepository {
         parse: (data) => Transaction.fromJson(_entity(data, 'transaction')),
       );
 
+  /// Deletes the transaction. The parent of a linked pair takes its child
+  /// with it ([TransactionDetail.deletesLinked]); a child leaves its parent.
   Future<void> deleteTransaction(int id) => _write(
         'DELETE',
         '/transactions/$id',

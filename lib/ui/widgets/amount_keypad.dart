@@ -71,18 +71,25 @@ class AmountKeypad extends StatelessWidget {
     }
 
     final label = isDot ? decimalMark() : key;
+    final longPress = isBackspace ? onClear : null;
+    // One stop per key for a screen reader. The key's own InkWell is left
+    // out of the tree with everything else under it, so this node answers
+    // the double-tap (and on ⌫ the long-press) itself — without them a
+    // screen reader, Switch Access or Voice Access could not type at all.
     return Semantics(
       button: true,
       label: isBackspace
           ? l.keypadBackspace
           : (isDot ? l.keypadDecimalMark : key),
-      hint: isBackspace && onClear != null ? l.keypadClearHint : null,
+      hint: longPress != null ? l.keypadClearHint : null,
+      onTap: handle,
+      onLongPress: longPress,
       excludeSemantics: true,
       child: SizedBox(
         height: 64,
         child: InkWell(
           onTap: handle,
-          onLongPress: isBackspace ? onClear : null,
+          onLongPress: longPress,
           borderRadius: BorderRadius.circular(16),
           splashColor: c.gold.withValues(alpha: 0.08),
           child: Center(

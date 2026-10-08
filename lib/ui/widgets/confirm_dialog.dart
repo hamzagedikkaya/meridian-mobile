@@ -38,3 +38,27 @@ Future<bool> showConfirmDialog(
   );
   return result ?? false;
 }
+
+/// A dialog that only tells: why something cannot be done, with nothing to
+/// offer instead — one "Tamam" closes it.
+Future<void> showInfoDialog(
+  BuildContext context, {
+  required String title,
+  String? message,
+}) {
+  final l = context.l10n;
+  return showDialog<void>(
+    context: context,
+    builder: (context) => AlertDialog(
+      title: Text(title),
+      content: message == null ? null : Text(message),
+      actions: [
+        FilledButton(
+          onPressed: () => Navigator.of(context).pop(),
+          style: FilledButton.styleFrom(minimumSize: const Size(0, 44)),
+          child: Text(l.actionDone),
+        ),
+      ],
+    ),
+  );
+}

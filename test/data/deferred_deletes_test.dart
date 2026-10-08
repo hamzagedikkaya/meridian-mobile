@@ -7,6 +7,7 @@ import 'package:dio/dio.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:meridian_mobile/core/api.dart';
+import 'package:meridian_mobile/core/session.dart';
 import 'package:meridian_mobile/data/data_scope.dart';
 import 'package:meridian_mobile/data/deferred_deletes.dart';
 import 'package:meridian_mobile/data/providers.dart';
@@ -138,6 +139,101 @@ void main() {
     }
   });
 
+  group('a delete that takes a linked transaction along', () {
+    const child = (scope: DataScope.transactions, id: 317);
+
+    test('both leave the lists, and an undo brings both back', () {
+      deletes.stage(_tx, send: send316, alongWith: {child});
+      expect(container.read(deferredDeletesProvider), {_tx, child});
+      expect(deletes.isWaiting(child), isFalse, reason: 'not its own delete');
+      expect(deletes.undo(_tx), isTrue);
+      expect(container.read(deferredDeletesProvider), isEmpty);
+    });
+
+    test('a refused delete brings both back', () async {
+      api.fail('DELETE /transactions/316', 500);
+      Object? failure;
+      deletes.stage(
+        _tx,
+        send: send316,
+        alongWith: {child},
+        onFailed: (e) => failure = e,
+      );
+      expect(await deletes.commit(_tx), isFalse);
+      expect(container.read(deferredDeletesProvider), isEmpty);
+      expect(failure, isA<ApiException>());
+    });
+
+    test('once deleted, both leave every open feed', () async {
+      const all = TxFilters();
+      api.onRequest('GET /transactions', (RequestOptions _) => {
+            'transactions': [
+              transactionJson(),
+              transactionJson(id: 317),
+              transactionJson(id: 318),
+            ],
+            'meta': const {'total_count': 3, 'page': 1, 'page_limit': 50},
+          });
+      container.listen(transactionsProvider(all), (_, _) {});
+      await settle(api);
+      deletes.stage(_tx, send: send316, alongWith: {child});
+      expect(await deletes.commit(_tx), isTrue);
+      expect(
+        container.read(transactionsProvider(all)).value!.items.map((t) => t.id),
+        [318],
+      );
+      expect(container.read(deferredDeletesProvider), {_tx, child});
+    });
+
+    test('a linked row hidden already — deleted on its own — stays hidden '
+        'when this delete is refused', () async {
+      deletes.stage(child,
+          send: () => container.read(repositoryProvider).deleteTransaction(317));
+      api.on('DELETE /transactions/317', null, status: 204);
+      expect(await deletes.commit(child), isTrue);
+      api.fail('DELETE /transactions/316', 500);
+      deletes.stage(_tx, send: send316, alongWith: {child});
+      expect(await deletes.commit(_tx), isFalse);
+      expect(container.read(deferredDeletesProvider), {child});
+    });
+  });
+
+  test('signing out drops what was hidden, and a delete still waiting is '
+      'never sent', () async {
+    final signedIn = containerFor(
+      api,
+      overrides: [sessionProvider.overrideWith(_SignedIn.new)],
+    );
+    final deletes = signedIn.read(deferredDeletesProvider.notifier);
+    signedIn.listen(deferredDeletesProvider, (_, _) {});
+    deletes.stage(_tx, send: send316);
+    expect(signedIn.read(deferredDeletesProvider), {_tx});
+
+    signedIn.read(sessionProvider.notifier).state = const SessionLoggedOut();
+    expect(signedIn.read(deferredDeletesProvider), isEmpty);
+    expect(await deletes.commit(_tx), isFalse);
+    expect(api.requests, isEmpty);
+  });
+
+  test('a window that closes as the session ends sends nothing — even '
+      'before the hidden records are dropped', () async {
+    final signedIn = containerFor(
+      api,
+      overrides: [sessionProvider.overrideWith(_SignedIn.new)],
+    );
+    final deletes = signedIn.read(deferredDeletesProvider.notifier);
+    var sent = false;
+    deletes.stage(_tx, send: () async => sent = true);
+
+    // Ejected (a 401), and the screen the delete was made on is popped on
+    // the way to the login screen: its window closes before anything has
+    // read the deletes again.
+    signedIn.read(sessionProvider.notifier).state =
+        const SessionLoggedOut(expired: true);
+    expect(await deletes.commit(_tx), isFalse);
+    expect(sent, isFalse);
+  });
+
   test('withoutDeleted leaves out only the scope\'s hidden ids', () {
     final hidden = {_tx, (scope: DataScope.budgets, id: 317)};
     expect(
@@ -149,4 +245,9 @@ void main() {
       [316, 317],
     );
   });
+}
+
+class _SignedIn extends SessionController {
+  @override
+  SessionState build() => const SessionLoggedIn();
 }

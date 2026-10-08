@@ -30,15 +30,25 @@ String subscriptionWhen(AppL10n l, Subscription sub, DateTime today) {
   if (!sub.active) return l.subscriptionPausedLabel;
   final next = sub.nextChargeOn;
   if (next == null) return l.subscriptionNoDate;
-  if (dayDelta(next, now: today) < 0) {
-    return '${l.subscriptionOverdue} · ${formatDate(next)}';
-  }
+  if (dayDelta(next, now: today) < 0) return overdueSince(l, next, today);
   return l.relativeDays(next);
 }
+
+/// A payment past its date, said the same way wherever it is listed:
+/// "Gecikmiş · 3 Ekim" — with the year when it is not [today]'s
+/// ("Gecikmiş · 15 Ocak 2025"), so a payment missed long ago does not read
+/// as this year's.
+String overdueSince(AppL10n l, DateTime due, DateTime today) =>
+    '${l.subscriptionOverdue} · '
+    '${formatDate(due, withYear: due.year != today.year)}';
 
 /// Opens subscription [id]'s sheet. It reads the subscription from the
 /// Subscriptions list; [name] titles the sheet until that has loaded (the
 /// dashboard's upcoming payments know only a little of each).
+///
+/// [context] is the screen's: the edit form, the delete and their
+/// snackbars outlive the sheet, and a delete's undo window ends when that
+/// screen is left (see [deleteWithUndo]).
 Future<void> showSubscriptionSheet(
   BuildContext context, {
   required int id,
@@ -49,15 +59,16 @@ Future<void> showSubscriptionSheet(
     isScrollControlled: true,
     useSafeArea: true,
     barrierColor: const Color(0xFF171310).withValues(alpha: 0.6),
-    builder: (_) => _SubscriptionSheet(id: id, name: name),
+    builder: (_) => _SubscriptionSheet(host: context, id: id, name: name),
   );
 }
 
 class _SubscriptionSheet extends ConsumerStatefulWidget {
+  final BuildContext host;
   final int id;
   final String? name;
 
-  const _SubscriptionSheet({required this.id, this.name});
+  const _SubscriptionSheet({required this.host, required this.id, this.name});
 
   @override
   ConsumerState<_SubscriptionSheet> createState() => _SubscriptionSheetState();
@@ -66,12 +77,27 @@ class _SubscriptionSheet extends ConsumerStatefulWidget {
 class _SubscriptionSheetState extends ConsumerState<_SubscriptionSheet> {
   bool _busy = false;
 
+  /// Why the last payment, pause or resume did not go through. Said in the
+  /// sheet, which stays open: a snackbar would be under it.
+  String? _error;
+
+  /// A payment whose answer was lost (it timed out after it went out) may
+  /// have been recorded. Until the subscriptions the write refetches have
+  /// landed — anything newer than this, the list on screen when it failed —
+  /// "Ödendi olarak kaydet" stays off, so a second payment is never one tap
+  /// away from a first that may have gone through.
+  Fetched<SubscriptionsBundle>? _unsureOver;
+
   /// Records the payment: an expense on its account and category, and the
-  /// next due date one period on. Not safe to repeat, so the button waits
-  /// for the answer, and a lost answer is not retried on its own.
+  /// next due date one period on. Not safe to repeat (contract 4.6), so the
+  /// button waits for the answer, and a lost answer is not retried — on its
+  /// own or by a tap before the list says what happened.
   Future<void> _charge(Subscription sub) async {
     final l = context.l10n;
-    setState(() => _busy = true);
+    setState(() {
+      _busy = true;
+      _error = null;
+    });
     try {
       final charge =
           await ref.read(repositoryProvider).chargeSubscription(sub.id);
@@ -89,21 +115,24 @@ class _SubscriptionSheetState extends ConsumerState<_SubscriptionSheet> {
       );
     } catch (e) {
       if (!mounted) return;
-      setState(() => _busy = false);
+      Haptics.danger();
       final maybe = e is ApiException && e.isNetwork && e.mayHaveArrived;
-      showAppSnack(
-        context,
-        maybe
+      setState(() {
+        _busy = false;
+        if (maybe) _unsureOver = ref.read(subscriptionsProvider).value;
+        _error = maybe
             ? l.subscriptionChargeMaybe
-            : failureMessage(e, l, fallback: l.subscriptionChargeFailed),
-        isError: true,
-      );
+            : failureMessage(e, l, fallback: l.subscriptionChargeFailed);
+      });
     }
   }
 
   Future<void> _setActive(Subscription sub, bool active) async {
     final l = context.l10n;
-    setState(() => _busy = true);
+    setState(() {
+      _busy = true;
+      _error = null;
+    });
     try {
       await ref
           .read(repositoryProvider)
@@ -119,29 +148,27 @@ class _SubscriptionSheetState extends ConsumerState<_SubscriptionSheet> {
       );
     } catch (e) {
       if (!mounted) return;
-      setState(() => _busy = false);
-      showAppSnack(
-        context,
-        failureMessage(e, l, fallback: l.subscriptionToggleFailed),
-        isError: true,
-      );
+      Haptics.danger();
+      setState(() {
+        _busy = false;
+        _error = failureMessage(e, l, fallback: l.subscriptionToggleFailed);
+      });
     }
   }
 
   void _edit(Subscription sub) {
-    final navigator = Navigator.of(context);
-    final host = navigator.context;
-    navigator.pop();
-    openSubscriptionForm(host, existing: sub);
+    final host = widget.host;
+    Navigator.of(context).pop();
+    if (host.mounted) openSubscriptionForm(host, existing: sub);
   }
 
   void _delete(Subscription sub) {
     final l = context.l10n;
-    final navigator = Navigator.of(context);
-    final host = navigator.context;
+    final host = widget.host;
     final repo = ref.read(repositoryProvider);
     final deletes = ref.read(deferredDeletesProvider.notifier);
-    navigator.pop();
+    Navigator.of(context).pop();
+    if (!host.mounted) return;
     deleteWithUndo(
       host,
       deletes,
@@ -180,6 +207,10 @@ class _SubscriptionSheetState extends ConsumerState<_SubscriptionSheet> {
       final s = sub;
       final note = s.note;
       final chargeable = s.active && s.nextChargeOn != null;
+      // A payment that may have gone through holds the button until the
+      // refetched list says whether it did.
+      final unsure =
+          _unsureOver != null && identical(async.value, _unsureOver);
       children.addAll([
         Text(s.name, style: text.titleLarge),
         const SizedBox(height: 4),
@@ -218,7 +249,7 @@ class _SubscriptionSheetState extends ConsumerState<_SubscriptionSheet> {
         const SizedBox(height: 24),
         if (chargeable) ...[
           FilledButton.icon(
-            onPressed: _busy ? null : () => _charge(s),
+            onPressed: _busy || unsure ? null : () => _charge(s),
             icon: _busy
                 ? SizedBox(
                     width: 18,
@@ -247,6 +278,20 @@ class _SubscriptionSheetState extends ConsumerState<_SubscriptionSheet> {
           icon: Icon(s.active ? Icons.pause : Icons.play_arrow, size: 18),
           label: Text(s.active ? l.subscriptionPause : l.subscriptionResume),
         ),
+        // Under the buttons the tap was on: the sheet stays open, so a
+        // snackbar would be drawn under it, unseen.
+        if (_error != null)
+          Padding(
+            padding: const EdgeInsets.only(top: 12),
+            child: Semantics(
+              liveRegion: true,
+              child: Text(
+                _error!,
+                textAlign: TextAlign.center,
+                style: text.bodySmall!.copyWith(color: c.error),
+              ),
+            ),
+          ),
         const SizedBox(height: 16),
         TextButton.icon(
           onPressed: _busy ? null : () => _delete(s),

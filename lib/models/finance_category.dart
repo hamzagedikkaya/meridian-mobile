@@ -1,3 +1,4 @@
+import 'form_text.dart';
 import 'json_read.dart';
 import 'transaction.dart';
 
@@ -90,9 +91,10 @@ class CategoryInput {
         'color': color,
       };
 
-  /// The body of an edit of [before]: only what changed.
+  /// The body of an edit of [before]: only what changed — the name compared
+  /// as the form sends it, trimmed ([formTextChanged]).
   Map<String, dynamic> changesFrom(TxCategory before) => {
-        if (name != before.name) 'name': name,
+        if (formTextChanged(name, before.name)) 'name': name.trim(),
         if (kind != before.kind) 'kind': kind,
         if (parentId != before.parentId) 'parent_id': parentId,
         if (color.toUpperCase() != before.color.toUpperCase()) 'color': color,

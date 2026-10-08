@@ -48,9 +48,11 @@ Set<ProviderOrFamily> readModelsFor(DataScope scope) => switch (scope) {
       // (what its delete would leave uncategorized); a budget's spend sums
       // them; /home has month net and 7-day spending; financial goals track
       // an account balance or total income (and /home shows their progress
-      // once the goals are recalculated).
+      // once the goals are recalculated). A transaction's detail is the row
+      // and its linked pair.
       DataScope.transactions => {
           transactionsProvider,
+          transactionDetailProvider,
           financeDashboardProvider,
           accountsProvider,
           accountDetailProvider,
@@ -60,9 +62,10 @@ Set<ProviderOrFamily> readModelsFor(DataScope scope) => switch (scope) {
           goalsProvider,
           goalDetailProvider,
         },
-      // Account name, colour and currency are embedded in transaction rows,
-      // the dashboard's recent rows and upcoming payments, subscriptions,
-      // and a financial goal's linked account; an account's currency is
+      // Account name, colour and currency are embedded in transaction rows
+      // (and a transaction's linked pair), the dashboard's recent rows and
+      // upcoming payments, subscriptions, and a financial goal's linked
+      // account; an account's currency is
       // offered by the currency picker while it is in use; the opening
       // balance moves its balance and the progress of a financial goal that
       // tracks it, and with it /home's goal bars. A delete takes the
@@ -73,6 +76,7 @@ Set<ProviderOrFamily> readModelsFor(DataScope scope) => switch (scope) {
           accountDetailProvider,
           currenciesProvider,
           transactionsProvider,
+          transactionDetailProvider,
           financeDashboardProvider,
           subscriptionsProvider,
           goalsProvider,
@@ -95,6 +99,7 @@ Set<ProviderOrFamily> readModelsFor(DataScope scope) => switch (scope) {
           categoriesProvider,
           categoryUsageProvider,
           transactionsProvider,
+          transactionDetailProvider,
           financeDashboardProvider,
           budgetsProvider,
           subscriptionsProvider,
@@ -181,6 +186,7 @@ bool changesSignedInUser(DataScope scope) => scope == DataScope.me;
 /// record that have one.
 ProviderBase<Object?>? detailReadModelOf(DeletedRecord record) =>
     switch (record.scope) {
+      DataScope.transactions => transactionDetailProvider(record.id),
       DataScope.accounts => accountDetailProvider(record.id),
       DataScope.categories => categoryUsageProvider(record.id),
       DataScope.habits => habitDetailProvider(record.id),
@@ -197,6 +203,7 @@ Set<ProviderOrFamily> get allReadModels => {
       currenciesProvider,
       financeDashboardProvider,
       transactionsProvider,
+      transactionDetailProvider,
       categoriesProvider,
       categoryUsageProvider,
       budgetsProvider,

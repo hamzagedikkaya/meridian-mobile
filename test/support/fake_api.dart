@@ -358,6 +358,43 @@ Map<String, dynamic> transactionJson({int id = 316}) => {
       'related_account': null,
     };
 
+/// GET /transactions/:id: the transaction and the other row of its linked
+/// pair — none by default.
+Map<String, dynamic> transactionDetailJson({
+  int id = 316,
+  int? parentId,
+  Map<String, dynamic>? linked,
+}) =>
+    {
+      ...transactionJson(id: id),
+      'parent_transaction_id': parentId,
+      'linked': linked,
+    };
+
+/// The other row of a linked pair, as GET /transactions/:id embeds it: by
+/// default the 2 gr of gold bought with the cash expense, its child.
+Map<String, dynamic> linkedJson({
+  int id = 317,
+  String kind = 'income',
+  int amount = 2,
+  String relation = 'child',
+}) =>
+    {
+      'id': id,
+      'kind': kind,
+      'amount_cents': amount,
+      'date': '2026-10-02',
+      'description': 'Altın alımı',
+      'account': {
+        'id': 3,
+        'name': 'Altın',
+        'color': '#B8860B',
+        'currency': 'GAU',
+        'subunit_to_unit': 1,
+      },
+      'relation': relation,
+    };
+
 /// An account as the server lists it (GET /accounts).
 Map<String, dynamic> accountJson({
   int id = 1,
@@ -648,6 +685,8 @@ final Map<String, _Route> _defaults = {
       'filtered_expense_cents': 13874,
     },
   }),
+  'GET /transactions/316':
+      _Route(body: {'transaction': transactionDetailJson()}),
   'GET /todos': _Route(body: {
     'todos': [todoJson()],
     'meta': const {'open_count': 1, 'overdue_count': 1},

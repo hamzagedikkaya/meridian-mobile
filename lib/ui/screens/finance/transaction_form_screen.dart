@@ -6,6 +6,8 @@ import '../../../core/formats.dart';
 import '../../../core/haptics.dart';
 import '../../../core/session.dart';
 import '../../../data/current_day.dart';
+import '../../../data/data_scope.dart';
+import '../../../data/deferred_deletes.dart';
 import '../../../data/providers.dart';
 import '../../../l10n/app_l10n.dart';
 import '../../../models/account.dart';
@@ -104,12 +106,22 @@ class _TransactionFormScreenState extends ConsumerState<TransactionFormScreen> {
     super.dispose();
   }
 
-  /// The accounts a transaction can be put on: the active ones.
-  List<Account> get _accounts =>
-      ref.read(accountsProvider).value?.data
-          .where((a) => !a.archived)
-          .toList() ??
-      const [];
+  /// The accounts a transaction can be put on: the active ones (not one
+  /// that was just deleted and waits out its undo).
+  List<Account> get _accounts => withoutDeleted(
+        (ref.read(accountsProvider).value?.data ?? const <Account>[])
+            .where((a) => !a.archived),
+        ref.read(deferredDeletesProvider),
+        DataScope.accounts,
+        (a) => a.id,
+      );
+
+  /// Why the account row has no account: none picked, none at all yet — or
+  /// the list itself, still loading or failed (never "make your first
+  /// account" then: see [accountListProblem]).
+  String _accountMissing(AppL10n l) =>
+      accountListProblem(l, ref.read(accountsProvider)) ??
+      (_accounts.isEmpty ? l.txFormNeedAccount : l.txFormSelectAccount);
 
   int get _subunit => _account?.subunitToUnit ?? 100;
   String get _currency => _account?.currency ?? 'TRY';
@@ -138,10 +150,14 @@ class _TransactionFormScreenState extends ConsumerState<TransactionFormScreen> {
   /// only one.
   void _seed() {
     if (_seeded) return;
-    // Wait for the first accounts load; an all-archived list is still a value.
-    final all = ref.read(accountsProvider).value?.data;
-    if (all == null) return;
+    final accounts = ref.read(accountsProvider);
     final ex = widget.existing;
+    // Wait for the accounts (an all-archived list is still a value). Should
+    // they fail, an edit still fills in from what the transaction itself
+    // says about its accounts; a new one waits for the reload a tap on the
+    // account row starts, and is filled in when that lands.
+    if (!accounts.hasValue && (ex == null || !accounts.hasError)) return;
+    final all = accounts.value?.data ?? const <Account>[];
     Account? byId(int? id) {
       if (id == null) return null;
       for (final a in all) {
@@ -150,7 +166,6 @@ class _TransactionFormScreenState extends ConsumerState<TransactionFormScreen> {
       return null;
     }
 
-    final active = [for (final a in all) if (!a.archived) a];
     if (ex != null) {
       _account = byId(ex.account.id) ?? _accountFromRef(ex.account);
       _relatedAccount = byId(ex.relatedAccount?.id) ??
@@ -159,14 +174,28 @@ class _TransactionFormScreenState extends ConsumerState<TransactionFormScreen> {
               : null);
       _amount = AmountDraft.fromMinorUnits(ex.amountCents, _subunit);
     } else {
+      // Only an account the picker offers: an active one, and not one whose
+      // delete waits out its undo — a transaction saved on it would make
+      // that delete fail.
+      final offered = _accounts;
       Account? usable(int? id) {
-        final account = byId(id);
-        return account == null || account.archived ? null : account;
+        for (final a in offered) {
+          if (a.id == id) return a;
+        }
+        return null;
       }
 
-      _account = usable(widget.initialAccountId) ??
+      final picked = usable(widget.initialAccountId) ??
           usable(_lastAccountId()) ??
-          (active.length == 1 ? active.single : null);
+          (offered.length == 1 ? offered.single : null);
+      if (picked != null) {
+        // An amount typed before the list came in is read in the
+        // account's currency (gram gold has no decimals).
+        if (picked.subunitToUnit != _subunit) {
+          _amount = _amount.forCurrency(picked.subunitToUnit);
+        }
+        _account = picked;
+      }
     }
     _seeded = true;
   }
@@ -235,6 +264,7 @@ class _TransactionFormScreenState extends ConsumerState<TransactionFormScreen> {
 
   Future<void> _pickAccount() async {
     final l = context.l10n;
+    if (reloadAccountsIfMissing(ref)) return;
     final accounts = _accounts;
     if (accounts.isEmpty) {
       // Nothing to pick from: make one.
@@ -274,9 +304,10 @@ class _TransactionFormScreenState extends ConsumerState<TransactionFormScreen> {
     final l = context.l10n;
     final source = _account;
     if (source == null) {
-      setState(() => _fieldErrors = {'account': l.txFormSelectAccount});
+      setState(() => _fieldErrors = {'account': _accountMissing(l)});
       return;
     }
+    if (reloadAccountsIfMissing(ref)) return;
     // Only another account in the same currency: the server credits the
     // target with the source's minor units as they are.
     final targets = [
@@ -361,21 +392,32 @@ class _TransactionFormScreenState extends ConsumerState<TransactionFormScreen> {
   // --- submit ----------------------------------------------------------------
 
   /// What is wrong before the server is asked, by field.
+  ///
+  /// A transfer's two accounts must differ and share a currency — checked,
+  /// as the server checks it, only when the kind or an account is new: an
+  /// older transfer that breaks the rule stays editable (contract 4.3), so
+  /// a new note or date on it is saved.
   Map<String, String> _validate(AppL10n l) {
     final account = _account;
     final target = _relatedAccount;
+    final existing = widget.existing;
+    final transferRules = existing == null ||
+        existing.kind != _kind ||
+        existing.account.id != account?.id ||
+        existing.relatedAccount?.id != target?.id;
     return {
       if (_cents <= 0) 'amount': l.txFormEnterAmount,
-      if (account == null)
-        'account': _accounts.isEmpty ? l.txFormNeedAccount : l.txFormSelectAccount,
+      if (account == null) 'account': _accountMissing(l),
       if (_kind == 'transfer' && target == null)
         'target': l.txFormSelectTargetAccount,
       if (_kind == 'transfer' &&
+          transferRules &&
           account != null &&
           target != null &&
           target.id == account.id)
         'target': l.txFormAccountsMustDiffer,
       if (_kind == 'transfer' &&
+          transferRules &&
           account != null &&
           target != null &&
           target.id != account.id &&
@@ -478,15 +520,29 @@ class _TransactionFormScreenState extends ConsumerState<TransactionFormScreen> {
   Widget build(BuildContext context) {
     // Rebuild once accounts arrive so seeding and the pickers have data; the
     // categories are fetched now so the picker opens with them.
-    ref.watch(accountsProvider);
+    final accounts = ref.watch(accountsProvider);
     ref.watch(categoriesProvider);
+    ref.watch(deferredDeletesProvider);
+    // What a save said while the list was not here (loading, or failed) no
+    // longer holds once it is: the row then shows the account filled in,
+    // or that there is none to pick yet.
+    ref.listen(accountsProvider, (previous, next) {
+      if (next.hasValue &&
+          !(previous?.hasValue ?? false) &&
+          _fieldErrors.containsKey('account')) {
+        setState(() => _fieldErrors = {..._fieldErrors}..remove('account'));
+      }
+    });
     _seed();
     final c = context.nok;
     final text = Theme.of(context).textTheme;
     final l = context.l10n;
     final transfer = _kind == 'transfer';
-    final noAccounts =
-        ref.read(accountsProvider).value != null && _accounts.isEmpty;
+    // The account list not here yet: loading, or failed (a tap on the row
+    // loads it again) — never "make your first account".
+    final accountsLoading = !accounts.hasValue && accounts.isLoading;
+    final accountsFailed = !accounts.hasValue && !accounts.isLoading;
+    final noAccounts = accounts.hasValue && _accounts.isEmpty;
 
     return FormScaffold(
       title: _isEdit ? l.txFormEditTitle : l.txFormNewTitle,
@@ -496,17 +552,22 @@ class _TransactionFormScreenState extends ConsumerState<TransactionFormScreen> {
       onAction: _submit,
       children: [
         Center(
-          child: _KindPill(
-            kind: _kind,
-            onChanged: (k) => setState(() {
-              _kind = k;
-              if (k == 'transfer') {
-                _category = null;
-              } else if (_category != null && _category!.kind != k) {
-                _category = null;
-              }
-              _fieldErrors = const {};
-            }),
+          // One row whatever the text size: larger text scales the pill down
+          // to the width there is instead of running off the screen.
+          child: FittedBox(
+            fit: BoxFit.scaleDown,
+            child: _KindPill(
+              kind: _kind,
+              onChanged: (k) => setState(() {
+                _kind = k;
+                if (k == 'transfer') {
+                  _category = null;
+                } else if (_category != null && _category!.kind != k) {
+                  _category = null;
+                }
+                _fieldErrors = const {};
+              }),
+            ),
           ),
         ),
         const SizedBox(height: 24),
@@ -552,10 +613,15 @@ class _TransactionFormScreenState extends ConsumerState<TransactionFormScreen> {
         FormPickerRow(
           icon: Icons.account_balance_wallet_outlined,
           label: l.txFormAccount,
-          value: _account?.name ?? (noAccounts ? l.txFormNeedAccount : null),
+          value: _account?.name ??
+              (noAccounts
+                  ? l.txFormNeedAccount
+                  : (accountsLoading ? l.txFormAccountsLoading : null)),
           color: _account == null ? null : hexColor(_account!.color),
+          busy: accountsLoading,
           onTap: _pickAccount,
-          errorText: _fieldErrors['account'],
+          errorText: _fieldErrors['account'] ??
+              (accountsFailed ? l.txFormAccountsFailed : null),
         ),
         const SizedBox(height: 8),
         if (transfer)
@@ -566,6 +632,7 @@ class _TransactionFormScreenState extends ConsumerState<TransactionFormScreen> {
             color: _relatedAccount == null
                 ? null
                 : hexColor(_relatedAccount!.color),
+            busy: accountsLoading,
             onTap: _pickTarget,
             errorText: _fieldErrors['target'],
           )
@@ -635,8 +702,16 @@ class _KindPill extends StatelessWidget {
       ('income', l.financeIncome),
       ('transfer', l.financeTransfer),
     ];
+    void select(String value) {
+      if (value == kind) return;
+      Haptics.tick();
+      onChanged(value);
+    }
+
     return Container(
-      padding: const EdgeInsets.all(3),
+      // No vertical padding: each segment's 48 dp target (design-research
+      // §6.2) fills the pill's height, and its 40 dp highlight sits inside.
+      padding: const EdgeInsets.symmetric(horizontal: 3),
       decoration: BoxDecoration(
         color: c.surface2,
         borderRadius: BorderRadius.circular(999),
@@ -646,33 +721,43 @@ class _KindPill extends StatelessWidget {
         mainAxisSize: MainAxisSize.min,
         children: [
           for (final (value, label) in options)
+            // One stop per segment for a screen reader, saying which one is
+            // chosen. Its detector is left out of the tree, so this node
+            // answers the double-tap itself (the chosen one has nothing to
+            // do).
             Semantics(
               button: true,
               selected: value == kind,
               label: label,
+              onTap: value == kind ? null : () => select(value),
               excludeSemantics: true,
               child: GestureDetector(
-                onTap: () {
-                  if (value != kind) {
-                    Haptics.tick();
-                    onChanged(value);
-                  }
-                },
-                child: AnimatedContainer(
-                  duration: const Duration(milliseconds: 200),
-                  curve: Curves.easeOutCubic,
-                  constraints: const BoxConstraints(minHeight: 40),
-                  alignment: Alignment.center,
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 18, vertical: 8),
-                  decoration: BoxDecoration(
-                    color: value == kind ? c.goldContainer : Colors.transparent,
-                    borderRadius: BorderRadius.circular(999),
-                  ),
-                  child: Text(
-                    label,
-                    style: text.labelLarge!.copyWith(
-                      color: value == kind ? c.onGoldContainer : c.inkMid,
+                behavior: HitTestBehavior.opaque,
+                onTap: () => select(value),
+                child: ConstrainedBox(
+                  constraints: const BoxConstraints(minHeight: 48),
+                  child: Center(
+                    widthFactor: 1,
+                    heightFactor: 1,
+                    child: AnimatedContainer(
+                      duration: const Duration(milliseconds: 200),
+                      curve: Curves.easeOutCubic,
+                      constraints: const BoxConstraints(minHeight: 40),
+                      alignment: Alignment.center,
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 18, vertical: 8),
+                      decoration: BoxDecoration(
+                        color: value == kind
+                            ? c.goldContainer
+                            : Colors.transparent,
+                        borderRadius: BorderRadius.circular(999),
+                      ),
+                      child: Text(
+                        label,
+                        style: text.labelLarge!.copyWith(
+                          color: value == kind ? c.onGoldContainer : c.inkMid,
+                        ),
+                      ),
                     ),
                   ),
                 ),

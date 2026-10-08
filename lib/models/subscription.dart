@@ -1,5 +1,6 @@
 import 'account.dart';
 import 'date_utils.dart';
+import 'form_text.dart';
 import 'json_read.dart';
 import 'transaction.dart';
 
@@ -76,13 +77,6 @@ class Subscription {
           ? TxCategory.fromJson(json['category'] as Map<String, dynamic>)
           : null,
     );
-  }
-
-  /// Due on or before [today]: its payment can be recorded as made.
-  bool isDue(DateTime today) {
-    final next = nextChargeOn;
-    if (!active || next == null) return false;
-    return !dateOnly(next).isAfter(dateOnly(today));
   }
 }
 
@@ -186,7 +180,9 @@ class SubscriptionInput {
 
   /// The body of an edit of [before]: only what changed. Moving it to an
   /// account in another currency carries the amount with it, re-read in
-  /// that currency (the server asks for both in one request).
+  /// that currency (the server asks for both in one request). Text is
+  /// compared as the form sends it ([formTextChanged]), so a vendor or note
+  /// saved with trailing spaces on the web is not rewritten untouched.
   Map<String, dynamic> changesFrom(
     Subscription before, {
     required String accountCurrency,
@@ -197,15 +193,15 @@ class SubscriptionInput {
     final movedCurrency =
         accountCurrency.toUpperCase() != before.account.currency.toUpperCase();
     return {
-      if (name != before.name) 'name': name,
+      if (formTextChanged(name, before.name)) 'name': name.trim(),
       if (accountId != before.account.id) 'account_id': accountId,
       if (amountCents != before.amountCents || movedCurrency)
         'amount_cents': amountCents,
       if (frequency != before.frequency) 'frequency': frequency,
       if (next != wasNext) 'next_charge_on': next,
       if (categoryId != before.category?.id) 'finance_category_id': categoryId,
-      if (vendor != before.vendor) 'vendor': vendor,
-      if (note != before.note) 'note': note,
+      if (formTextChanged(vendor, before.vendor)) 'vendor': asFormText(vendor),
+      if (formTextChanged(note, before.note)) 'note': asFormText(note),
       if (color.toUpperCase() != before.color.toUpperCase()) 'color': color,
     };
   }

@@ -1,3 +1,5 @@
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
 
 import '../../../l10n/app_l10n.dart';
@@ -8,12 +10,50 @@ import '../../../core/formats.dart';
 import '../../widgets/pressable_scale.dart';
 import 'finance_utils.dart';
 
-/// 140dp finance account card for the Para snap PageView (design §4.4).
+/// A finance account card of the snap carousel on Finance (design §4.4):
+/// 140 dp, or as tall as larger text needs ([heightFor]) — a minimum
+/// height, never a fixed one (design-research §6.2).
 class AccountCard extends StatelessWidget {
   final Account account;
   final VoidCallback? onTap;
 
   const AccountCard({super.key, required this.account, this.onTap});
+
+  /// The least height of a card, and of the carousel.
+  static const minHeight = 140.0;
+
+  static const _padding = 16.0;
+  static const _nameGap = 2.0;
+
+  /// The least room between the type and the balance.
+  static const _balanceGap = 8.0;
+
+  /// How tall a card — and so the carousel — is at the text size in use:
+  /// [minHeight], or what a name, a type and a balance take on their one
+  /// line each at a larger size.
+  static double heightFor(BuildContext context) {
+    final text = Theme.of(context).textTheme;
+    final scaler = MediaQuery.textScalerOf(context);
+    double lineOf(TextStyle? style) {
+      final painter = TextPainter(
+        text: TextSpan(text: '0', style: style),
+        textDirection: TextDirection.ltr,
+        textScaler: scaler,
+        maxLines: 1,
+      )..layout();
+      final height = painter.height;
+      painter.dispose();
+      return height;
+    }
+
+    final content = _padding * 2 +
+        lineOf(text.titleMedium) +
+        _nameGap +
+        lineOf(text.labelSmall) +
+        _balanceGap +
+        lineOf(text.displayMedium);
+    return math.max(minHeight, content.ceilToDouble());
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -24,7 +64,7 @@ class AccountCard extends StatelessWidget {
     return PressableScale(
       onTap: onTap,
       child: Container(
-        height: 140,
+        constraints: const BoxConstraints(minHeight: minHeight),
         decoration: BoxDecoration(
           color: c.surface1,
           borderRadius: BorderRadius.circular(16),
@@ -40,7 +80,7 @@ class AccountCard extends StatelessWidget {
             ),
             Expanded(
               child: Padding(
-                padding: const EdgeInsets.all(16),
+                padding: const EdgeInsets.all(_padding),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
@@ -50,11 +90,14 @@ class AccountCard extends StatelessWidget {
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                     ),
-                    const SizedBox(height: 2),
+                    const SizedBox(height: _nameGap),
                     Text(
                       context.l10n.accountType(account.accountType),
                       style: text.labelSmall!.copyWith(color: c.inkMid),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
                     ),
+                    const SizedBox(height: _balanceGap),
                     const Spacer(),
                     FittedBox(
                       fit: BoxFit.scaleDown,
@@ -96,8 +139,9 @@ class AccountAddCard extends StatelessWidget {
       onTap: onTap,
       child: CustomPaint(
         painter: _DashedBorderPainter(color: c.hairline, radius: 16),
-        child: SizedBox(
-          height: 140,
+        child: ConstrainedBox(
+          constraints:
+              const BoxConstraints(minHeight: AccountCard.minHeight),
           child: Center(
             child: Column(
               mainAxisSize: MainAxisSize.min,

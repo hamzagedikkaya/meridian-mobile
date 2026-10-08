@@ -141,7 +141,6 @@ class _BudgetSheetState extends ConsumerState<_BudgetSheet> {
       record: (scope: DataScope.budgets, id: existing.id),
       message: l.budgetRemoved(existing.categoryName),
       send: () => repo.deleteBudget(existing.id),
-      failedMessage: l.budgetSaveFailed,
     );
   }
 
@@ -152,7 +151,12 @@ class _BudgetSheetState extends ConsumerState<_BudgetSheet> {
     final l = context.l10n;
     final budgetsAsync = ref.watch(budgetsProvider);
     final bundle = budgetsAsync.value?.data;
-    final categories = ref.watch(categoriesProvider).value?.data ?? const [];
+    final categories = withoutDeleted(
+      ref.watch(categoriesProvider).value?.data ?? const <TxCategory>[],
+      ref.watch(deferredDeletesProvider),
+      DataScope.categories,
+      (cat) => cat.id,
+    );
     final user = ref.watch(currentUserProvider);
     // Budgets are kept in the user's currency.
     final currency = bundle?.currency ?? user?.currency ?? 'TRY';

@@ -1,3 +1,5 @@
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -57,6 +59,10 @@ class _FinanceScreenState extends ConsumerState<FinanceScreen>
   String _scope = 'month';
   final _accountsCtrl = PageController(viewportFraction: 0.88);
   int _accountPage = 0;
+
+  /// The carousel is on its way to the page a dot was tapped for: the pages
+  /// it passes do not tick.
+  bool _goingToPage = false;
 
   /// The first-run button is opening the cash account.
   bool _openingCash = false;
@@ -192,6 +198,26 @@ class _FinanceScreenState extends ConsumerState<FinanceScreen>
 
   Future<void> _addAccount() async {
     await openAccountForm(context);
+  }
+
+  /// A page dot was tapped: the carousel shows that page.
+  Future<void> _showAccountPage(int page) async {
+    if (!_accountsCtrl.hasClients || page == _accountPage) return;
+    Haptics.tick();
+    _goingToPage = true;
+    try {
+      if (MediaQuery.disableAnimationsOf(context)) {
+        _accountsCtrl.jumpToPage(page);
+      } else {
+        await _accountsCtrl.animateToPage(
+          page,
+          duration: const Duration(milliseconds: 300),
+          curve: Curves.easeOutCubic,
+        );
+      }
+    } finally {
+      _goingToPage = false;
+    }
   }
 
   /// The first-run shortcut: a cash account in the user's currency, in one
@@ -488,7 +514,8 @@ class _FinanceScreenState extends ConsumerState<FinanceScreen>
       return NokSkeleton(
         enabled: true,
         child: Container(
-          height: 158,
+          // The cards and their page dots.
+          height: AccountCard.heightFor(context) + _dotTarget,
           decoration: BoxDecoration(
             color: c.skeletonBone,
             borderRadius: BorderRadius.circular(16),
@@ -517,12 +544,13 @@ class _FinanceScreenState extends ConsumerState<FinanceScreen>
     return Column(
       children: [
         SizedBox(
-          height: 140,
+          // As tall as a card needs at the text size in use.
+          height: AccountCard.heightFor(context),
           child: PageView.builder(
             controller: _accountsCtrl,
             itemCount: pageCount,
             onPageChanged: (i) {
-              Haptics.tick();
+              if (!_goingToPage) Haptics.tick();
               setState(() => _accountPage = i);
             },
             itemBuilder: (context, i) {
@@ -557,27 +585,57 @@ class _FinanceScreenState extends ConsumerState<FinanceScreen>
             },
           ),
         ),
-        const SizedBox(height: 12),
-        Row(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            for (var i = 0; i < pageCount; i++)
-              AnimatedContainer(
-                duration: const Duration(milliseconds: 250),
-                curve: Curves.easeOutCubic,
-                width: i == activePage ? 18 : 6,
-                height: 6,
-                margin: const EdgeInsets.symmetric(horizontal: 3),
-                decoration: BoxDecoration(
-                  borderRadius: BorderRadius.circular(3),
-                  color: i == activePage ? c.gold : c.inkFaint,
-                ),
-              ),
-          ],
+        // Each dot shows its page on a tap, a 48 dp target (design-research
+        // §6.2) — narrower only when that many cannot stand side by side.
+        LayoutBuilder(
+          builder: (context, constraints) {
+            final slot =
+                math.min(_dotTarget, constraints.maxWidth / pageCount);
+            return Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                for (var i = 0; i < pageCount; i++)
+                  // One stop per dot for a screen reader; its detector is
+                  // left out of the tree, so this node answers the
+                  // double-tap itself.
+                  Semantics(
+                    button: true,
+                    selected: i == activePage,
+                    label: l.accountsCarouselPage(i + 1, pageCount),
+                    onTap: i == activePage ? null : () => _showAccountPage(i),
+                    excludeSemantics: true,
+                    child: GestureDetector(
+                      behavior: HitTestBehavior.opaque,
+                      onTap: () => _showAccountPage(i),
+                      child: SizedBox(
+                        width: slot,
+                        height: _dotTarget,
+                        child: Center(
+                          child: AnimatedContainer(
+                            duration: const Duration(milliseconds: 250),
+                            curve: Curves.easeOutCubic,
+                            width: i == activePage ? 18 : 6,
+                            height: 6,
+                            decoration: BoxDecoration(
+                              borderRadius: BorderRadius.circular(3),
+                              color: i == activePage ? c.gold : c.inkFaint,
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+              ],
+            );
+          },
         ),
       ],
     );
   }
+
+  /// A page dot's target, square: the height of the row of dots under the
+  /// carousel, and each dot's width while they all fit side by side.
+  static const _dotTarget = 48.0;
 
   // --- six month -------------------------------------------------------------
 
@@ -684,7 +742,7 @@ class _FinanceScreenState extends ConsumerState<FinanceScreen>
         onTap: onTap,
         borderRadius: BorderRadius.circular(8),
         child: ConstrainedBox(
-          constraints: const BoxConstraints(minHeight: 40),
+          constraints: const BoxConstraints(minHeight: 48),
           child: Row(
             children: [
               ChartLegendDot(color),
@@ -766,12 +824,43 @@ class _FinanceScreenState extends ConsumerState<FinanceScreen>
     );
   }
 
+  /// A slice's spending this month, by where it is filed; a row opens those
+  /// transactions in İşlemler.
+  ///
+  /// A category whose subcategories were used splits into the part filed
+  /// under the category itself ("Market (genel)", as the web says it) and
+  /// each subcategory, under a "Tümü" row for the whole slice. A top-level
+  /// category's filter takes its subcategories along, so İşlemler can show
+  /// the whole slice or one subcategory, but not the category's own part:
+  /// that row opens nothing, rather than a list that adds up to more.
   void _showBreakdown(
       BuildContext context, FinanceDashboard dash, PieSlice slice) {
     final text = Theme.of(context).textTheme;
-    final rows = slice.breakdown.isEmpty
-        ? [PieBreakdown(id: slice.id, name: slice.name, amountCents: slice.amountCents, isRoot: true)]
-        : slice.breakdown;
+    final l = context.l10n;
+    final rows = <({String title, String? meta, int cents, int? drillId})>[
+      if (slice.breakdown.isEmpty)
+        (
+          title: slice.name,
+          meta: null,
+          cents: slice.amountCents,
+          drillId: slice.id,
+        )
+      else ...[
+        (
+          title: l.financeSliceAll,
+          meta: l.financeSliceAllMeta,
+          cents: slice.amountCents,
+          drillId: slice.id,
+        ),
+        for (final b in slice.breakdown)
+          (
+            title: b.isRoot ? l.financeSliceDirect(b.name) : b.name,
+            meta: null,
+            cents: b.amountCents,
+            drillId: b.isRoot ? null : b.id,
+          ),
+      ],
+    ];
     showModalBottomSheet<void>(
       context: context,
       isScrollControlled: true,
@@ -789,23 +878,27 @@ class _FinanceScreenState extends ConsumerState<FinanceScreen>
               child: ListView(
                 shrinkWrap: true,
                 children: [
-                  for (final b in rows)
+                  for (final row in rows)
                     NokturnRow(
                       leading: LeadingCircle(
                         color: hexColor(slice.color),
                         icon: Icons.circle,
                       ),
-                      title: b.name,
+                      title: row.title,
+                      meta: row.meta,
                       trailing: MoneyText(
-                        b.amountCents,
+                        row.cents,
                         currency: dash.currency,
                         subunitToUnit: dash.subunitToUnit,
                         negative: true,
                       ),
-                      // A row opens that category's spending this month.
-                      onTap: () {
-                        Navigator.of(sheet).pop();
-                        _drillInto(categoryId: b.id);
+                      // A row opens that spending this month.
+                      onTap: switch (row.drillId) {
+                        final id? => () {
+                            Navigator.of(sheet).pop();
+                            _drillInto(categoryId: id);
+                          },
+                        null => null,
                       },
                     ),
                 ],
@@ -890,68 +983,71 @@ class _FinanceScreenState extends ConsumerState<FinanceScreen>
     final over = b.state == 'over';
     String money(int cents) =>
         formatMoney(cents, dash.currency, dash.subunitToUnit);
-    return InkWell(
-      // A tap changes the limit or removes the budget.
-      onTap: b.id == 0 ? null : () => showBudgetSheet(context, existing: b),
-      borderRadius: BorderRadius.circular(12),
-      child: Padding(
-        padding: const EdgeInsets.symmetric(vertical: 8),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
+    final content = Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(b.categoryName, style: text.titleSmall),
+        const SizedBox(height: 8),
+        PacedProgressBar(
+          value: (b.barPercent / 100).clamp(0.0, 1.0),
+          color: stateColor(b.state),
+          paceTick: (b.pacePercent / 100).clamp(0.0, 1.0),
+        ),
+        const SizedBox(height: 6),
+        // Spent against the limit, then what is left — or by how much it is
+        // over, in the error colour on the amount only.
+        Row(
           children: [
-            Text(b.categoryName, style: text.titleSmall),
-            const SizedBox(height: 8),
-            PacedProgressBar(
-              value: (b.barPercent / 100).clamp(0.0, 1.0),
-              color: stateColor(b.state),
-              paceTick: (b.pacePercent / 100).clamp(0.0, 1.0),
-            ),
-            const SizedBox(height: 6),
-            // Spent against the limit, then what is left — or by how much it
-            // is over, in the error colour on the amount only.
-            Row(
-              children: [
-                Expanded(
-                  child: Text(
-                    l.financeBudgetSpentOf(
-                        money(b.spentCents), money(b.limitCents)),
-                    style: text.bodySmall!.copyWith(
-                      color: c.inkMid,
-                      fontFeatures: tabularFigures,
-                    ),
-                  ),
-                ),
-                const SizedBox(width: 8),
-                Flexible(
-                  child: Text(
-                    over
-                        ? l.financeOverBy(money(b.overByCents))
-                        : l.financeRemaining(money(b.remainingCents)),
-                    textAlign: TextAlign.end,
-                    style: text.bodySmall!.copyWith(
-                      color: over ? c.error : c.inkMid,
-                      fontFeatures: tabularFigures,
-                    ),
-                  ),
-                ),
-              ],
-            ),
-            if (!over && b.projectedCents > b.limitCents)
-              Padding(
-                padding: const EdgeInsets.only(top: 2),
-                child: FittedBox(
-                  fit: BoxFit.scaleDown,
-                  alignment: Alignment.centerLeft,
-                  child: Text(
-                    l.financeMonthEndEstimate(money(b.projectedCents)),
-                    style: text.bodySmall!.copyWith(
-                      color: c.warning,
-                      fontFeatures: tabularFigures,
-                    ),
-                  ),
+            Expanded(
+              child: Text(
+                l.financeBudgetSpentOf(money(b.spentCents), money(b.limitCents)),
+                style: text.bodySmall!.copyWith(
+                  color: c.inkMid,
+                  fontFeatures: tabularFigures,
                 ),
               ),
+            ),
+            const SizedBox(width: 8),
+            Flexible(
+              child: Text(
+                over
+                    ? l.financeOverBy(money(b.overByCents))
+                    : l.financeRemaining(money(b.remainingCents)),
+                textAlign: TextAlign.end,
+                style: text.bodySmall!.copyWith(
+                  color: over ? c.error : c.inkMid,
+                  fontFeatures: tabularFigures,
+                ),
+              ),
+            ),
           ],
+        ),
+        if (!over && b.projectedCents > b.limitCents)
+          Padding(
+            padding: const EdgeInsets.only(top: 2),
+            child: FittedBox(
+              fit: BoxFit.scaleDown,
+              alignment: Alignment.centerLeft,
+              child: Text(
+                l.financeMonthEndEstimate(money(b.projectedCents)),
+                style: text.bodySmall!.copyWith(
+                  color: c.warning,
+                  fontFeatures: tabularFigures,
+                ),
+              ),
+            ),
+          ),
+      ],
+    );
+    // One node for screen readers; a tap changes the limit or removes the
+    // budget.
+    return MergeSemantics(
+      child: InkWell(
+        onTap: b.id == 0 ? null : () => showBudgetSheet(context, existing: b),
+        borderRadius: BorderRadius.circular(12),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(vertical: 8),
+          child: content,
         ),
       ),
     );
@@ -978,9 +1074,7 @@ class _FinanceScreenState extends ConsumerState<FinanceScreen>
       final next = s.nextChargeOn;
       if (next == null) return l.subscriptionFrequency(s.frequency);
       // A date that has passed stays until the payment is recorded.
-      if (dayDelta(next, now: today) < 0) {
-        return '${l.subscriptionOverdue} · ${formatDate(next)}';
-      }
+      if (dayDelta(next, now: today) < 0) return overdueSince(l, next, today);
       return l.relativeDays(next);
     }
 
@@ -989,24 +1083,20 @@ class _FinanceScreenState extends ConsumerState<FinanceScreen>
       children: [
         SectionHeader(
           l.financeUpcomingSubscriptions,
+          trailing: IconButton(
+            onPressed: () => openSubscriptionForm(context),
+            tooltip: l.financeAddSubscription,
+            icon: const Icon(Icons.add),
+          ),
           onSeeAll: () => context.push('/finance/subscriptions'),
         ),
         if (subs.isEmpty)
+          // Nothing due soon — which says nothing about whether there are
+          // subscriptions at all ("Tümü →" lists them; "+" adds one).
           NokturnCard(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  l.financeNoUpcomingPayments,
-                  style: text.bodyMedium!.copyWith(color: c.inkMid),
-                ),
-                const SizedBox(height: 4),
-                TextButton.icon(
-                  onPressed: () => openSubscriptionForm(context),
-                  icon: const Icon(Icons.add, size: 18),
-                  label: Text(l.financeAddSubscription),
-                ),
-              ],
+            child: Text(
+              l.financeNoUpcomingPayments,
+              style: text.bodyMedium!.copyWith(color: c.inkMid),
             ),
           )
         else
@@ -1100,6 +1190,7 @@ class _FinanceSkeleton extends StatelessWidget {
             borderRadius: BorderRadius.circular(r),
           ),
         );
+    final card = AccountCard.heightFor(context);
     return NokSkeleton(
       enabled: true,
       child: ListView(
@@ -1110,9 +1201,9 @@ class _FinanceSkeleton extends StatelessWidget {
           bone(120, r: 16),
           const SizedBox(height: 32),
           Row(children: [
-            Expanded(flex: 8, child: bone(140, r: 16)),
+            Expanded(flex: 8, child: bone(card, r: 16)),
             const SizedBox(width: 12),
-            Expanded(flex: 1, child: bone(140, r: 16)),
+            Expanded(flex: 1, child: bone(card, r: 16)),
           ]),
           const SizedBox(height: 32),
           bone(180, r: 16),

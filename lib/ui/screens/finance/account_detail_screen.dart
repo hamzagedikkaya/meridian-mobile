@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/semantics.dart' show CustomSemanticsAction;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/api.dart';
@@ -28,11 +27,16 @@ import 'tx_row.dart';
 
 /// Archives [account] — it leaves the carousel and the pickers, its history
 /// keeps counting — and offers "Geri al" (which restores it).
+///
+/// An account archived already is left alone: archiving it again would
+/// change nothing, and its "Geri al" would restore an account the user had
+/// archived on purpose.
 Future<void> archiveAccount(
   BuildContext context,
   WidgetRef ref,
   Account account,
 ) async {
+  if (account.archived) return;
   final l = context.l10n;
   final repo = ref.read(repositoryProvider);
   final messenger = ScaffoldMessenger.of(context);
@@ -153,11 +157,13 @@ class _AccountDetailScreenState extends ConsumerState<AccountDetailScreen> {
   /// "Geri al", or after saying what else goes when it pays subscriptions or
   /// feeds goals. An account with history cannot be deleted (other
   /// accounts' transfers into it would lose their target): archiving is
-  /// offered instead. What is recorded on it comes from the server.
+  /// offered instead — or, for one archived already, only said. What is
+  /// recorded on it comes from the server.
   Future<void> _delete(Account account) async {
     final l = context.l10n;
     final navigator = Navigator.of(context);
     final host = navigator.context;
+    final messenger = ScaffoldMessenger.of(context);
     final repo = ref.read(repositoryProvider);
     final deletes = ref.read(deferredDeletesProvider.notifier);
     AccountDetail detail;
@@ -174,7 +180,21 @@ class _AccountDetailScreenState extends ConsumerState<AccountDetailScreen> {
       return;
     }
     if (!mounted) return;
+    // Archived already (here, or on the web since this screen learnt it):
+    // archiving is no way out for it.
+    final archived = account.archived || detail.account.archived;
     if (!detail.deletable) {
+      if (archived) {
+        await showInfoDialog(
+          context,
+          title: l.accountCantDeleteTitle,
+          message: l.accountCantDeleteArchived(
+            detail.transactionsCount,
+            detail.incomingTransfersCount,
+          ),
+        );
+        return;
+      }
       final archive = await showConfirmDialog(
         context,
         title: l.accountCantDeleteTitle,
@@ -193,6 +213,45 @@ class _AccountDetailScreenState extends ConsumerState<AccountDetailScreen> {
     );
     final record = (scope: DataScope.accounts, id: account.id);
     Future<void> send() => repo.deleteAccount(account.id);
+    bool hasTransactions(Object error) =>
+        error is ApiException && error.code == 'has_transactions';
+    // A transaction recorded on it since the check: an archived account is
+    // simply back, as it was — it is not told to archive itself.
+    String? explain(Object error) {
+      if (!archived || !hasTransactions(error)) return null;
+      final refusal = error as ApiException;
+      return l.accountCantDeleteArchived(
+        (refusal.number('transactions_count') ?? 0).toInt(),
+        (refusal.number('incoming_transfers_count') ?? 0).toInt(),
+      );
+    }
+
+    // …and an active one is back, and can be archived instead.
+    ({String label, VoidCallback run})? recover(Object error) =>
+        !archived && hasTransactions(error)
+            ? (
+                label: l.actionArchive,
+                run: () => repo.archiveAccount(account.id).then(
+                      (_) {
+                        if (!messenger.mounted) return;
+                        messenger
+                          ..hideCurrentSnackBar()
+                          ..showSnackBar(SnackBar(
+                            content: Text(l.accountArchived(account.name)),
+                          ));
+                      },
+                      onError: (Object e) {
+                        if (!messenger.mounted) return;
+                        messenger
+                          ..hideCurrentSnackBar()
+                          ..showSnackBar(SnackBar(
+                            content: Text(failureMessage(e, l,
+                                fallback: l.accountArchiveFailed)),
+                          ));
+                      },
+                    ),
+              )
+            : null;
     if (consequences.isEmpty) {
       // Nothing else goes with it: delete with an undo.
       navigator.pop();
@@ -204,6 +263,8 @@ class _AccountDetailScreenState extends ConsumerState<AccountDetailScreen> {
         message: l.accountDeleted(account.name),
         send: send,
         failedMessage: l.accountDeleteFailed,
+        recover: recover,
+        explain: explain,
       );
       return;
     }
@@ -224,6 +285,8 @@ class _AccountDetailScreenState extends ConsumerState<AccountDetailScreen> {
       message: l.accountDeleted(account.name),
       send: send,
       failedMessage: l.accountDeleteFailed,
+      recover: recover,
+      explain: explain,
     );
   }
 
@@ -508,41 +571,18 @@ class _AccountDetailScreenState extends ConsumerState<AccountDetailScreen> {
           itemCount: g.items.length,
           itemBuilder: (context, i) {
             final tx = g.items[i];
-            void delete() => deleteTransactionWithUndo(context, ref, tx);
-            return Semantics(
-              customSemanticsActions: {
-                CustomSemanticsAction(label: l.actionDelete): delete,
-              },
-              child: Dismissible(
-                key: ValueKey('tx-${tx.id}'),
-                direction: DismissDirection.endToStart,
-                onDismissed: (_) => delete(),
-                background: Container(
-                  color: c.error,
-                  alignment: Alignment.centerRight,
-                  padding: const EdgeInsets.only(right: 24),
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Text(
-                        l.actionDelete,
-                        style: text.labelLarge!.copyWith(color: c.bg),
-                      ),
-                      const SizedBox(width: 8),
-                      Icon(Icons.delete_outline, color: c.bg),
-                    ],
-                  ),
-                ),
-                child: TxRow(
-                  tx: tx,
+            return TxSwipeToDelete(
+              key: ValueKey('tx-${tx.id}'),
+              tx: tx,
+              child: TxRow(
+                tx: tx,
+                perspectiveAccountId: widget.accountId,
+                onTap: () => showTransactionSheet(
+                  context,
+                  ref,
+                  tx,
                   perspectiveAccountId: widget.accountId,
-                  onTap: () => showTransactionSheet(
-                    context,
-                    ref,
-                    tx,
-                    perspectiveAccountId: widget.accountId,
-                    onSaved: onSaved,
-                  ),
+                  onSaved: onSaved,
                 ),
               ),
             );

@@ -962,6 +962,22 @@ final transactionsProvider = AsyncNotifierProvider.autoDispose
   retry: _retriedInFetch,
 );
 
+/// One transaction and the other row of its linked pair, if it has one
+/// (GET /transactions/:id): the detail sheet shows the pair, and says
+/// whether a delete would take the other row along.
+final FutureProviderFamily<Fetched<TransactionDetail>, int>
+    transactionDetailProvider =
+    FutureProvider.autoDispose.family<Fetched<TransactionDetail>, int>(
+  (ref, id) => fetched(
+    ref,
+    (r) => r.fetchTransaction(id),
+    dateRelative: false,
+    recordOf: DataScope.transactions,
+    detail: transactionDetailProvider,
+  ),
+  retry: _retriedInFetch,
+);
+
 /// Drops transaction [id], which the server has just deleted, from every
 /// feed that is open — each set of filters, each account's history — as
 /// [TransactionsNotifier.removeLocally] does for one. Infinite scroll then

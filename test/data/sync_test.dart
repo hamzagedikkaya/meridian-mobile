@@ -33,6 +33,8 @@ import '../support/read_models.dart';
 // financial goals from balances and habit goals from completed logs.
 const _transactionReads = {
   '/transactions',
+  // A transaction's detail: the row and its linked pair.
+  '/transactions/316',
   '/finance/dashboard',
   '/accounts',
   // An account's detail counts its transactions (can it be deleted?), a
@@ -55,6 +57,7 @@ const _accountReads = {
   '/accounts/1',
   '/currencies',
   '/transactions',
+  '/transactions/316',
   '/finance/dashboard',
   '/subscriptions',
   '/goals',
@@ -69,6 +72,7 @@ const _accountDeleteReads = {
   '/accounts',
   '/currencies',
   '/transactions',
+  '/transactions/316',
   '/finance/dashboard',
   '/subscriptions',
   '/goals',
@@ -80,6 +84,7 @@ const _categoryReads = {
   '/finance_categories',
   '/finance_categories/5',
   '/transactions',
+  '/transactions/316',
   '/finance/dashboard',
   '/budgets',
   '/subscriptions',
@@ -241,7 +246,8 @@ void main() {
     final cases = <String, (Future<Object?> Function(MeridianRepository), Set<String>)>{
       'createTransaction': ((r) => r.createTransaction(_txInput), _transactionReads),
       'updateTransaction': ((r) => r.updateTransaction(_savedTx, _txInput), _transactionReads),
-      'deleteTransaction': ((r) => r.deleteTransaction(316), _transactionReads),
+      // The deleted transaction's own detail is not asked for again.
+      'deleteTransaction': ((r) => r.deleteTransaction(316), _transactionReads.difference({'/transactions/316'})),
       'setHabitLog': ((r) => r.setHabitLog(7, _day, count: 1), _habitReads),
       'createHabit': ((r) => r.createHabit(_habitInput), _habitReads),
       'updateHabit': ((r) => r.updateHabit(7, _habitInput), _habitReads),
@@ -596,6 +602,7 @@ void main() {
           '/accounts',
           '/currencies',
           '/transactions',
+          '/transactions/316',
           '/finance/dashboard',
           '/subscriptions',
           '/goals',
@@ -609,10 +616,16 @@ void main() {
         {
           '/finance_categories',
           '/transactions',
+          '/transactions/316',
           '/finance/dashboard',
           '/budgets',
           '/subscriptions',
         },
+      ),
+      'a transaction': (
+        transactionDetailProvider,
+        '/transactions/316',
+        _transactionReads.difference({'/transactions/316'}),
       ),
       'a journal entry': (
         journalEntryProvider,

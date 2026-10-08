@@ -57,14 +57,20 @@ class AmountField extends StatelessWidget {
         ? formatTypedAmount(whole: '0', currency: currency)
         : formatMoney(value, currency, subunitToUnit);
     final error = errorText;
-    return Semantics(
-      button: true,
-      label: '$label, $shown',
-      excludeSemantics: true,
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Material(
+    final note = error ?? helperText;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        // One stop for a screen reader: what the field is and the amount in
+        // it. The InkWell under it is left out of the tree, so this node
+        // answers the double-tap itself.
+        Semantics(
+          container: true,
+          button: true,
+          label: '$label, $shown',
+          onTap: () => _edit(context),
+          excludeSemantics: true,
+          child: Material(
             color: c.surface2,
             shape: RoundedRectangleBorder(
               borderRadius: BorderRadius.circular(12),
@@ -106,17 +112,24 @@ class AmountField extends StatelessWidget {
               ),
             ),
           ),
-          if (error != null || helperText != null)
-            Padding(
-              padding: const EdgeInsets.fromLTRB(16, 6, 16, 0),
+        ),
+        // A node of its own, outside the field's (as a text field's helper
+        // and error are): a screen reader reads the hint, and says an error
+        // the moment it appears.
+        if (note != null)
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 6, 16, 0),
+            child: Semantics(
+              container: true,
+              liveRegion: error != null,
               child: Text(
-                error ?? helperText!,
+                note,
                 style: text.bodySmall!
                     .copyWith(color: error == null ? c.inkLow : c.error),
               ),
             ),
-        ],
-      ),
+          ),
+      ],
     );
   }
 }
@@ -194,57 +207,72 @@ class _AmountSheetState extends State<_AmountSheet> {
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            Text(widget.title, style: text.titleLarge),
-            const SizedBox(height: 16),
-            Semantics(
-              liveRegion: true,
-              child: FittedBox(
-                fit: BoxFit.scaleDown,
-                child: Text(
-                  _draft.display(widget.currency, negative: _debt),
-                  style: text.displayLarge!.copyWith(
-                    fontFeatures: tabularFigures,
-                    color: _draft.isEmpty ? c.inkLow : c.inkHi,
-                  ),
+            // Everything above "Tamam" scrolls: in landscape, or with large
+            // text, the keypad does not fit on the screen — and "Tamam"
+            // stays in reach, so an amount can always be confirmed.
+            Flexible(
+              child: SingleChildScrollView(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    Text(widget.title, style: text.titleLarge),
+                    const SizedBox(height: 16),
+                    Semantics(
+                      liveRegion: true,
+                      child: FittedBox(
+                        fit: BoxFit.scaleDown,
+                        child: Text(
+                          _draft.display(widget.currency, negative: _debt),
+                          style: text.displayLarge!.copyWith(
+                            fontFeatures: tabularFigures,
+                            color: _draft.isEmpty ? c.inkLow : c.inkHi,
+                          ),
+                        ),
+                      ),
+                    ),
+                    if (_atLimit)
+                      Padding(
+                        padding: const EdgeInsets.only(top: 4),
+                        child: Text(
+                          l.amountTooLarge(formatMoney(
+                              AmountDraft.maxMinorUnits,
+                              widget.currency,
+                              widget.subunitToUnit)),
+                          textAlign: TextAlign.center,
+                          style: text.bodySmall!.copyWith(color: c.warning),
+                        ),
+                      ),
+                    if (widget.allowDebt) ...[
+                      const SizedBox(height: 8),
+                      SwitchListTile.adaptive(
+                        value: _debt,
+                        onChanged: (v) {
+                          Haptics.tick();
+                          setState(() => _debt = v);
+                        },
+                        contentPadding: EdgeInsets.zero,
+                        title: Text(l.accountFormDebt, style: text.titleSmall),
+                      ),
+                    ],
+                    const SizedBox(height: 8),
+                    AmountKeypad(
+                      onDigit: _digit,
+                      onDot: () => setState(() => _draft =
+                          _draft.withDecimalMark(widget.subunitToUnit)),
+                      onBackspace: () => setState(() {
+                        _atLimit = false;
+                        _draft = _draft.backspace();
+                      }),
+                      onClear: () => setState(() {
+                        _atLimit = false;
+                        _draft = const AmountDraft();
+                      }),
+                      showDecimal: decimalsFor(widget.subunitToUnit) > 0,
+                    ),
+                  ],
                 ),
               ),
-            ),
-            if (_atLimit)
-              Padding(
-                padding: const EdgeInsets.only(top: 4),
-                child: Text(
-                  l.amountTooLarge(formatMoney(AmountDraft.maxMinorUnits,
-                      widget.currency, widget.subunitToUnit)),
-                  textAlign: TextAlign.center,
-                  style: text.bodySmall!.copyWith(color: c.warning),
-                ),
-              ),
-            if (widget.allowDebt) ...[
-              const SizedBox(height: 8),
-              SwitchListTile.adaptive(
-                value: _debt,
-                onChanged: (v) {
-                  Haptics.tick();
-                  setState(() => _debt = v);
-                },
-                contentPadding: EdgeInsets.zero,
-                title: Text(l.accountFormDebt, style: text.titleSmall),
-              ),
-            ],
-            const SizedBox(height: 8),
-            AmountKeypad(
-              onDigit: _digit,
-              onDot: () => setState(() =>
-                  _draft = _draft.withDecimalMark(widget.subunitToUnit)),
-              onBackspace: () => setState(() {
-                _atLimit = false;
-                _draft = _draft.backspace();
-              }),
-              onClear: () => setState(() {
-                _atLimit = false;
-                _draft = const AmountDraft();
-              }),
-              showDecimal: decimalsFor(widget.subunitToUnit) > 0,
             ),
             const SizedBox(height: 12),
             FilledButton(

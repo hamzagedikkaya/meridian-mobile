@@ -6,6 +6,7 @@ import '../../../core/haptics.dart';
 import '../../../data/data_scope.dart';
 import '../../../data/deferred_deletes.dart';
 import '../../../data/providers.dart';
+import '../../../data/sync.dart';
 import '../../../l10n/app_l10n.dart';
 import '../../../models/finance_category.dart';
 import '../../../models/transaction.dart';
@@ -31,6 +32,13 @@ const categoryNameMaxLength = 60;
 /// cannot get one), and the type of a category in use cannot change. A
 /// refusal it still sends (a name already taken under that parent, a parent
 /// that has a budget) lands under the field it is about.
+///
+/// An existing category always shows its type: to change while nothing is
+/// filed under it, locked — saying why — once something is. Should the
+/// server refuse a type change all the same (`kind_locked`: something was
+/// filed under it since the form learnt otherwise), the type goes back to
+/// the category's own and stays locked, so the next save sends the rest of
+/// the edit without it.
 class CategoryForm extends ConsumerStatefulWidget {
   /// The category to edit; null for a new one.
   final TxCategory? existing;
@@ -43,6 +51,10 @@ class CategoryForm extends ConsumerStatefulWidget {
   /// of the transaction.
   final bool kindEditable;
 
+  /// [existing] is in use — transactions, subcategories, a budget or
+  /// subscriptions are filed under it — so its type cannot change.
+  final bool kindInUse;
+
   /// Whether a parent can be chosen (the budget sheet makes top-level
   /// categories only).
   final bool allowParent;
@@ -53,6 +65,8 @@ class CategoryForm extends ConsumerStatefulWidget {
   /// The parent a new category starts under.
   final int? initialParentId;
 
+  /// Gets the category as the server saved it — or, when the edit changed
+  /// nothing, [existing] itself, the same instance (nothing was sent).
   final ValueChanged<TxCategory> onSaved;
 
   /// Under the save button: the edit sheet's delete.
@@ -63,6 +77,7 @@ class CategoryForm extends ConsumerStatefulWidget {
     this.existing,
     required this.kind,
     this.kindEditable = false,
+    this.kindInUse = false,
     this.allowParent = true,
     this.hasChildren = false,
     this.initialParentId,
@@ -84,6 +99,11 @@ class _CategoryFormState extends ConsumerState<CategoryForm> {
   String? _kindError;
   String? _parentError;
   String? _formError;
+
+  /// The server refused a type change (`kind_locked`). The type is locked
+  /// here from then on, whatever the category's usage says — before its
+  /// refetch lands, or should that fail.
+  bool _kindRefused = false;
 
   @override
   void dispose() {
@@ -127,15 +147,22 @@ class _CategoryFormState extends ConsumerState<CategoryForm> {
       if (!mounted) return;
       Haptics.danger();
       final refusal = e is ApiException ? e : null;
+      final kindLocked = refusal?.code == 'kind_locked';
       final nameError = refusal?.fieldMessage(l, 'name');
-      final kindError = refusal?.code == 'kind_locked'
-          ? l.errKindLocked
-          : refusal?.fieldMessage(l, 'kind');
+      final kindError =
+          kindLocked ? l.errKindLocked : refusal?.fieldMessage(l, 'kind');
       final parentError = refusal?.fieldMessage(l, 'parent_id');
       final placed =
           nameError != null || kindError != null || parentError != null;
       setState(() {
         _saving = false;
+        if (kindLocked && existing != null) {
+          // Back to its own type — and its own parent, which is of that
+          // type — so the next save sends the rest of the edit without it.
+          _kindRefused = true;
+          _kind = existing.kind;
+          _parentId = existing.parentId;
+        }
         _nameError = nameError;
         _kindError = kindError;
         _parentError = parentError;
@@ -155,8 +182,16 @@ class _CategoryFormState extends ConsumerState<CategoryForm> {
     final existing = widget.existing;
     // A new category's colour follows the ones already there.
     final color = _color ?? existing?.color ?? rotatingSwatch(all.length);
+    // Not a category whose delete waits out its undo: the server would
+    // delete a subcategory filed under it along with it.
+    final offered = withoutDeleted(
+      all,
+      ref.watch(deferredDeletesProvider),
+      DataScope.categories,
+      (category) => category.id,
+    );
     final parents = [
-      for (final category in all)
+      for (final category in offered)
         if (category.parentId == null &&
             category.kind == _kind &&
             category.id != existing?.id)
@@ -165,6 +200,8 @@ class _CategoryFormState extends ConsumerState<CategoryForm> {
         ? a.position.compareTo(b.position)
         : a.name.compareTo(b.name));
     final parentLocked = widget.hasChildren;
+    final kindLocked = widget.kindInUse || _kindRefused;
+    final kindEditable = widget.kindEditable && !kindLocked;
 
     return Column(
       mainAxisSize: MainAxisSize.min,
@@ -185,7 +222,9 @@ class _CategoryFormState extends ConsumerState<CategoryForm> {
             errorText: _nameError,
           ),
         ),
-        if (widget.kindEditable) ...[
+        // A new category in the picker or the budget sheet keeps the type
+        // it is made for; an existing one always shows its own.
+        if (kindEditable || existing != null) ...[
           const SizedBox(height: 4),
           FormLabel(l.categoryFormKind),
           ChoiceWrap<String>(
@@ -194,14 +233,27 @@ class _CategoryFormState extends ConsumerState<CategoryForm> {
               Choice('income', l.financeIncome),
             ],
             selected: _kind,
-            onChanged: (kind) => setState(() {
-              _kind = kind;
-              _kindError = null;
-              // A parent is of the same type.
-              _parentId = null;
-            }),
+            // Locked — or not known yet to be free — it shows but does not
+            // change.
+            onChanged: kindEditable
+                ? (kind) => setState(() {
+                      _kind = kind;
+                      _kindError = null;
+                      // A parent is of the same type.
+                      _parentId = null;
+                    })
+                : null,
           ),
-          if (_kindError != null) _error(text, c, _kindError!),
+          if (_kindError != null)
+            _error(text, c, _kindError!)
+          else if (kindLocked)
+            Padding(
+              padding: const EdgeInsets.only(top: 4),
+              child: Text(
+                l.categoryFormKindLocked,
+                style: text.bodySmall!.copyWith(color: c.inkLow),
+              ),
+            ),
         ],
         if (widget.allowParent) ...[
           const SizedBox(height: 12),
@@ -257,6 +309,10 @@ class _CategoryFormState extends ConsumerState<CategoryForm> {
 
 /// The create/edit sheet of a category (the Kategoriler page). A new one
 /// gets [kind]; resolves to the category saved, or null.
+///
+/// [context] is the screen's: a delete and its snackbar outlive the sheet,
+/// and its undo window ends when that screen is left (see
+/// [deleteWithUndo]).
 Future<TxCategory?> showCategorySheet(
   BuildContext context, {
   TxCategory? existing,
@@ -267,22 +323,65 @@ Future<TxCategory?> showCategorySheet(
     isScrollControlled: true,
     useSafeArea: true,
     barrierColor: const Color(0xFF171310).withValues(alpha: 0.6),
-    builder: (_) => _CategorySheet(existing: existing, kind: kind),
+    builder: (_) =>
+        _CategorySheet(host: context, existing: existing, kind: kind),
   );
 }
 
-class _CategorySheet extends ConsumerWidget {
+class _CategorySheet extends ConsumerStatefulWidget {
+  final BuildContext host;
   final TxCategory? existing;
   final String kind;
 
-  const _CategorySheet({this.existing, required this.kind});
+  const _CategorySheet({
+    required this.host,
+    this.existing,
+    required this.kind,
+  });
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<_CategorySheet> createState() => _CategorySheetState();
+}
+
+class _CategorySheetState extends ConsumerState<_CategorySheet> {
+  /// "Sil" is reading what the delete would touch, or asking: a second tap
+  /// waits for it.
+  bool _deleting = false;
+
+  /// Why "Sil" deleted nothing: what the category is used for could not be
+  /// read. Said in the sheet — a snackbar would be under it.
+  String? _deleteError;
+
+  Future<void> _delete(TxCategory category) async {
+    final l = context.l10n;
+    setState(() {
+      _deleting = true;
+      _deleteError = null;
+    });
+    String? unreadable;
+    await deleteCategory(
+      context,
+      ref,
+      category,
+      host: widget.host,
+      onUnreadable: (error) {
+        Haptics.danger();
+        unreadable = failureMessage(error, l, fallback: l.categoryLoadFailed);
+      },
+    );
+    if (!mounted) return;
+    setState(() {
+      _deleting = false;
+      _deleteError = unreadable;
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
     final c = context.nok;
     final text = Theme.of(context).textTheme;
     final l = context.l10n;
-    final existing = this.existing;
+    final existing = widget.existing;
     // What the category is used for: whether its type can still change,
     // whether it has subcategories (and what a delete would touch).
     final usage = existing == null
@@ -312,13 +411,17 @@ class _CategorySheet extends ConsumerWidget {
               const SizedBox(height: 16),
               CategoryForm(
                 existing: existing,
-                kind: kind,
+                kind: widget.kind,
                 // A new one may still be either; an existing one only while
                 // nothing is filed under it.
                 kindEditable: existing == null || (usage?.kindEditable ?? false),
+                kindInUse: usage != null && !usage.kindEditable,
                 hasChildren: hasChildren,
                 onSaved: (saved) {
                   Navigator.of(context).pop(saved);
+                  // Nothing changed (the form hands the category back as
+                  // it was): nothing was saved, so nothing is said.
+                  if (identical(saved, existing)) return;
                   showAppSnack(
                     context,
                     existing == null
@@ -330,15 +433,30 @@ class _CategorySheet extends ConsumerWidget {
                     ? null
                     : Padding(
                         padding: const EdgeInsets.only(top: 16),
-                        child: TextButton.icon(
-                          onPressed: () =>
-                              deleteCategory(context, ref, existing),
-                          style: TextButton.styleFrom(
-                            foregroundColor: c.error,
-                            minimumSize: const Size.fromHeight(48),
-                          ),
-                          icon: const Icon(Icons.delete_outline, size: 18),
-                          label: Text(l.actionDelete),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          children: [
+                            TextButton.icon(
+                              onPressed:
+                                  _deleting ? null : () => _delete(existing),
+                              style: TextButton.styleFrom(
+                                foregroundColor: c.error,
+                                minimumSize: const Size.fromHeight(48),
+                              ),
+                              icon: const Icon(Icons.delete_outline, size: 18),
+                              label: Text(l.actionDelete),
+                            ),
+                            if (_deleteError != null)
+                              Semantics(
+                                liveRegion: true,
+                                child: Text(
+                                  _deleteError!,
+                                  textAlign: TextAlign.center,
+                                  style: text.bodySmall!
+                                      .copyWith(color: c.error),
+                                ),
+                              ),
+                          ],
                         ),
                       ),
               ),
@@ -350,36 +468,41 @@ class _CategorySheet extends ConsumerWidget {
   }
 }
 
-/// Deletes [category] — from its edit sheet, which it closes first.
+/// Deletes [category] — from its edit sheet ([context]), which it closes
+/// first. [host] is the screen under the sheet: the delete and its snackbar
+/// outlive the sheet, and its undo window ends when that screen is left.
 ///
 /// What a delete touches comes from the server (GET
 /// /finance_categories/:id). A category nothing is filed under goes at once,
 /// with "Geri al". One in use asks first, naming what happens: its
 /// transactions and subscriptions are left uncategorized, its subcategories
 /// and budgets are deleted — none of which an undo could bring back.
+///
+/// Should what it is used for not be readable, nothing is deleted, the
+/// sheet stays open and [onUnreadable] hears why; the next "Sil" asks again.
 Future<void> deleteCategory(
   BuildContext context,
   WidgetRef ref,
-  TxCategory category,
-) async {
+  TxCategory category, {
+  required BuildContext host,
+  required void Function(Object error) onUnreadable,
+}) async {
   final l = context.l10n;
-  // The sheet closes; the snackbar and the delete outlive it.
   final navigator = Navigator.of(context);
-  final host = navigator.context;
   final record = (scope: DataScope.categories, id: category.id);
   final repo = ref.read(repositoryProvider);
   final deletes = ref.read(deferredDeletesProvider.notifier);
+  final detail = categoryUsageProvider(category.id);
   CategoryUsage usage;
   try {
-    usage = (await ref.read(categoryUsageProvider(category.id).future)).data;
-  } catch (e) {
-    if (context.mounted) {
-      showAppSnack(
-        context,
-        failureMessage(e, l, fallback: l.categoryLoadFailed),
-        isError: true,
-      );
+    // A read that failed is not answered from what it left behind: this
+    // tap is its retry.
+    if (ref.read(detail).hasError) {
+      ref.read(dataSyncProvider).refresh([detail]);
     }
+    usage = (await ref.read(detail.future)).data;
+  } catch (e) {
+    onUnreadable(e);
     return;
   }
   if (!context.mounted || !host.mounted) return;

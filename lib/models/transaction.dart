@@ -1,5 +1,6 @@
 import 'account.dart';
 import 'date_utils.dart';
+import 'form_text.dart';
 import 'json_read.dart';
 
 /// A finance category (shared shape between /finance_categories and the
@@ -72,6 +73,76 @@ class Transaction {
             : AccountRef.fromJson(
                 json['related_account'] as Map<String, dynamic>),
       );
+}
+
+/// The other row of a linked pair (GET /transactions/:id). The web can save
+/// an expense on one account together with an income on another — buying
+/// gold with cash — and the second row is the first one's child.
+class LinkedTransaction {
+  final int id;
+  final String kind;
+  final int amountCents;
+  final DateTime date;
+  final String? description;
+  final AccountRef account;
+
+  /// `child`: it is deleted together with the transaction it is linked to.
+  /// `parent`: it stays when that one is deleted.
+  final String relation;
+
+  const LinkedTransaction({
+    required this.id,
+    required this.kind,
+    required this.amountCents,
+    required this.date,
+    this.description,
+    required this.account,
+    required this.relation,
+  });
+
+  factory LinkedTransaction.fromJson(Map<String, dynamic> json) =>
+      LinkedTransaction(
+        id: readId(json['id']),
+        kind: (json['kind'] as String?) ?? 'expense',
+        amountCents: readInt(json['amount_cents']),
+        date: parseDateTime(json['date']) ?? DateTime(1970),
+        description: json['description'] as String?,
+        account: AccountRef.fromJson(
+            (json['account'] as Map<String, dynamic>?) ?? const {'id': 0}),
+        relation: (json['relation'] as String?) ?? 'parent',
+      );
+
+  /// Deleting the transaction it is linked to deletes this one too.
+  bool get isChild => relation == 'child';
+}
+
+/// One transaction as GET /transactions/:id answers it: the row, and the
+/// other row of its linked pair when it has one.
+class TransactionDetail {
+  final Transaction transaction;
+
+  /// Set when this transaction is the child of a pair.
+  final int? parentTransactionId;
+  final LinkedTransaction? linked;
+
+  const TransactionDetail({
+    required this.transaction,
+    this.parentTransactionId,
+    this.linked,
+  });
+
+  factory TransactionDetail.fromJson(Map<String, dynamic> json) =>
+      TransactionDetail(
+        transaction: Transaction.fromJson(json),
+        parentTransactionId: readIntOrNull(json['parent_transaction_id']),
+        linked: json['linked'] is Map<String, dynamic>
+            ? LinkedTransaction.fromJson(json['linked'] as Map<String, dynamic>)
+            : null,
+      );
+
+  /// Deleting this transaction also deletes [linked] (the server's
+  /// `dependent: :destroy`), which an undo could not bring back.
+  bool get deletesLinked => linked?.isChild ?? false;
 }
 
 class TransactionMeta {
@@ -155,17 +226,18 @@ class TransactionInput {
 
   /// The body of an edit of [before]: only the keys that changed, a cleared
   /// field as null. So an edit never touches what the form did not change —
-  /// a note written on the web survives an edit of the amount.
+  /// a note written on the web survives an edit of the amount. Text is
+  /// compared as the form sends it ([formTextChanged]): a note the web saved
+  /// with a trailing newline is not rewritten by a save that left it alone.
   Map<String, dynamic> changesFrom(Transaction before) {
-    String? blankAsNull(String? s) => (s == null || s.isEmpty) ? null : s;
     final day = isoDate(date);
     return {
       if (kind != before.kind) 'kind': kind,
       if (amountCents != before.amountCents) 'amount_cents': amountCents,
       if (day != isoDate(before.date)) 'date': day,
-      if (description != blankAsNull(before.description))
-        'description': description,
-      if (note != blankAsNull(before.note)) 'note': note,
+      if (formTextChanged(description, before.description))
+        'description': asFormText(description),
+      if (formTextChanged(note, before.note)) 'note': asFormText(note),
       if (accountId != before.account.id) 'account_id': accountId,
       if (financeCategoryId != before.category?.id)
         'finance_category_id': financeCategoryId,

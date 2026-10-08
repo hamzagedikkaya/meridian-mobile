@@ -317,6 +317,23 @@ abstract class AppL10n {
   String get txUpdated;
   String get txSaveFailed;
 
+  /// A transaction's sheet: the other row of its linked pair (the web saves
+  /// an expense on one account with an income on another), and what
+  /// deleting this one does to it.
+  String get txLinkedTitle;
+  String get txLinkedDeletedAlong;
+  String get txLinkedStays;
+
+  /// Deleting a transaction that takes its linked one along asks first;
+  /// [linked] names that one (its account, amount and date).
+  String txDeleteLinkedTitle(String name);
+  String txDeleteLinkedBody(String linked);
+  String get txDeleteBoth;
+  String get txDeletedWithLinked;
+
+  /// The sheet of a transaction deleted on the web or another device.
+  String get txGone;
+
   // --- Transaction form ------------------------------------------------------
 
   String get txFormNewTitle;
@@ -342,6 +359,11 @@ abstract class AppL10n {
   String get txFormTransferSameCurrency;
   String get txFormNoTransferTarget;
   String get txFormNeedAccount;
+
+  /// An account row while the account list loads, and when it could not be
+  /// loaded (a tap tries again) — never "make your first account" then.
+  String get txFormAccountsLoading;
+  String get txFormAccountsFailed;
 
   // --- Forms, keypad and undo -----------------------------------------------
 
@@ -376,6 +398,9 @@ abstract class AppL10n {
 
   String get financeAccounts;
 
+  /// A page dot of the accounts carousel, for screen readers ("Sayfa 2 / 4").
+  String accountsCarouselPage(int page, int count);
+
   /// The label of the Finance FAB (it adds a transaction).
   String get financeAddTransactionFab;
   String get financeMenuCategories;
@@ -404,7 +429,12 @@ abstract class AppL10n {
   String get financeUncategorized;
   String get financeCategorize;
   String get financeOtherCategories;
-  String get financeAddBudget;
+
+  /// A slice's breakdown sheet: its whole spending, subcategories included,
+  /// and the part filed under the category itself (the web's "(genel)").
+  String get financeSliceAll;
+  String get financeSliceAllMeta;
+  String financeSliceDirect(String name);
   String get financeBudgetsEmpty;
 
   /// A budget's spend against its limit.
@@ -447,6 +477,10 @@ abstract class AppL10n {
   String accountDeleted(String name);
   String get accountDeleteFailed;
   String get accountCantDeleteTitle;
+
+  /// An archived account with history cannot be deleted, and archiving is
+  /// no way out for it: said, with nothing offered instead.
+  String accountCantDeleteArchived(int transactions, int incomingTransfers);
   String accountDeleteTitle(String name);
 
   /// What else an account's delete takes or unlinks.

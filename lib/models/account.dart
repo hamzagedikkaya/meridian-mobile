@@ -1,4 +1,5 @@
 import 'date_utils.dart';
+import 'form_text.dart';
 import 'json_read.dart';
 
 /// The account types the server takes (`account_type`), in the order the
@@ -135,12 +136,13 @@ class AccountInput {
   /// The body of an edit of [before]: only what changed, so an edit never
   /// rewrites a field the form did not touch. A currency change carries the
   /// opening balance with it, re-read in the new currency (contract: the
-  /// server asks for both in one request).
+  /// server asks for both in one request). The name is compared as the form
+  /// sends it, trimmed ([formTextChanged]).
   Map<String, dynamic> changesFrom(Account before) {
     final currencyChanged = currency != null &&
         currency!.toUpperCase() != before.currency.toUpperCase();
     return {
-      if (name != before.name) 'name': name,
+      if (formTextChanged(name, before.name)) 'name': name.trim(),
       if (accountType != before.accountType) 'account_type': accountType,
       if (currencyChanged) 'currency': currency,
       if (currencyChanged || initialBalanceCents != before.initialBalanceCents)

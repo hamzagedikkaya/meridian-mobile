@@ -44,21 +44,26 @@ class ColorSwatchRow extends StatelessWidget {
       ...recordSwatches,
       if (!recordSwatches.contains(upper)) upper,
     ];
+    void pick(String hex) {
+      Haptics.tick();
+      onChanged(hex);
+    }
+
     return Wrap(
       spacing: 4,
       runSpacing: 4,
       children: [
         for (var i = 0; i < swatches.length; i++)
+          // One stop per swatch; the InkResponse under it is left out of
+          // the tree, so this node answers the double-tap itself.
           Semantics(
             button: true,
             selected: swatches[i] == upper,
             label: l.colorSwatch(i + 1),
+            onTap: () => pick(swatches[i]),
             excludeSemantics: true,
             child: InkResponse(
-              onTap: () {
-                Haptics.tick();
-                onChanged(swatches[i]);
-              },
+              onTap: () => pick(swatches[i]),
               radius: 24,
               child: SizedBox(
                 width: 48,

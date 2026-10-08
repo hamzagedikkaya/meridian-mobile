@@ -31,6 +31,7 @@ Map<String, ProviderListenable<AsyncValue<Object?>>> readModelsByPath() => {
       '/budgets': budgetsProvider,
       '/subscriptions': subscriptionsProvider,
       '/transactions': transactionsProvider(const TxFilters()),
+      '/transactions/316': transactionDetailProvider(316),
       '/todos': todosProvider('today'),
       '/events': eventsTodayProvider,
       '/journal_entries': journalProvider('30d'),

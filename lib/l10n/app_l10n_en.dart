@@ -202,6 +202,9 @@ class AppL10nEn extends AppL10n {
         'too_short' => count == null
             ? 'Too short'
             : 'At least ${_n(count)} characters',
+        'wrong_length' => count == null
+            ? 'The wrong length'
+            : 'Exactly ${_n(count)} characters',
         'inclusion' => 'Not a valid option',
         'exclusion' => 'This value can\'t be used',
         'invalid' => 'Isn\'t valid',
@@ -562,6 +565,26 @@ class AppL10nEn extends AppL10n {
   @override
   String get txUpdated => 'Transaction updated ✓';
   @override
+  String get txLinkedTitle => 'Linked transaction';
+  @override
+  String get txLinkedDeletedAlong =>
+      'Deleting this transaction deletes the linked one too.';
+  @override
+  String get txLinkedStays =>
+      'Deleting this transaction leaves the linked one.';
+  @override
+  String txDeleteLinkedTitle(String name) => 'Delete “$name”?';
+  @override
+  String txDeleteLinkedBody(String linked) =>
+      'Its linked transaction will be deleted too: $linked. This can\'t be '
+      'undone.';
+  @override
+  String get txDeleteBoth => 'Delete both';
+  @override
+  String get txDeletedWithLinked => 'Transaction and its linked one deleted';
+  @override
+  String get txGone => 'This transaction was deleted';
+  @override
   String get txSaveFailed => 'Couldn\'t save, try again';
 
   // --- Transaction form ------------------------------------------------------
@@ -606,6 +629,11 @@ class AppL10nEn extends AppL10n {
   String get txFormNoTransferTarget => 'No other account uses this currency';
   @override
   String get txFormNeedAccount => 'Create an account first';
+  @override
+  String get txFormAccountsLoading => 'Loading accounts…';
+  @override
+  String get txFormAccountsFailed =>
+      'Couldn\'t load your accounts. Tap to try again.';
 
   // --- Forms, keypad and undo -----------------------------------------------
 
@@ -644,6 +672,8 @@ class AppL10nEn extends AppL10n {
 
   @override
   String get financeAccounts => 'Accounts';
+  @override
+  String accountsCarouselPage(int page, int count) => 'Page $page of $count';
   @override
   String get financeAddTransactionFab => 'Transaction';
   @override
@@ -684,7 +714,11 @@ class AppL10nEn extends AppL10n {
   @override
   String get financeOtherCategories => 'Other';
   @override
-  String get financeAddBudget => 'Add budget';
+  String get financeSliceAll => 'All';
+  @override
+  String get financeSliceAllMeta => 'Subcategories included';
+  @override
+  String financeSliceDirect(String name) => '$name (direct)';
   @override
   String get financeBudgetsEmpty =>
       'Set a monthly limit on a category and see the month\'s end coming.';
@@ -757,6 +791,22 @@ class AppL10nEn extends AppL10n {
   String get accountDeleteFailed => 'Couldn\'t delete the account';
   @override
   String get accountCantDeleteTitle => 'This account can\'t be deleted';
+  @override
+  String accountCantDeleteArchived(int transactions, int incomingTransfers) {
+    final history = [
+      if (transactions > 0)
+        transactions == 1 ? '1 transaction' : '$transactions transactions',
+      if (incomingTransfers > 0)
+        incomingTransfers == 1
+            ? '1 incoming transfer'
+            : '$incomingTransfers incoming transfers',
+    ];
+    final has = history.isEmpty
+        ? ''
+        : 'This account has ${history.join(' and ')}. ';
+    return '${has}An account with history can\'t be deleted; it stays '
+        'archived, and its transactions keep counting in your totals.';
+  }
   @override
   String accountDeleteTitle(String name) => 'Delete “$name”?';
   @override

@@ -22,7 +22,8 @@ class LeadingCircle extends StatelessWidget {
   }
 }
 
-/// The shared 64dp list item — design §4.0.
+/// The shared list item — design §4.0: 64 dp, or taller when larger text
+/// needs it (design-research §6.2: a minimum height, never a fixed one).
 class NokturnRow extends StatelessWidget {
   final Widget? leading;
   final String title;
@@ -47,8 +48,8 @@ class NokturnRow extends StatelessWidget {
       onTap: onTap,
       splashColor: c.gold.withValues(alpha: 0.08),
       child: Container(
-        height: 64,
-        padding: const EdgeInsets.symmetric(horizontal: 20),
+        constraints: const BoxConstraints(minHeight: 64),
+        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
         child: Row(
           children: [
             if (leading != null) ...[leading!, const SizedBox(width: 12)],

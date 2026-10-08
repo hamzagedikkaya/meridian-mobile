@@ -91,7 +91,7 @@ void main() {
   });
 
   testWidgets('an edit sends only what changed; the type of a category in '
-      'use is not offered', (tester) async {
+      'use shows, locked, and says why', (tester) async {
     tallPhone(tester);
     final api = FakeApi()
       ..on('GET /finance_categories', _categories())
@@ -102,7 +102,14 @@ void main() {
     await tester.tap(find.text('Market'));
     await settleFrames(tester);
     expect(_inSheet(find.text('Kategoriyi düzenle')), findsOneWidget);
-    expect(_inSheet(find.text('Tür')), findsNothing, reason: 'in use');
+    expect(_inSheet(find.text('Tür')), findsOneWidget);
+    expect(
+      _inSheet(find.text('Kullanımda olduğu için türü değiştirilemez.')),
+      findsOneWidget,
+    );
+    // A locked type does not change on a tap.
+    await tester.tap(_inSheet(find.text('Gelir')));
+    await tester.pump();
     // A category with subcategories cannot get a parent.
     expect(
       _inSheet(find.text('Alt kategorileri olduğu için başka bir kategorinin '
@@ -113,6 +120,73 @@ void main() {
     await tester.tap(_inSheet(find.text('Kaydet')));
     await settleFrames(tester);
     expect(api.bodiesOf('PATCH /finance_categories/5').single, {'name': 'Gıda'});
+  });
+
+  testWidgets('a type change refused because the category got used '
+      'meanwhile: the type goes back and locks, it says why, and the next '
+      'save sends the rest without it', (tester) async {
+    tallPhone(tester);
+    final api = FakeApi()
+      ..on('GET /finance_categories', _categories())
+      ..on('PATCH /finance_categories/5', {
+        'errors': {
+          'kind': ['A category in use cannot change its type.'],
+        },
+        'code': 'kind_locked',
+      }, status: 422);
+    await pumpFinance(tester, api, const CategoriesScreen());
+    await tester.tap(find.text('Market'));
+    await settleFrames(tester);
+    // Nothing is filed under it yet: the type can change.
+    expect(
+      _inSheet(find.text('Kullanımda olduğu için türü değiştirilemez.')),
+      findsNothing,
+    );
+    await tester.tap(_inSheet(find.text('Gelir')));
+    await tester.pump();
+    // Something was filed under it on the web meanwhile.
+    api.on('GET /finance_categories/5', {
+      'category': categoryUsageJson(transactions: 1),
+    });
+    await tester.tap(_inSheet(find.text('Kaydet')));
+    await settleFrames(tester);
+    expect(api.bodiesOf('PATCH /finance_categories/5').single,
+        {'kind': 'income'});
+    expect(find.byType(BottomSheet), findsOneWidget, reason: 'kept open');
+    expect(
+      _inSheet(find.text('Kullanımda olan bir kategorinin türü '
+          'değiştirilemez')),
+      findsOneWidget,
+    );
+    expect(find.text('A category in use cannot change its type.'),
+        findsNothing);
+
+    // The type is its own again, and stays: a tap does not change it.
+    await tester.tap(_inSheet(find.text('Gelir')));
+    await tester.pump();
+    api.on('PATCH /finance_categories/5', {
+      'category': categoryJson(name: 'Gıda'),
+    });
+    await tester.enterText(_inSheet(find.byType(TextField)), 'Gıda');
+    await tester.tap(_inSheet(find.text('Kaydet')));
+    await settleFrames(tester);
+    expect(api.bodiesOf('PATCH /finance_categories/5').last, {'name': 'Gıda'});
+    expect(find.byType(BottomSheet), findsNothing);
+    expect(find.text('Kategori güncellendi ✓'), findsOneWidget);
+  });
+
+  testWidgets('a save that changes nothing closes the sheet quietly',
+      (tester) async {
+    tallPhone(tester);
+    final api = FakeApi();
+    await pumpFinance(tester, api, const CategoriesScreen());
+    await tester.tap(find.text('Market'));
+    await settleFrames(tester);
+    await tester.tap(_inSheet(find.text('Kaydet')));
+    await settleFrames(tester);
+    expect(find.byType(BottomSheet), findsNothing);
+    expect(api.bodiesOf('PATCH /finance_categories/5'), isEmpty);
+    expect(find.text('Kategori güncellendi ✓'), findsNothing);
   });
 
   testWidgets('a category nothing is filed under is deleted with "Geri al"',
@@ -130,6 +204,58 @@ void main() {
     expect(api.requests, isNot(contains('DELETE /finance_categories/5')));
     await letUndoRunOut(tester);
     expect(api.requests, contains('DELETE /finance_categories/5'));
+  });
+
+  testWidgets('when what a delete would touch cannot be read, the sheet says '
+      'so — where it can be seen, not in a snackbar under it — and nothing '
+      'is deleted', (tester) async {
+    tallPhone(tester);
+    final api = FakeApi()..failNetwork('GET /finance_categories/5');
+    await pumpFinance(tester, api, const CategoriesScreen());
+    await tester.tap(find.text('Market'));
+    await settleFrames(tester);
+    await tester.tap(_inSheet(find.text('Sil')));
+    await settleFrames(tester);
+    expect(find.byType(BottomSheet), findsOneWidget, reason: 'still open');
+    expect(_inSheet(find.text('Kategori yüklenemedi')).hitTestable(),
+        findsOneWidget);
+    expect(find.byType(SnackBar), findsNothing);
+    expect(find.byType(AlertDialog), findsNothing);
+    await letUndoRunOut(tester);
+    expect(api.requests, isNot(contains('DELETE /finance_categories/5')));
+
+    // Readable again: the next "Sil" asks again, and goes as usual.
+    api.on('GET /finance_categories/5', {'category': categoryUsageJson()});
+    await tester.tap(_inSheet(find.text('Sil')));
+    await settleFrames(tester);
+    expect(find.byType(BottomSheet), findsNothing);
+    expect(find.text('“Market” silindi'), findsOneWidget);
+  });
+
+  testWidgets('a category whose delete waits out its undo is no parent for a '
+      'new one: the server would delete the new one with it',
+      (tester) async {
+    tallPhone(tester);
+    final api = FakeApi()
+      ..on('GET /finance_categories', {
+        'categories': [
+          categoryJson(),
+          categoryJson(id: 6, name: 'Ulaşım', color: '#6B8FA0'),
+        ],
+      });
+    await pumpFinance(tester, api, const CategoriesScreen());
+    await tester.tap(find.text('Market'));
+    await settleFrames(tester);
+    await tester.tap(_inSheet(find.text('Sil')));
+    await settleFrames(tester);
+    expect(find.text('“Market” silindi'), findsOneWidget);
+
+    await tester.tap(find.byType(FloatingActionButton));
+    await settleFrames(tester);
+    expect(_inSheet(find.text('Yeni kategori')), findsOneWidget);
+    expect(_inSheet(find.text('Ulaşım')), findsOneWidget);
+    expect(_inSheet(find.text('Market')), findsNothing);
+    expect(api.requests, isNot(contains('DELETE /finance_categories/5')));
   });
 
   testWidgets('a category in use: the dialog says what its delete touches, '

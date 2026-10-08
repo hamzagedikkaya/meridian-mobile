@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/semantics.dart' show CustomSemanticsAction;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/formats.dart';
@@ -280,7 +279,13 @@ class _TransactionsScreenState extends ConsumerState<TransactionsScreen> {
     // The day headers ("Bugün", "Dün") are relative to today.
     final today = ref.watch(currentDayProvider);
     // Loaded (and kept current) for the account and category filters.
-    final accounts = ref.watch(accountsProvider).value?.data ?? const [];
+    final hidden = ref.watch(deferredDeletesProvider);
+    final accounts = withoutDeleted(
+      ref.watch(accountsProvider).value?.data ?? const <Account>[],
+      hidden,
+      DataScope.accounts,
+      (a) => a.id,
+    );
     final categories = ref.watch(categoriesProvider).value?.data ?? const [];
     final filters = _filters;
     if (_shownFilters != null && filters != _shownFilters) {
@@ -296,7 +301,6 @@ class _TransactionsScreenState extends ConsumerState<TransactionsScreen> {
     final previous = feedAsync.isFirstLoad ? _lastFeed : null;
     final feed = current ?? previous;
     final offline = feedAsync.refreshFailed;
-    final hidden = ref.watch(deferredDeletesProvider);
 
     Account? account;
     for (final a in accounts) {
@@ -487,9 +491,9 @@ class _TransactionsScreenState extends ConsumerState<TransactionsScreen> {
               itemCount: g.items.length,
               itemBuilder: (context, i) {
                 final tx = g.items[i];
-                return _SwipeToDelete(
+                return TxSwipeToDelete(
                   key: ValueKey('tx-${tx.id}'),
-                  onDelete: () => deleteTransactionWithUndo(context, ref, tx),
+                  tx: tx,
                   child: TxRow(
                     tx: tx,
                     perspectiveAccountId: perspective,
@@ -583,54 +587,6 @@ class _DayHeader extends StatelessWidget {
           label,
           style: text.labelMedium!.copyWith(color: c.inkMid),
         ),
-      ),
-    );
-  }
-}
-
-/// A transaction row that a swipe to the left deletes — with "Geri al",
-/// no dialog. The swipe shows what it will do; screen readers get the same
-/// as an action, and a tap opens the row's sheet, which has "Sil" too.
-class _SwipeToDelete extends StatelessWidget {
-  final VoidCallback onDelete;
-  final Widget child;
-
-  const _SwipeToDelete({
-    required super.key,
-    required this.onDelete,
-    required this.child,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final c = context.nok;
-    final text = Theme.of(context).textTheme;
-    final l = context.l10n;
-    return Semantics(
-      customSemanticsActions: {
-        CustomSemanticsAction(label: l.actionDelete): onDelete,
-      },
-      child: Dismissible(
-        key: key!,
-        direction: DismissDirection.endToStart,
-        onDismissed: (_) => onDelete(),
-        background: Container(
-          color: c.error,
-          alignment: Alignment.centerRight,
-          padding: const EdgeInsets.only(right: 24),
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Text(
-                l.actionDelete,
-                style: text.labelLarge!.copyWith(color: c.bg),
-              ),
-              const SizedBox(width: 8),
-              Icon(Icons.delete_outline, color: c.bg),
-            ],
-          ),
-        ),
-        child: child,
       ),
     );
   }

@@ -39,7 +39,9 @@ class FilterChipBar extends StatelessWidget {
     final l = context.l10n;
     return Container(
       color: c.bg,
-      padding: const EdgeInsets.symmetric(vertical: 8),
+      // Each chip's 48 dp target reaches past its pill above and below, so
+      // the bar keeps the height an 8 dp padding gave it.
+      padding: const EdgeInsets.symmetric(vertical: 3),
       child: SingleChildScrollView(
         scrollDirection: Axis.horizontal,
         padding: const EdgeInsets.symmetric(horizontal: 20),
@@ -98,52 +100,62 @@ class FilterChipBar extends StatelessWidget {
   }) {
     final c = context.nok;
     final text = Theme.of(context).textTheme;
-    final chip = PressableScale(
-      onTap: () {
-        Haptics.tick();
-        onTap();
-      },
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-        decoration: BoxDecoration(
-          color: active ? c.goldContainer : c.surface2,
-          borderRadius: BorderRadius.circular(999),
-          border: Border.all(color: active ? c.goldContainer : c.hairline),
-        ),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            if (icon != null) ...[
-              Icon(icon, size: 16, color: c.inkMid),
-              const SizedBox(width: 4),
-            ],
-            Text(
-              label,
-              style: text.labelLarge!.copyWith(
-                color: active ? c.onGoldContainer : c.inkMid,
-              ),
-            ),
-            if (dropdown) ...[
-              const SizedBox(width: 4),
-              Icon(
-                Icons.keyboard_arrow_down,
-                size: 16,
-                color: active ? c.onGoldContainer : c.inkMid,
-              ),
-            ],
+    void tap() {
+      Haptics.tick();
+      onTap();
+    }
+
+    final pill = Container(
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+      decoration: BoxDecoration(
+        color: active ? c.goldContainer : c.surface2,
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(color: active ? c.goldContainer : c.hairline),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          if (icon != null) ...[
+            Icon(icon, size: 16, color: c.inkMid),
+            const SizedBox(width: 4),
           ],
-        ),
+          Text(
+            label,
+            style: text.labelLarge!.copyWith(
+              color: active ? c.onGoldContainer : c.inkMid,
+            ),
+          ),
+          if (dropdown) ...[
+            const SizedBox(width: 4),
+            Icon(
+              Icons.keyboard_arrow_down,
+              size: 16,
+              color: active ? c.onGoldContainer : c.inkMid,
+            ),
+          ],
+        ],
       ),
     );
     return Padding(
       padding: const EdgeInsets.only(right: 8),
-      // One node per chip for screen readers, saying whether it is on.
+      // One node per chip for screen readers, saying whether it is on. The
+      // chip's own detector is left out of the tree, so this node answers
+      // the double-tap itself.
       child: Semantics(
         button: true,
         selected: active,
         label: label,
+        onTap: tap,
         excludeSemantics: true,
-        child: chip,
+        // A 48 dp target (design-research §6.2) around the pill, which
+        // keeps its size.
+        child: PressableScale(
+          onTap: tap,
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(minHeight: 48),
+            child: Center(widthFactor: 1, heightFactor: 1, child: pill),
+          ),
+        ),
       ),
     );
   }

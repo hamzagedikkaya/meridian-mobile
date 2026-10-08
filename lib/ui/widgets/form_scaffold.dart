@@ -167,6 +167,10 @@ class FormPickerRow extends StatelessWidget {
   final VoidCallback? onTap;
   final String? errorText;
 
+  /// What the picker offers is still loading: a small spinner stands in
+  /// for the chevron.
+  final bool busy;
+
   const FormPickerRow({
     super.key,
     required this.icon,
@@ -175,6 +179,7 @@ class FormPickerRow extends StatelessWidget {
     this.color,
     this.onTap,
     this.errorText,
+    this.busy = false,
   });
 
   @override
@@ -183,59 +188,68 @@ class FormPickerRow extends StatelessWidget {
     final text = Theme.of(context).textTheme;
     final l = context.l10n;
     final error = errorText;
+    final row = Material(
+      color: c.surface2,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(12),
+        side: BorderSide(color: error == null ? c.hairline : c.error),
+      ),
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(12),
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(minHeight: 52),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+            child: Row(
+              children: [
+                if (color != null)
+                  Container(
+                    width: 12,
+                    height: 12,
+                    margin: const EdgeInsets.only(right: 12),
+                    decoration:
+                        BoxDecoration(color: color, shape: BoxShape.circle),
+                  )
+                else
+                  Padding(
+                    padding: const EdgeInsets.only(right: 12),
+                    child: Icon(icon, size: 20, color: c.inkMid),
+                  ),
+                Text(label, style: text.bodyMedium!.copyWith(color: c.inkMid)),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Text(
+                    value ?? l.actionSelect,
+                    textAlign: TextAlign.end,
+                    style: text.titleSmall!.copyWith(
+                      color: value == null ? c.inkLow : c.inkHi,
+                    ),
+                  ),
+                ),
+                if (busy) ...[
+                  const SizedBox(width: 8),
+                  const SizedBox(
+                    width: 16,
+                    height: 16,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  ),
+                ] else if (onTap != null) ...[
+                  const SizedBox(width: 4),
+                  Icon(Icons.chevron_right, size: 20, color: c.inkLow),
+                ],
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Material(
-          color: c.surface2,
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(12),
-            side: BorderSide(color: error == null ? c.hairline : c.error),
-          ),
-          child: InkWell(
-            onTap: onTap,
-            borderRadius: BorderRadius.circular(12),
-            child: ConstrainedBox(
-              constraints: const BoxConstraints(minHeight: 52),
-              child: Padding(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                child: Row(
-                  children: [
-                    if (color != null)
-                      Container(
-                        width: 12,
-                        height: 12,
-                        margin: const EdgeInsets.only(right: 12),
-                        decoration:
-                            BoxDecoration(color: color, shape: BoxShape.circle),
-                      )
-                    else
-                      Padding(
-                        padding: const EdgeInsets.only(right: 12),
-                        child: Icon(icon, size: 20, color: c.inkMid),
-                      ),
-                    Text(label,
-                        style: text.bodyMedium!.copyWith(color: c.inkMid)),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: Text(
-                        value ?? l.actionSelect,
-                        textAlign: TextAlign.end,
-                        style: text.titleSmall!.copyWith(
-                          color: value == null ? c.inkLow : c.inkHi,
-                        ),
-                      ),
-                    ),
-                    if (onTap != null) ...[
-                      const SizedBox(width: 4),
-                      Icon(Icons.chevron_right, size: 20, color: c.inkLow),
-                    ],
-                  ],
-                ),
-              ),
-            ),
-          ),
+        // One node for screen readers: what the row is and what it holds.
+        MergeSemantics(
+          child: Semantics(button: onTap != null, child: row),
         ),
         if (error != null)
           Padding(

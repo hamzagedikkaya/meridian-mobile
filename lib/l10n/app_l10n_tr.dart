@@ -194,6 +194,9 @@ class AppL10nTr extends AppL10n {
           count == null ? 'Çok uzun' : 'En fazla ${_n(count)} karakter olabilir',
         'too_short' =>
           count == null ? 'Çok kısa' : 'En az ${_n(count)} karakter olmalı',
+        'wrong_length' => count == null
+            ? 'Uzunluğu geçersiz'
+            : 'Tam ${_n(count)} karakter olmalı',
         'inclusion' => 'Geçerli bir seçenek değil',
         'exclusion' => 'Bu değer kullanılamaz',
         'invalid' => 'Geçersiz',
@@ -554,6 +557,24 @@ class AppL10nTr extends AppL10n {
   String get txUpdated => 'İşlem güncellendi ✓';
   @override
   String get txSaveFailed => 'Kaydedilemedi, tekrar dene';
+  @override
+  String get txLinkedTitle => 'Bağlı işlem';
+  @override
+  String get txLinkedDeletedAlong =>
+      'Bu işlem silinirse bağlı işlem de silinir.';
+  @override
+  String get txLinkedStays => 'Bu işlem silinirse bağlı işlem silinmez.';
+  @override
+  String txDeleteLinkedTitle(String name) => '“$name” silinsin mi?';
+  @override
+  String txDeleteLinkedBody(String linked) =>
+      'Bağlı işlem de silinecek: $linked. Bu geri alınamaz.';
+  @override
+  String get txDeleteBoth => 'İkisini de sil';
+  @override
+  String get txDeletedWithLinked => 'İşlem ve bağlı işlem silindi';
+  @override
+  String get txGone => 'Bu işlem silinmiş';
 
   // --- Transaction form ------------------------------------------------------
 
@@ -598,6 +619,11 @@ class AppL10nTr extends AppL10n {
       'Aynı para biriminde başka bir hesap yok';
   @override
   String get txFormNeedAccount => 'Önce bir hesap oluştur';
+  @override
+  String get txFormAccountsLoading => 'Hesaplar yükleniyor…';
+  @override
+  String get txFormAccountsFailed =>
+      'Hesaplar yüklenemedi. Tekrar denemek için dokun.';
 
   // --- Forms, keypad and undo -----------------------------------------------
 
@@ -636,6 +662,8 @@ class AppL10nTr extends AppL10n {
 
   @override
   String get financeAccounts => 'Hesaplar';
+  @override
+  String accountsCarouselPage(int page, int count) => 'Sayfa $page / $count';
   @override
   String get financeAddTransactionFab => 'İşlem';
   @override
@@ -676,7 +704,11 @@ class AppL10nTr extends AppL10n {
   @override
   String get financeOtherCategories => 'Diğer';
   @override
-  String get financeAddBudget => 'Bütçe ekle';
+  String get financeSliceAll => 'Tümü';
+  @override
+  String get financeSliceAllMeta => 'Alt kategoriler dahil';
+  @override
+  String financeSliceDirect(String name) => '$name (genel)';
   @override
   String get financeBudgetsEmpty =>
       'Bir kategoriye aylık sınır koy, ay sonunu önceden gör.';
@@ -748,6 +780,17 @@ class AppL10nTr extends AppL10n {
   String get accountDeleteFailed => 'Hesap silinemedi';
   @override
   String get accountCantDeleteTitle => 'Bu hesap silinemez';
+  @override
+  String accountCantDeleteArchived(int transactions, int incomingTransfers) {
+    final history = [
+      if (transactions > 0) '$transactions işlemi',
+      if (incomingTransfers > 0) '$incomingTransfers gelen transferi',
+    ];
+    final has =
+        history.isEmpty ? '' : 'Bu hesabın ${history.join(' ve ')} var. ';
+    return '${has}Geçmişi olan bir hesap silinemez; arşivde kalır ve '
+        'işlemleri toplamlarda sayılmaya devam eder.';
+  }
   @override
   String accountDeleteTitle(String name) => '“$name” silinsin mi?';
   @override

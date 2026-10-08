@@ -5,6 +5,8 @@ import '../../../core/api.dart';
 import '../../../core/formats.dart';
 import '../../../core/haptics.dart';
 import '../../../data/current_day.dart';
+import '../../../data/data_scope.dart';
+import '../../../data/deferred_deletes.dart';
 import '../../../data/providers.dart';
 import '../../../l10n/app_l10n.dart';
 import '../../../models/account.dart';
@@ -80,10 +82,15 @@ class _SubscriptionFormScreenState
     super.dispose();
   }
 
-  List<Account> get _active => [
-        for (final a in ref.read(accountsProvider).value?.data ?? const [])
-          if (!a.archived) a,
-      ];
+  /// The accounts it can be charged to: the active ones (not one that was
+  /// just deleted and waits out its undo).
+  List<Account> get _active => withoutDeleted(
+        (ref.read(accountsProvider).value?.data ?? const <Account>[])
+            .where((a) => !a.archived),
+        ref.read(deferredDeletesProvider),
+        DataScope.accounts,
+        (a) => a.id,
+      );
 
   /// The account it is charged to: the one picked, else the existing
   /// subscription's (archived ones too), else the only or first active one.
@@ -106,7 +113,7 @@ class _SubscriptionFormScreenState
         archived: true,
       );
     }
-    final active = [for (final a in all ?? const <Account>[]) if (!a.archived) a];
+    final active = _active;
     return active.isEmpty ? null : active.first;
   }
 
@@ -128,6 +135,9 @@ class _SubscriptionFormScreenState
 
   Future<void> _pickAccount(Account? current) async {
     final l = context.l10n;
+    // Not "no accounts yet" before the list is here: a failed one loads
+    // again, and no first account is offered meanwhile.
+    if (reloadAccountsIfMissing(ref)) return;
     final accounts = _active;
     int? id = _newAccount;
     if (accounts.isNotEmpty) {
@@ -236,7 +246,9 @@ class _SubscriptionFormScreenState
     final problems = <String, String>{
       if (_name.text.trim().isEmpty) 'name': l.subscriptionFormNameRequired,
       if ((_amount ?? 0) <= 0) 'amount': l.subscriptionFormAmountRequired,
-      if (account == null) 'account': l.txFormNeedAccount,
+      if (account == null)
+        'account': accountListProblem(l, ref.read(accountsProvider)) ??
+            l.txFormNeedAccount,
     };
     if (problems.isNotEmpty) {
       Haptics.danger();
@@ -307,9 +319,38 @@ class _SubscriptionFormScreenState
     final c = context.nok;
     final text = Theme.of(context).textTheme;
     final l = context.l10n;
-    final accounts = ref.watch(accountsProvider).value?.data;
+    final accountsAsync = ref.watch(accountsProvider);
+    final accounts = accountsAsync.value?.data;
     ref.watch(categoriesProvider);
+    ref.watch(deferredDeletesProvider);
+    // The list is here at last (it was loading, or failed).
+    ref.listen(accountsProvider, (previous, next) {
+      if (!next.hasValue || (previous?.hasValue ?? false)) return;
+      final amount = _amount;
+      final fallsTo = widget.existing == null && _account == null
+          ? _currentAccount(next.value?.data)
+          : null;
+      setState(() {
+        // What a save said meanwhile no longer holds: the row shows the
+        // account the subscription falls to, or that there is none yet.
+        _errors = {..._errors}..remove('account');
+        // An amount typed meanwhile was read with two decimals; the
+        // account it falls to reads it in its own currency.
+        if (amount != null &&
+            fallsTo != null &&
+            fallsTo.subunitToUnit != 100) {
+          _amount = AmountDraft.fromMinorUnits(amount, 100)
+              .forCurrency(fallsTo.subunitToUnit)
+              .minorUnits(fallsTo.subunitToUnit);
+        }
+      });
+    });
     final account = _currentAccount(accounts);
+    // The account list not here yet: loading, or failed (a tap on the row
+    // loads it again) — never "make your first account" then.
+    final accountsLoading = !accountsAsync.hasValue && accountsAsync.isLoading;
+    final accountsFailed = !accountsAsync.hasValue && !accountsAsync.isLoading;
+    final noAccounts = accounts != null && _active.isEmpty;
     final existing = widget.existing;
     final color = _color ??
         existing?.color ??
@@ -365,10 +406,15 @@ class _SubscriptionFormScreenState
         FormPickerRow(
           icon: Icons.account_balance_wallet_outlined,
           label: l.subscriptionFormAccount,
-          value: account?.name,
+          value: account?.name ??
+              (noAccounts
+                  ? l.txFormNeedAccount
+                  : (accountsLoading ? l.txFormAccountsLoading : null)),
           color: account == null ? null : hexColor(account.color),
+          busy: accountsLoading,
           onTap: () => _pickAccount(account),
-          errorText: _errors['account'],
+          errorText: _errors['account'] ??
+              (accountsFailed ? l.txFormAccountsFailed : null),
         ),
         const SizedBox(height: 8),
         FormPickerRow(

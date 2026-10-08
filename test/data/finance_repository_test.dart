@@ -249,6 +249,55 @@ void main() {
         'finance_category_id': null,
       });
     });
+
+    test('the detail of a transaction without a pair: no linked row, and a '
+        'delete takes nothing along', () async {
+      final detail = await repo.fetchTransaction(316);
+      expect(api.requests, ['GET /transactions/316']);
+      expect(detail.transaction.id, 316);
+      expect(detail.transaction.description, 'Kahve');
+      expect(detail.parentTransactionId, isNull);
+      expect(detail.linked, isNull);
+      expect(detail.deletesLinked, isFalse);
+    });
+
+    test('the parent of a linked pair: its child is deleted with it',
+        () async {
+      api.on('GET /transactions/316', {
+        'transaction': transactionDetailJson(linked: linkedJson()),
+      });
+      final detail = await repo.fetchTransaction(316);
+      final linked = detail.linked!;
+      expect(linked.id, 317);
+      expect(linked.kind, 'income');
+      expect(linked.amountCents, 2);
+      expect(linked.date, DateTime(2026, 10, 2));
+      expect(linked.description, 'Altın alımı');
+      expect(linked.account.name, 'Altın');
+      expect(linked.account.currency, 'GAU');
+      expect(linked.account.subunitToUnit, 1);
+      expect(linked.isChild, isTrue);
+      expect(detail.deletesLinked, isTrue);
+    });
+
+    test('the child of a linked pair: its parent stays when it is deleted',
+        () async {
+      api.on('GET /transactions/316', {
+        'transaction': transactionDetailJson(
+          parentId: 310,
+          linked: linkedJson(
+            id: 310,
+            kind: 'expense',
+            amount: 600000,
+            relation: 'parent',
+          ),
+        ),
+      });
+      final detail = await repo.fetchTransaction(316);
+      expect(detail.parentTransactionId, 310);
+      expect(detail.linked!.isChild, isFalse);
+      expect(detail.deletesLinked, isFalse);
+    });
   });
 
   group('categories', () {
@@ -490,17 +539,6 @@ void main() {
         '/accounts/1',
         '/finance_categories/5',
       });
-    });
-
-    test('due: active, with a date on or before today', () {
-      final today = DateTime(2026, 10, 15);
-      Subscription sub({String? next, bool active = true}) =>
-          Subscription.fromJson(subscriptionJson(next: next, active: active));
-      expect(sub(next: '2026-10-15').isDue(today), isTrue);
-      expect(sub(next: '2026-09-15').isDue(today), isTrue);
-      expect(sub(next: '2026-10-16').isDue(today), isFalse);
-      expect(sub(next: null).isDue(today), isFalse);
-      expect(sub(next: '2026-10-01', active: false).isDue(today), isFalse);
     });
   });
 }
