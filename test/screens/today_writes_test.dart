@@ -23,6 +23,7 @@ import 'package:meridian_mobile/ui/widgets/check_pop.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../support/fake_api.dart';
+import '../support/semantics.dart';
 
 const _toggle = 'PATCH /todos/39/toggle';
 const _logSu = 'PUT /habits/8/logs/2026-10-04';
@@ -104,6 +105,12 @@ TodoRow? _todo(WidgetTester tester) {
   return row.evaluate().isEmpty ? null : tester.widget<TodoRow>(row);
 }
 
+/// The todo's checkbox: a tap on the rest of the row opens it for editing.
+Finder _checkbox() => find.descendant(
+  of: find.byKey(const ValueKey('todo-39')),
+  matching: find.byType(CheckPop),
+);
+
 Finder _ring(int habitId) => find.descendant(
   of: find.byKey(ValueKey('habit-$habitId')),
   matching: find.byType(CheckPop),
@@ -125,7 +132,7 @@ void main() {
         'open_todos': 0,
         'overdue_count': 0,
       });
-      await tester.tap(find.byKey(const ValueKey('todo-39')));
+      await tester.tap(_checkbox());
       await tester.pump();
       expect(_todo(tester)!.done, isTrue, reason: 'checked on the spot');
       expect(find.text('“Faturayı öde” tamamlandı'), findsOneWidget);
@@ -149,10 +156,10 @@ void main() {
     ) async {
       final api = FakeApi()..hold(_toggle);
       await _openToday(tester, api);
-      await tester.tap(find.byKey(const ValueKey('todo-39')));
+      await tester.tap(_checkbox());
       await tester.pump();
       expect(_todo(tester)!.done, isTrue);
-      await tester.tap(find.byKey(const ValueKey('todo-39')));
+      await tester.tap(_checkbox());
       await tester.pump();
       expect(_todo(tester)!.done, isFalse);
 
@@ -182,7 +189,7 @@ void main() {
           },
         }, status: 422);
       await _openToday(tester, api);
-      await tester.tap(find.byKey(const ValueKey('todo-39')));
+      await tester.tap(_checkbox());
       await _settle(tester);
       expect(_todo(tester)!.done, isFalse);
       expect(
@@ -310,9 +317,8 @@ void main() {
       handle.dispose();
     });
 
-    testWidgets('a todo row is one stop: a double-tap checks it off', (
-      tester,
-    ) async {
+    testWidgets('a todo row is one stop: a double-tap edits it, and '
+        'checking it off is its action', (tester) async {
       final handle = tester.ensureSemantics();
       final api = FakeApi();
       await _openToday(tester, api);
@@ -322,10 +328,14 @@ void main() {
       expect(row.childrenCount, 0,
           reason: 'the checkbox is not a stop of its own');
 
-      tester.semantics.tap(find.semantics.byLabel(RegExp('^Faturayı öde')));
+      performCustomAction(row, 'Tamamla');
       await _settle(tester);
       expect(api.bodiesOf(_toggle).single, {'done': true});
+
+      tester.semantics.tap(find.semantics.byLabel(RegExp('^Faturayı öde')));
       await tester.pumpAndSettle();
+      expect(find.text('Görevi düzenle'), findsOneWidget,
+          reason: 'a tap opens the todo for editing');
       handle.dispose();
     });
   });
@@ -335,7 +345,7 @@ void main() {
 
     testWidgets('goes after 6 s, like any other', (tester) async {
       await _openToday(tester, FakeApi());
-      await tester.tap(find.byKey(const ValueKey('todo-39')));
+      await tester.tap(_checkbox());
       await _settle(tester);
       expect(find.text(message), findsOneWidget);
       await tester.pump(const Duration(seconds: 5));
@@ -355,7 +365,7 @@ void main() {
         tester.platformDispatcher.clearAccessibilityFeaturesTestValue,
       );
       await _openToday(tester, FakeApi());
-      await tester.tap(find.byKey(const ValueKey('todo-39')));
+      await tester.tap(_checkbox());
       await _settle(tester);
       await tester.pump(const Duration(seconds: 30));
       await tester.pumpAndSettle();

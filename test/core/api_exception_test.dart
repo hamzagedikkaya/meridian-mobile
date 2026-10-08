@@ -148,6 +148,8 @@ void main() {
   group('every code is worded by the app, in both languages', () {
     final codes = <String, Map<String, Object?>>{
       'too_many_requests': {},
+      'current_password_required': {},
+      'invalid_current_password': {},
       'invalid_parameter': {'param': 'count'},
       'value_out_of_range': {},
       'invalid_date': {},

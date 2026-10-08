@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../models/habit.dart';
 import '../../models/quick_capture.dart';
+import '../screens/events/event_form.dart';
 import '../screens/finance/account_form.dart';
 import '../screens/habits/habit_form.dart';
 
@@ -25,13 +26,11 @@ class CreateFlows {
   Future<bool> Function(BuildContext context)? get account =>
       (context) async => await openAccountForm(context) != null;
 
-  /// The new-event form, prefilled from a quick-capture suggestion; true
-  /// once the event was saved.
-  ///
-  /// Part 2.4 builds the form (`POST /events`, contract G3.9) and returns it
-  /// here; until then quick capture offers to save the line as a task.
+  /// The new-event form, prefilled from a quick-capture suggestion (its
+  /// title, day and time); true once the event was saved.
   Future<bool> Function(BuildContext context, EventSuggestion suggestion)?
-  get event => null;
+  get event => (context, suggestion) async =>
+      await openEventForm(context, suggestion: suggestion) != null;
 
   /// The habit form with [name] filled in; the habit it created, or null
   /// when it was closed without saving.

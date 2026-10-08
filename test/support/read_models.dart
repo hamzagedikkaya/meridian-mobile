@@ -18,6 +18,7 @@ ProviderContainer containerFor(FakeApi api, {List<Override> overrides = const []
 /// fetches. Listening keeps each one active, like a visible screen.
 Map<String, ProviderListenable<AsyncValue<Object?>>> readModelsByPath() => {
       '/home': homeProvider,
+      '/me/options': meOptionsProvider,
       '/habits': habitsProvider,
       '/habits/7': habitDetailProvider(7),
       '/goals': goalsProvider,
@@ -32,8 +33,10 @@ Map<String, ProviderListenable<AsyncValue<Object?>>> readModelsByPath() => {
       '/subscriptions': subscriptionsProvider,
       '/transactions': transactionsProvider(const TxFilters()),
       '/transactions/316': transactionDetailProvider(316),
-      '/todos': todosProvider('today'),
+      '/todos': todosProvider(const TodoQuery(filter: 'today')),
+      '/todo_lists': todoListsProvider,
       '/events': eventsTodayProvider,
+      '/events/12': eventDetailProvider(12),
       '/journal_entries': journalProvider('30d'),
       '/journal_entries/20': journalEntryProvider(20),
     };
@@ -57,8 +60,7 @@ Future<void> showEverything(ProviderContainer container, FakeApi api) async {
 /// Lets queued work run to completion: DataSync's flush, Riverpod's
 /// refresh, the fake HTTP round trips. Waits until the request log has
 /// stopped growing — for long enough that a request which follows another
-/// one's answer (the goals' recalculation asking `/home` again takes six
-/// event-loop turns) is not missed.
+/// one's answer (a refetch queued by a write's report) is not missed.
 Future<void> settle(FakeApi api) async {
   var quiet = 0;
   var seen = api.requests.length;

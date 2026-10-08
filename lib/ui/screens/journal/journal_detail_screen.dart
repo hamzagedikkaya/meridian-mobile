@@ -2,16 +2,15 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_widget_from_html_core/flutter_widget_from_html_core.dart';
 
-import '../../../core/api.dart';
 import '../../../core/formats.dart';
-import '../../../core/haptics.dart';
+import '../../../data/data_scope.dart';
+import '../../../data/deferred_deletes.dart';
 import '../../../data/providers.dart';
 import '../../../data/sync.dart';
 import '../../../l10n/app_l10n.dart';
 import '../../../models/journal.dart';
 import '../../../theme/app_colors.dart';
 import '../../../ui/widgets/app_snackbar.dart';
-import '../../../ui/widgets/confirm_dialog.dart';
 import '../../../ui/widgets/empty_state.dart';
 import '../../../ui/widgets/offline_banner.dart';
 import '../../../ui/widgets/skeletons.dart';
@@ -21,42 +20,81 @@ import 'widgets/energy_dots.dart';
 import 'widgets/journal_card.dart';
 import 'widgets/mood.dart';
 
-class JournalDetailScreen extends ConsumerWidget {
+class JournalDetailScreen extends ConsumerStatefulWidget {
   final int entryId;
   const JournalDetailScreen({super.key, required this.entryId});
 
-  Future<void> _delete(BuildContext context, WidgetRef ref) async {
+  @override
+  ConsumerState<JournalDetailScreen> createState() =>
+      _JournalDetailScreenState();
+}
+
+class _JournalDetailScreenState extends ConsumerState<JournalDetailScreen> {
+  int get entryId => widget.entryId;
+
+  /// The entry was found deleted (a 404) while this screen was open.
+  bool _goneSeen = false;
+
+  /// ...and the screen is on its way back.
+  bool _goneHandled = false;
+
+  /// The editor opened from here saved its text (as a new entry, once this
+  /// one was gone): it said so, and going back needs no other word.
+  bool _editorSaved = false;
+
+  /// Leaves the screen and takes the entry off the journal at once, with
+  /// "Geri al": the delete is sent only when the snackbar goes, so an undo
+  /// just shows it again — body, mood, tags and all.
+  void _delete() {
     final l = context.l10n;
-    final ok = await showConfirmDialog(
-      context,
-      title: l.journalDeleteTitle,
-      message: l.journalDeleteBody,
-      confirmLabel: l.actionDelete,
-      destructive: true,
+    final host = Navigator.of(context, rootNavigator: true).context;
+    final repo = ref.read(repositoryProvider);
+    final deletes = ref.read(deferredDeletesProvider.notifier);
+    Navigator.of(context).pop();
+    deleteWithUndo(
+      host,
+      deletes,
+      record: (scope: DataScope.journal, id: entryId),
+      message: l.journalDeleted,
+      send: () => repo.deleteJournalEntry(entryId),
+      failedMessage: l.journalDeleteFailed,
     );
-    if (!ok || !context.mounted) return;
-    Haptics.danger();
-    try {
-      // The repository reports the delete and the journal lists refresh from
-      // that — also when this screen is left before the server answers. This
-      // entry itself is not asked for again while the screen animates out.
-      await ref.read(repositoryProvider).deleteJournalEntry(entryId);
-      if (context.mounted) Navigator.of(context).pop();
-    } catch (e) {
-      if (context.mounted) {
-        showAppSnack(
-          context,
-          failureMessage(e, l, fallback: l.journalDeleteFailed),
-          isError: true,
-        );
+  }
+
+  /// Goes back from an entry found deleted: this screen's own route only,
+  /// when it is the one on top (the build runs again when it becomes so).
+  void _leave(AppL10n l) {
+    _goneHandled = true;
+    final host = Navigator.of(context, rootNavigator: true).context;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      if (ModalRoute.of(context)?.isCurrent == false) {
+        _goneHandled = false;
+        return;
       }
-    }
+      Navigator.of(context).maybePop();
+      if (host.mounted && !_editorSaved) showAppSnack(host, l.journalGone);
+    });
+  }
+
+  Future<void> _edit(JournalEntry entry) async {
+    final saved = await openJournalEditor(context, entry: entry);
+    if (saved == true) _editorSaved = true;
   }
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  Widget build(BuildContext context) {
     final l = context.l10n;
     final async = ref.watch(journalEntryProvider(entryId));
+    // Deleted on the web or another device: say so and go back to a list
+    // that no longer shows it — once this screen is on top. The editor
+    // opened over it keeps its text (it offers it as a new entry); going
+    // back from here must never close that instead.
+    ref.listen(journalEntryProvider(entryId), (_, next) {
+      if (next.isGone) _goneSeen = true;
+    });
+    final isCurrent = ModalRoute.isCurrentOf(context) ?? true;
+    if (_goneSeen && !_goneHandled && isCurrent) _leave(l);
     // Deleted on the web or another device: the copy still cached here can
     // be neither shown as current nor edited.
     final entry = async.isGone ? null : async.value?.data;
@@ -79,7 +117,7 @@ class JournalDetailScreen extends ConsumerWidget {
           if (async.refreshFailed)
             OfflineBanner(
               lastUpdated: async.value!.at,
-              onRetry: () => _retry(ref),
+              onRetry: _retry,
             ),
           Expanded(child: _DetailBody(entry: entry)),
         ],
@@ -90,7 +128,7 @@ class JournalDetailScreen extends ConsumerWidget {
         title: l.journalLoadFailed,
         subtitle: l.errCheckWifi,
         actionLabel: l.actionRetry,
-        onAction: () => _retry(ref),
+        onAction: _retry,
       );
     } else {
       body = _loading(context);
@@ -100,27 +138,35 @@ class JournalDetailScreen extends ConsumerWidget {
       appBar: AppBar(
         title: Text(l.titleJournalEntry),
         actions: [
-          if (entry != null)
+          if (entry != null) ...[
+            IconButton(
+              tooltip: l.actionEdit,
+              icon: const Icon(Icons.edit_outlined),
+              onPressed: () => _edit(entry),
+            ),
             PopupMenuButton<String>(
+              tooltip: MaterialLocalizations.of(context).moreButtonTooltip,
               onSelected: (v) {
-                if (v == 'edit') {
-                  openJournalEditor(context, entry: entry);
-                } else if (v == 'delete') {
-                  _delete(context, ref);
-                }
+                if (v == 'delete') _delete();
               },
               itemBuilder: (context) => [
-                PopupMenuItem(value: 'edit', child: Text(l.actionEdit)),
-                PopupMenuItem(value: 'delete', child: Text(l.actionDelete)),
+                PopupMenuItem(
+                  value: 'delete',
+                  child: Text(
+                    l.actionDelete,
+                    style: TextStyle(color: context.nok.error),
+                  ),
+                ),
               ],
             ),
+          ],
         ],
       ),
       body: SyncHint.over(active: async.isRefetching, child: body),
     );
   }
 
-  void _retry(WidgetRef ref) =>
+  void _retry() =>
       ref.read(dataSyncProvider).refresh([journalEntryProvider(entryId)]);
 
   Widget _loading(BuildContext context) {

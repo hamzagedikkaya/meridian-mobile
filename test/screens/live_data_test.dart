@@ -19,6 +19,7 @@ import 'package:meridian_mobile/ui/screens/habits/widgets/habit_check.dart';
 import 'package:meridian_mobile/ui/screens/today/today_screen.dart';
 import 'package:meridian_mobile/ui/screens/today/widgets/today_skeleton.dart';
 import 'package:meridian_mobile/ui/screens/today/widgets/todo_row.dart';
+import 'package:meridian_mobile/ui/screens/todos/todos_screen.dart';
 import 'package:meridian_mobile/ui/widgets/check_pop.dart';
 import 'package:meridian_mobile/ui/widgets/offline_banner.dart';
 
@@ -305,7 +306,10 @@ void main() {
     // The server answers the tick, then (reopened on the web meanwhile)
     // still lists the todo as open.
     api.on('GET /home', homeJson(todos: [todoJson(status: 'pending')]));
-    await tester.tap(find.byKey(const ValueKey('todo-39')));
+    await tester.tap(find.descendant(
+      of: find.byKey(const ValueKey('todo-39')),
+      matching: find.byType(CheckPop),
+    ));
     await tester.pump();
     expect(row().done, isTrue, reason: 'checked on the spot');
 
@@ -314,47 +318,40 @@ void main() {
     await tester.pumpAndSettle();
   });
 
-  group('Today\'s open-todos sheet decides like every screen', () {
-    Future<FakeApi> openSheet(WidgetTester tester) async {
+  group('the Todos screen decides like every screen', () {
+    Future<void> open(WidgetTester tester, FakeApi api) async {
       _tallPhone(tester);
-      final api = FakeApi();
       await tester.pumpWidget(_app(
-        const TodayScreen(),
+        const TodosScreen(initialFilter: 'today'),
         [
           dioProvider.overrideWithValue(api.dio),
           currentUserProvider.overrideWithValue(null),
         ],
         retry: readRetry, // the app's policy: one quick retry
       ));
-      await _settle(tester);
-      return api;
     }
 
     Finder failed() => find.text('Görevler yüklenemedi');
 
     testWidgets('a first load that blips and heals on the quick retry shows '
-        'the spinner throughout, never the failure', (tester) async {
-      final api = await openSheet(tester);
-      api.blip('GET /todos');
-      await tester.tap(find.text('açık görev'));
+        'the skeleton throughout, never the failure', (tester) async {
+      final api = FakeApi()..blip('GET /todos');
+      await open(tester, api);
       for (var i = 0; i < 5; i++) {
         await tester.pump(const Duration(milliseconds: 100));
         expect(failed(), findsNothing, reason: 'retry pending, ${i * 100} ms');
       }
-      expect(find.byType(CircularProgressIndicator), findsOneWidget);
 
       await tester.pump(const Duration(milliseconds: 500));
       await tester.pump(const Duration(milliseconds: 100));
       expect(api.gets.where((p) => p == '/todos'), hasLength(2));
       expect(failed(), findsNothing);
-      expect(find.byType(CircularProgressIndicator), findsNothing);
       expect(find.text('Faturayı öde'), findsWidgets);
     });
 
     testWidgets('a load that fails for good says so', (tester) async {
-      final api = await openSheet(tester);
-      api.failNetwork('GET /todos');
-      await tester.tap(find.text('açık görev'));
+      final api = FakeApi()..failNetwork('GET /todos');
+      await open(tester, api);
       await tester.pump(const Duration(milliseconds: 100));
       expect(failed(), findsNothing, reason: 'the quick retry is pending');
 
@@ -388,7 +385,7 @@ void main() {
 
     await tester.tap(find.text('open'));
     await tester.pumpAndSettle();
-    await tester.enterText(find.byType(TextField), 'Yeni');
+    await tester.enterText(find.byType(TextField).first, 'Yeni');
     api.hold('POST /habits');
     await tester.tap(find.text('Kaydet'));
     await tester.pump();

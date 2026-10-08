@@ -2,9 +2,9 @@
 /// logged, a todo ticked off or reopened — on every screen that shows the
 /// item, in the same frame.
 ///
-/// Each action patches the cached read models (the same `homeProvider` and
-/// `habitsProvider` every tab watches) with the tap's result, sends the
-/// write, and on failure takes the tap back. A patch is a pending edit (see
+/// Each action patches the cached read models (the same `homeProvider`,
+/// `habitsProvider` and todo lists every screen watches) with the tap's
+/// result, sends the write, and on failure takes the tap back. A patch is a pending edit (see
 /// `FetchedNotifier`): a refetch that may have left before the server
 /// answered gets it applied too, so the tick never flicks back and the
 /// refetch's own news is kept. What the write changed is then refreshed by
@@ -191,20 +191,22 @@ final class TodoActions {
 
   bool isBusy(int todoId) => _latest.containsKey(todoId);
 
-  /// Marks todo [todoId] done, or open again ([done] false), on Today at
-  /// once — the checkbox, and the open and overdue counts (the tab badge)
-  /// with it — then sends that state (`PATCH /todos/:id/toggle` with
+  /// Marks todo [todoId] done, or open again ([done] false), on every
+  /// screen that shows it at once — Today's checkbox with its open and
+  /// overdue counts (the tab badge), and each todo list on screen with its
+  /// counts — then sends that state (`PATCH /todos/:id/toggle` with
   /// `done`). The server's answer — the status it now has — stands until
-  /// the refetch that follows lands, which drops a finished todo from
-  /// Today's list.
+  /// the refetch that follows lands, which drops a finished todo from the
+  /// lists of open todos.
   ///
-  /// [restore] is where the todo was on Today: reopening one that a refetch
-  /// already dropped puts it back there ("Geri al").
+  /// [restore] is where the todo was: reopening one that a refetch already
+  /// dropped puts it back there ("Geri al") — on Today, and in each todo
+  /// list on screen that takes it by its filter.
   ///
   /// Taps of the same todo are sent in order, each after the one before is
   /// answered; when that one failed, this one is taken back unsent and the
-  /// result is false. A failure of its own request is rethrown after Today
-  /// is rolled back.
+  /// result is false. A failure of its own request is rethrown after every
+  /// screen is rolled back.
   Future<bool> setDone(
     int todoId, {
     required bool done,
@@ -215,19 +217,49 @@ final class TodoActions {
     _latest[todoId] = outcome.future;
     var answered = false;
     PendingEdit<HomeSummary>? tap;
+    final listTaps = <PendingEdit<TodosBundle>>[];
+    final reopening = !done && restore != null;
     HomeSummary shown(HomeSummary h, String status) =>
-        status == 'done' || status == 'cancelled' || restore == null
+        status == 'done' || status == 'cancelled' || !reopening
             ? h.withTodoStatus(todoId, status)
             : h.withTodoReopened(restore.todo, index: restore.index);
+    TodosBundle shownIn(TodosBundle b, String status) =>
+        status == 'done' || status == 'cancelled' || !reopening
+            ? b.withTodoStatus(todoId, status)
+            : b.withTodoReopened(restore.todo, index: restore.index);
     try {
+      final status = done ? 'done' : 'pending';
       final home = _shown(_ref, homeProvider);
+      final today = home?.today ?? _ref.read<DateTime>(currentDayProvider);
       final listed = home?.upcomingTodos.any((t) => t.id == todoId) ?? false;
-      if (home != null && (listed || (!done && restore != null))) {
-        final status = done ? 'done' : 'pending';
+      // Put back on Today only what `/home` lists: open todos due within
+      // the next seven days. Its counts for any other follow the refetch.
+      final due = reopening ? restore.todo.dueDay : null;
+      final belongs = due != null &&
+          !due.isAfter(DateTime(today.year, today.month, today.day + 7));
+      if (home != null && (listed || belongs)) {
         tap = _ref.read(homeProvider.notifier).patch((h) => shown(h, status));
+      }
+      for (final instance
+          in _ref.container.allProviders(family: todosProvider).toList()) {
+        final query = instance.provider.argument;
+        if (query is! TodoQuery) continue;
+        final model = todosProvider(query);
+        final bundle = _shown(_ref, model);
+        if (bundle == null) continue;
+        final inList = bundle.todos.any((t) => t.id == todoId);
+        if (!inList && !(reopening && query.admitsOpen(restore.todo, today))) {
+          continue;
+        }
+        listTaps.add(
+          _ref.read(model.notifier).patch((b) => shownIn(b, status)),
+        );
       }
       if (earlier != null && !await earlier) {
         tap?.rollback();
+        for (final listTap in listTaps) {
+          listTap.rollback();
+        }
         return false;
       }
       final answer = await _ref
@@ -235,9 +267,15 @@ final class TodoActions {
           .setTodoDone(todoId, done: done);
       answered = true;
       tap?.confirm((h) => shown(h, answer.status));
+      for (final listTap in listTaps) {
+        listTap.confirm((b) => shownIn(b, answer.status));
+      }
       return true;
     } catch (_) {
       tap?.rollback();
+      for (final listTap in listTaps) {
+        listTap.rollback();
+      }
       rethrow;
     } finally {
       outcome.complete(answered);

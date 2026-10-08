@@ -26,6 +26,10 @@ class GoalRelated {
   final String? currency;
   final int? subunitToUnit;
 
+  /// The `related` value that names this link on a write: `"Account-12"`,
+  /// `"Habit-7"`.
+  String get ref => '$type-$id';
+
   const GoalRelated({
     required this.type,
     required this.id,
@@ -58,12 +62,19 @@ class Goal {
   final String color;
   final String unit;
   final DateTime? deadline;
-  final int daysRemaining;
+
+  /// Days from today to [deadline]; negative once it passed, null without
+  /// one.
+  final int? daysRemaining;
   final DeadlineBadge? deadlineBadge;
   final double targetValue;
   final double currentValue;
   final double progressPercent;
   final GoalRelated? related;
+
+  /// Where [currentValue] comes from: `manual` (logged by hand — the only
+  /// kind `update_progress` takes), `account`, `income` or `habit`.
+  final String progressSource;
 
   const Goal({
     required this.id,
@@ -80,6 +91,7 @@ class Goal {
     required this.currentValue,
     required this.progressPercent,
     this.related,
+    this.progressSource = 'manual',
   });
 
   factory Goal.fromJson(Map<String, dynamic> json) => Goal(
@@ -91,7 +103,7 @@ class Goal {
         color: (json['color'] as String?) ?? '#B8860B',
         unit: (json['unit'] as String?) ?? '',
         deadline: parseDateTime(json['deadline']),
-        daysRemaining: readInt(json['days_remaining']),
+        daysRemaining: readIntOrNull(json['days_remaining']),
         deadlineBadge: json['deadline_badge'] == null
             ? null
             : DeadlineBadge.fromJson(
@@ -102,7 +114,31 @@ class Goal {
         related: json['related'] == null
             ? null
             : GoalRelated.fromJson(json['related'] as Map<String, dynamic>),
+        progressSource: (json['progress_source'] as String?) ??
+            _sourceOf(json['target_type'], json['related']),
       );
+
+  /// What an older server, without `progress_source`, computes from.
+  static String _sourceOf(Object? type, Object? related) => switch (type) {
+        'financial' => related == null ? 'income' : 'account',
+        'habit' => related == null ? 'manual' : 'habit',
+        _ => 'manual',
+      };
+
+  bool get isActive => status == 'active';
+  bool get isAchieved => status == 'achieved';
+  bool get isAbandoned => status == 'abandoned';
+
+  /// Progress logged by hand: the step buttons, "enter a value" and "mark
+  /// achieved" apply only to these (`progress_computed` otherwise).
+  bool get isManual => progressSource == 'manual';
+
+  /// Whether reopening needs a higher target first: the progress already
+  /// reaches it (`target_reached`).
+  bool get reachedTarget => currentValue >= targetValue;
+
+  /// The `related` value naming the current link, `"none"` without one.
+  String get relatedRef => related?.ref ?? 'none';
 }
 
 class GoalsBundle {
@@ -138,6 +174,9 @@ class GoalInput {
   final num? targetValue;
   final String related;
 
+  /// The starting progress of a goal logged by hand.
+  final num? currentValue;
+
   const GoalInput({
     required this.name,
     this.description,
@@ -147,16 +186,60 @@ class GoalInput {
     this.deadline,
     this.targetValue,
     this.related = 'none',
+    this.currentValue,
   });
 
+  static String? _text(String? value) {
+    final text = value?.trim() ?? '';
+    return text.isEmpty ? null : text;
+  }
+
+  /// Progress logged by hand once this input is saved: a custom goal, or a
+  /// habit goal without a habit.
+  bool get _manualAfter =>
+      targetType == 'custom' || (targetType == 'habit' && related == 'none');
+
+  /// `POST /goals`: every field. A financial goal's empty unit is left out,
+  /// so the server puts the account's currency there; any other goal's empty
+  /// unit is sent as null — "10 kitap" without a unit is not "10 TRY".
   Map<String, dynamic> toJson() => {
         'name': name,
-        'description': description,
+        'description': _text(description),
         'target_type': targetType,
         'color': color,
-        'unit': unit,
+        if (targetType != 'financial' || _text(unit) != null)
+          'unit': _text(unit),
         'deadline': deadline == null ? null : isoDate(deadline!),
         'target_value': targetValue,
         'related': related,
+        if (currentValue != null) 'current_value': currentValue,
       };
+
+  /// `PATCH /goals/:id`: only what differs from [before]. The server
+  /// applies every key it gets, so the link (`related`) is sent only when it
+  /// changed — never the "none" that would unlink a goal the form did not
+  /// touch — and so is every other field. Empty when nothing changed.
+  Map<String, dynamic> changesFrom(Goal before) {
+    final deadlineBefore =
+        before.deadline == null ? null : isoDate(before.deadline!);
+    final deadlineNow = deadline == null ? null : isoDate(deadline!);
+    return {
+      if (name != before.name) 'name': name,
+      if (_text(description) != _text(before.description))
+        'description': _text(description),
+      if (targetType != before.targetType) 'target_type': targetType,
+      if (color.toUpperCase() != before.color.toUpperCase()) 'color': color,
+      if (_text(unit) != _text(before.unit)) 'unit': _text(unit),
+      if (deadlineNow != deadlineBefore) 'deadline': deadlineNow,
+      if (targetValue != null && targetValue != before.targetValue)
+        'target_value': targetValue,
+      if (related != before.relatedRef) 'related': related,
+      // Manual after the change: also a goal that just became one (its link
+      // removed, or now a custom goal), whose typed start must not be lost.
+      if (currentValue != null &&
+          _manualAfter &&
+          (!before.isManual || currentValue != before.currentValue))
+        'current_value': currentValue,
+    };
+  }
 }

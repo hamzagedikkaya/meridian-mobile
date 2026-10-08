@@ -16,7 +16,7 @@ enum AppTab {
   /// The read models this tab's screen shows — what a pull-to-refresh or a
   /// re-tap of the tab refetches.
   List<ProviderOrFamily> get readModels => switch (this) {
-        AppTab.today => [homeProvider, todosProvider],
+        AppTab.today => [homeProvider, todosProvider, eventsProvider],
         AppTab.finance => [financeDashboardProvider, accountsProvider],
         AppTab.habits => [habitsProvider],
         AppTab.goals => [goalsProvider],

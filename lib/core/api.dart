@@ -307,6 +307,8 @@ extension ApiExceptionCopy on ApiException {
         'unauthorized' => l.errSessionExpired,
         'invalid_credentials' => l.errInvalidCredentials,
         'too_many_requests' => l.errTooManyRequests,
+        'current_password_required' => l.errCurrentPasswordRequired,
+        'invalid_current_password' => l.errInvalidCurrentPassword,
         'not_found' => l.errNotFound,
         'validation_failed' => _firstFieldMessage(l) ?? l.errInvalidData,
         'invalid_parameter' =>
@@ -350,6 +352,9 @@ String failureMessage(Object error, AppL10n l, {required String fallback}) =>
       _ => fallback,
     };
 
+/// Where a request keeps the token it was sent with (see [buildDio]).
+const _sentTokenKey = 'meridian.sentToken';
+
 Dio buildDio({
   required String baseUrl,
   required Future<String?> Function() tokenReader,
@@ -369,13 +374,18 @@ Dio buildDio({
         final token = await tokenReader();
         if (token != null && token.isNotEmpty) {
           options.headers['Authorization'] = 'Bearer $token';
+          options.extra[_sentTokenKey] = token;
         }
         handler.next(options);
       },
-      onError: (error, handler) {
+      onError: (error, handler) async {
         final isLogin = error.requestOptions.path.endsWith('/session');
         if (error.response?.statusCode == 401 && !isLogin) {
-          onUnauthorized();
+          // A 401 for a token that has since been replaced — a request that
+          // left before a password change stored the new one — says nothing
+          // about the session now: only the token still in use ends it.
+          final sent = error.requestOptions.extra[_sentTokenKey];
+          if (sent == null || sent == await tokenReader()) onUnauthorized();
         }
         handler.next(error);
       },

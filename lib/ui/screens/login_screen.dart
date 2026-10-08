@@ -72,15 +72,24 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
     final text = Theme.of(context).textTheme;
     final l = context.l10n;
 
-    // Session-expired notice from a mid-session 401.
+    // Session-expired notice from a mid-session 401; or, after signing out,
+    // that the server could not be told (the session still works elsewhere).
     final session = ref.watch(sessionProvider);
-    if (session is SessionLoggedOut && session.expired && !_noticeShown) {
+    final notice = switch (session) {
+      SessionLoggedOut(expired: true) => l.noticeSessionExpired,
+      SessionLoggedOut(revokeFailed: true) => l.noticeSignOutNotRevoked,
+      _ => null,
+    };
+    if (notice != null && !_noticeShown) {
       _noticeShown = true;
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text(l.noticeSessionExpired)),
-          );
+          ScaffoldMessenger.of(context)
+            ..hideCurrentSnackBar()
+            ..showSnackBar(SnackBar(
+              content: Text(notice),
+              duration: const Duration(seconds: 8),
+            ));
         }
       });
     }

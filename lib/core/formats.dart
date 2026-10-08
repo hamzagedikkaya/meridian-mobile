@@ -101,6 +101,10 @@ String formatTime(DateTime time) => DateFormat('HH:mm').format(time.toLocal());
 String formatMonthShort(DateTime date, {String? locale}) =>
     DateFormat.MMM(_loc(locale)).format(date);
 
+/// "Ekim 2026" / "October 2026": a calendar's month heading.
+String formatMonthYear(DateTime date, {String? locale}) =>
+    DateFormat.yMMMM(_loc(locale)).format(date);
+
 DateTime? _appToday;
 
 /// The calendar day the app counts as today: the account's, which is the

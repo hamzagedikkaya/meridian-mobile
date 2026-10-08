@@ -4,8 +4,12 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../core/session.dart';
+import '../ui/screens/habits/archived_habits_screen.dart';
 import '../ui/screens/habits/habits_screen.dart';
 import '../ui/screens/today/today_screen.dart';
+import '../ui/screens/todos/todo_lists_screen.dart';
+import '../ui/screens/todos/todos_screen.dart';
+import '../ui/screens/events/agenda_screen.dart';
 import '../ui/screens/journal/journal_detail_screen.dart';
 import '../ui/screens/journal/journal_screen.dart';
 import '../ui/screens/goals/goal_detail_screen.dart';
@@ -136,6 +140,32 @@ final routerProvider = Provider<GoRouter>((ref) {
         parentNavigatorKey: _rootKey,
         builder: (_, _) => const ServerScreen(),
       ),
+      // Every todo by filter and list (`?filter=today`, `?list=3`,
+      // `?list=none`), pushed from Today.
+      GoRoute(
+        path: '/todos',
+        parentNavigatorKey: _rootKey,
+        builder: (_, state) {
+          final query = state.uri.queryParameters;
+          final list = query['list'];
+          return TodosScreen(
+            initialFilter: query['filter'] ?? 'open',
+            initialListId: list == null ? null : int.tryParse(list),
+            initialUnlisted: list == 'none',
+          );
+        },
+      ),
+      GoRoute(
+        path: '/todos/lists',
+        parentNavigatorKey: _rootKey,
+        builder: (_, _) => const TodoListsScreen(),
+      ),
+      // The days ahead with their events, pushed from Today.
+      GoRoute(
+        path: '/agenda',
+        parentNavigatorKey: _rootKey,
+        builder: (_, _) => const AgendaScreen(),
+      ),
       StatefulShellRoute(
         parentNavigatorKey: _rootKey,
         builder: (context, state, shell) => AppScaffold(shell: shell),
@@ -197,6 +227,13 @@ final routerProvider = Provider<GoRouter>((ref) {
                 path: '/habits',
                 pageBuilder: (_, state) =>
                     _fadeThrough(const HabitsScreen(), state),
+                routes: [
+                  GoRoute(
+                    path: 'archived',
+                    parentNavigatorKey: _rootKey,
+                    builder: (_, _) => const ArchivedHabitsScreen(),
+                  ),
+                ],
               ),
             ],
           ),

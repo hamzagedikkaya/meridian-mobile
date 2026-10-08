@@ -94,9 +94,9 @@ void main() {
       await settle(api);
       // Home's derived numbers (streaks, %, perfect day) come from the
       // server; the Habits list needs no refetch — the response was the
-      // truth already. A goal may track the habit: the server recalculates
-      // the goals (GET /goals), alongside /home, for its goal bars.
-      expect(api.gets, unorderedEquals(['/goals', '/home']));
+      // truth already. A goal may track the habit: /home recalculates the
+      // goal bars it shows itself.
+      expect(api.gets, ['/home']);
       expect(_homeDone(container, 7), isTrue);
       expect(_habitsDone(container, 7), isTrue);
     });
@@ -216,9 +216,8 @@ void main() {
       expect(_homeDone(container, 7), isFalse);
       expect(_habitsDone(container, 7), isFalse);
       await settle(api);
-      // The outcome is unknown, so both ask the server again (and the
-      // goals, for /home's goal bars: see the first test).
-      expect(api.gets.toSet(), {'/goals', '/home', '/habits'});
+      // The outcome is unknown, so both ask the server again.
+      expect(api.gets.toSet(), {'/home', '/habits'});
     });
 
     group('a refetch in flight when the tap lands', () {
@@ -590,7 +589,7 @@ void main() {
       await settle(hidden);
 
       expect(_habitsDone(c, 7), isTrue);
-      expect(hidden.gets, unorderedEquals(['/goals', '/home']));
+      expect(hidden.gets, ['/home']);
     });
 
     group('quick taps', () {
@@ -622,9 +621,8 @@ void main() {
         expect(_homeRow(container, 8).todayCount, 3);
         expect(actions.isBusy(8), isFalse);
         await settle(api);
-        // One /home refetch once both are in (and the goals, for its goal
-        // bars); Habits had both answers.
-        expect(api.gets, unorderedEquals(['/goals', '/home']));
+        // One /home refetch once both are in; Habits had both answers.
+        expect(api.gets, ['/home']);
       });
 
       test('behind a tap that fails are taken back unsent', () async {

@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -69,14 +71,55 @@ final tokenStoreProvider =
 /// editor autosaves it every five seconds. Keeping it in SharedPreferences
 /// would write it to a world-readable-by-root XML file; the same encrypted
 /// store the token lives in costs nothing extra here.
+///
+/// One draft per entry: the new entry's ([entryId] null) and one for each
+/// entry being edited, so an edit left unsaved never turns up in another.
 class DraftStore {
   DraftStore(this._storage);
   final FlutterSecureStorage _storage;
   static const _key = 'journal_draft';
 
-  Future<String?> read() => _storage.read(key: _key);
-  Future<void> write(String value) => _storage.write(key: _key, value: value);
-  Future<void> clear() => _storage.delete(key: _key);
+  static String _keyFor(int? entryId) =>
+      entryId == null ? _key : '${_key}_$entryId';
+
+  Future<String?> read({int? entryId}) => _storage.read(key: _keyFor(entryId));
+  Future<void> write(String value, {int? entryId}) =>
+      _storage.write(key: _keyFor(entryId), value: value);
+  Future<void> clear({int? entryId}) => _storage.delete(key: _keyFor(entryId));
+
+  /// Who wrote the drafts: they outlive an expired session (a 401) and a
+  /// change of server address, so the next sign-in may be someone else's.
+  static const _ownerKey = 'journal_drafts_owner';
+
+  /// Hands the drafts to [owner] (the account signing in: id and email, so
+  /// the same account reached at another address keeps them). Another
+  /// account's drafts are dropped first — never shown to it, nor saved over
+  /// one of its entries that happens to have the same id.
+  Future<void> claimFor(String owner) async {
+    final previous = await _storage.read(key: _ownerKey);
+    if (previous == owner) return;
+    if (previous != null) await clearAll();
+    await _storage.write(key: _ownerKey, value: owner);
+  }
+
+  /// Every draft's raw value: the new entry's and the edits'.
+  Future<List<String>> readAll() async {
+    final all = await _storage.readAll();
+    return [
+      for (final entry in all.entries)
+        if (entry.key == _key || entry.key.startsWith('${_key}_')) entry.value,
+    ];
+  }
+
+  /// Every draft, the new entry's and the edits'.
+  Future<void> clearAll() async {
+    final all = await _storage.readAll();
+    for (final key in all.keys.toList()) {
+      if (key == _key || key.startsWith('${_key}_')) {
+        await _storage.delete(key: key);
+      }
+    }
+  }
 }
 
 final draftStoreProvider =
@@ -173,7 +216,12 @@ class SessionLoggedOut extends SessionState {
   /// True when a mid-session 401 ejected us — the login screen turns this into
   /// a localized notice. State carries the *reason*, never the copy.
   final bool expired;
-  const SessionLoggedOut({this.expired = false});
+
+  /// True when the user signed out but the server could not be told
+  /// (`DELETE /session` never got an answer): this phone is signed out, yet
+  /// the account's token still works elsewhere. The login screen says so.
+  final bool revokeFailed;
+  const SessionLoggedOut({this.expired = false, this.revokeFailed = false});
 }
 
 class SessionLoggedIn extends SessionState {
@@ -184,6 +232,12 @@ class SessionLoggedIn extends SessionState {
 class SessionController extends Notifier<SessionState> {
   @override
   SessionState build() => const SessionUnknown();
+
+  /// Requests under way that replace the account's token (a password
+  /// change) or end the session (a sign-out). Meanwhile a 401 is expected —
+  /// any request that left with the old token gets one — and is not taken
+  /// for a session that died.
+  var _tokenSwaps = 0;
 
   /// Splash gate: token check ≤50ms, optimistic route, /me probe in background.
   Future<void> restore() async {
@@ -246,9 +300,15 @@ class SessionController extends Notifier<SessionState> {
             data['token'] as String,
             origin: ref.read(serverUrlProvider),
           );
-      state = SessionLoggedIn(
-        user: User.fromJson(data['user'] as Map<String, dynamic>),
-      );
+      final user = User.fromJson(data['user'] as Map<String, dynamic>);
+      try {
+        await ref
+            .read(draftStoreProvider)
+            .claimFor('${user.id}:${user.email.trim().toLowerCase()}');
+      } catch (_) {
+        // A secure-storage hiccup must not keep anyone signed out.
+      }
+      state = SessionLoggedIn(user: user);
     } on DioException catch (e) {
       throw ApiException.fromDio(e);
     }
@@ -260,19 +320,85 @@ class SessionController extends Notifier<SessionState> {
     if (state is SessionLoggedIn) state = SessionLoggedIn(user: user);
   }
 
+  /// Sends [change] — a request that replaces the account's token
+  /// (`PATCH /me/password`) — and stores the token it answers with before
+  /// anything else can be sent, then adopts the user. Until then a 401 on
+  /// another request (one that left with the old token) does not sign the
+  /// user out; and a request that left with the old token and is answered
+  /// later is not taken for a dead session either (see `buildDio`).
+  ///
+  /// A 401 on [change] itself means the session was already over: the user
+  /// is signed out, as by any other 401 — unless the token it left with has
+  /// been replaced meanwhile (a second change sent before the first one
+  /// answered), which says nothing about the new one.
+  Future<User> replacingToken(
+    Future<({String token, User user})> Function() change,
+  ) async {
+    _tokenSwaps++;
+    var dead = false;
+    final store = ref.read(tokenStoreProvider);
+    final sentWith = await store.read();
+    try {
+      final answer = await change();
+      await store.write(answer.token, origin: ref.read(serverUrlProvider));
+      replaceUser(answer.user);
+      return answer.user;
+    } on ApiException catch (e) {
+      dead =
+          e.kind == ApiErrorKind.unauthorized && await store.read() == sentWith;
+      rethrow;
+    } finally {
+      _tokenSwaps--;
+      if (dead) unawaited(forceLogout());
+    }
+  }
+
+  /// Signs out: [revoke] tells the server (`DELETE /session`) and says
+  /// whether it heard; this phone is signed out either way, and everything
+  /// about the account is wiped from it. When the server could not be told,
+  /// the logged-out state says so ([SessionLoggedOut.revokeFailed]).
+  ///
+  /// Meanwhile a 401 on another request — the token is being replaced — is
+  /// not taken for an expired session.
+  Future<void> signOut(Future<bool> Function() revoke) async {
+    _tokenSwaps++;
+    try {
+      var revoked = false;
+      try {
+        revoked = await revoke();
+      } catch (_) {
+        // Not revoked; the phone signs out all the same.
+      }
+      try {
+        // A sign-out the user asked for: unsaved journal drafts go too (the
+        // sign-out sheet warns about them), unlike a 401 or a server change.
+        await _wipeLocal(drafts: true);
+      } finally {
+        state = SessionLoggedOut(revokeFailed: !revoked);
+      }
+    } finally {
+      _tokenSwaps--;
+    }
+  }
+
+  /// Signs out on this phone only, without telling the server.
+  /// Signing out on purpose drops the journal drafts too.
   Future<void> logout() async {
-    await _wipeLocal();
+    await _wipeLocal(drafts: true);
     state = const SessionLoggedOut();
   }
 
+  /// The session expired (a 401). Unsaved journal drafts stay: the user
+  /// signs back in and finds them where they left them.
   Future<void> forceLogout() async {
-    if (state is SessionLoggedOut) return;
+    if (state is SessionLoggedOut || _tokenSwaps > 0) return;
     await _wipeLocal();
     state = const SessionLoggedOut(expired: true);
   }
 
   /// The server address changed: drop the token and every account-scoped value
-  /// before anything can be requested from the new host.
+  /// before anything can be requested from the new host. Journal drafts stay
+  /// (the same server is often reached at a second address, over a VPN).
   Future<void> serverChanged() async {
     await _wipeLocal();
     if (state is! SessionLoggedOut) state = const SessionLoggedOut();
@@ -280,10 +406,17 @@ class SessionController extends Notifier<SessionState> {
 
   /// Signing out drops everything about the account but keeps the three
   /// device-level settings: which server to talk to, and the language and theme
-  /// the login screen should still be rendered in.
-  Future<void> _wipeLocal() async {
+  /// the login screen should still be rendered in. Journal drafts go only
+  /// with [drafts] — a sign-out the user asked for.
+  Future<void> _wipeLocal({bool drafts = false}) async {
     await ref.read(tokenStoreProvider).clear();
-    await ref.read(draftStoreProvider).clear();
+    if (drafts) {
+      try {
+        await ref.read(draftStoreProvider).clearAll();
+      } catch (_) {
+        // A secure-storage hiccup must not keep anyone signed in.
+      }
+    }
     final prefs = ref.read(sharedPrefsProvider);
     final kept = {
       for (final key in PrefKeys.keptOnSignOut)

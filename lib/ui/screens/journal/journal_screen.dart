@@ -3,6 +3,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../../core/haptics.dart';
+import '../../../data/data_scope.dart';
+import '../../../data/deferred_deletes.dart';
 import '../../../data/providers.dart';
 import '../../../data/sync.dart';
 import '../../../models/journal.dart';
@@ -78,7 +80,7 @@ class _JournalScreenState extends ConsumerState<JournalScreen>
     if (bundle != null) _lastShown = bundle;
     // A newly picked range is loading: keep the previous one up, dimmed.
     final previous = async.isFirstLoad ? _lastShown : null;
-    final shown = bundle ?? previous;
+    final shown = _withoutDeleted(bundle ?? previous);
     final firstLoading = async.isFirstLoad && shown == null;
     final showOffline = async.refreshFailed;
     final showErrorState = async.hasFailed;
@@ -130,6 +132,29 @@ class _JournalScreenState extends ConsumerState<JournalScreen>
         ),
       ),
     ));
+  }
+
+  /// [bundle] without the entries being deleted — they leave the list, its
+  /// count and the mood strip at once — or null.
+  JournalBundle? _withoutDeleted(JournalBundle? bundle) {
+    final hidden = ref.watch(deferredDeletesProvider);
+    if (bundle == null || hidden.isEmpty) return bundle;
+    final kept = withoutDeleted(
+        bundle.entries, hidden, DataScope.journal, (e) => e.id);
+    if (kept.length == bundle.entries.length) return bundle;
+    final moods = {...bundle.moodCounts};
+    for (final gone in bundle.entries) {
+      if (kept.contains(gone)) continue;
+      final mood = gone.mood;
+      if (mood != null && (moods[mood] ?? 0) > 0) moods[mood] = moods[mood]! - 1;
+    }
+    return JournalBundle(
+      entries: kept,
+      entriesCount: bundle.entriesCount - (bundle.entries.length - kept.length),
+      journalStreak: bundle.journalStreak,
+      moodCounts: moods,
+      range: bundle.range,
+    );
   }
 
   Widget _header(

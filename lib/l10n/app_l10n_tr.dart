@@ -1,4 +1,5 @@
 import '../core/formats.dart';
+import '../models/event.dart';
 import 'app_l10n.dart';
 
 /// Turkish copy. Keep this file and [AppL10nEn] member-for-member identical —
@@ -122,6 +123,10 @@ class AppL10nTr extends AppL10n {
   String get errTooManyRequests =>
       'Çok fazla deneme yapıldı. Birkaç dakika sonra tekrar dene.';
   @override
+  String get errCurrentPasswordRequired => 'Mevcut şifreni gir';
+  @override
+  String get errInvalidCurrentPassword => 'Mevcut şifre yanlış';
+  @override
   String errInvalidParameter(String param) =>
       'Sunucu bir değeri kabul etmedi ($param)';
   @override
@@ -197,6 +202,7 @@ class AppL10nTr extends AppL10n {
         'wrong_length' => count == null
             ? 'Uzunluğu geçersiz'
             : 'Tam ${_n(count)} karakter olmalı',
+        'confirmation' => 'Yeni şifreyle eşleşmiyor',
         'inclusion' => 'Geçerli bir seçenek değil',
         'exclusion' => 'Bu değer kullanılamaz',
         'invalid' => 'Geçersiz',
@@ -277,9 +283,20 @@ class AppL10nTr extends AppL10n {
         'tags' => 'Etiketler',
         'gratitude' => 'Minnet',
         'email' => 'E-posta',
-        'password' || 'current_password' => 'Şifre',
+        'password' => 'Şifre',
+        'current_password' => 'Mevcut şifre',
+        'password_confirmation' => 'Şifre tekrarı',
+        'timezone' => 'Saat dilimi',
+        'weekly_review_day' => 'Haftalık değerlendirme günü',
+        'locale' => 'Dil',
+        'theme_preference' => 'Tema',
         'todo_list_id' => 'Liste',
         'goal_id' => 'Hedef',
+        'list_id' => 'Liste',
+        'todos' => 'Görevler',
+        'done' => 'Durum',
+        'all_day' => 'Tüm gün',
+        'event_type' => 'Etkinlik türü',
         _ => null,
       };
 
@@ -432,6 +449,275 @@ class AppL10nTr extends AppL10n {
   String get captureCreateAccount => 'Hesap oluştur';
   @override
   String captureCreateHabit(String name) => '“$name” alışkanlığını oluştur';
+
+  // --- Todos and todo lists -------------------------------------------------
+
+  @override
+  String get titleTodos => 'Görevler';
+  @override
+  String todoFilter(String filter) => switch (filter) {
+        'today' => 'Bugün',
+        'upcoming' => 'Yaklaşan',
+        'week' => 'Bu hafta',
+        'overdue' => 'Gecikmiş',
+        'undated' => 'Tarihsiz',
+        'done' => 'Tamamlanan',
+        'cancelled' => 'İptal edilen',
+        'all' => 'Tümü',
+        _ => 'Açık',
+      };
+  @override
+  String todoFilterEmpty(String filter) => switch (filter) {
+        'today' => 'Bugün için görev yok',
+        'upcoming' => 'Önümüzdeki 7 günde görev yok',
+        'week' => 'Bu hafta görev yok',
+        'overdue' => 'Gecikmiş görev yok — harika ✦',
+        'undated' => 'Tarihsiz görev yok',
+        'done' => 'Henüz tamamlanan görev yok',
+        'cancelled' => 'İptal edilen görev yok',
+        _ => 'Açık görev yok — hepsi tamam ✦',
+      };
+  @override
+  String get todoAllLists => 'Tüm listeler';
+  @override
+  String get todoNoList => 'Listesiz';
+  @override
+  String get todoGroupOverdue => 'Gecikmiş';
+  @override
+  String get todoGroupUndated => 'Tarihsiz';
+  @override
+  String todoDue(DateTime day, String? time) =>
+      time == null ? relativeDay(day) : '${relativeDay(day)} · $time';
+  @override
+  String todoSemantics(
+    String title, {
+    String? due,
+    required bool overdue,
+    required bool done,
+  }) =>
+      [
+        title,
+        ?due,
+        if (overdue && !done) 'gecikmiş',
+        if (done) 'tamamlandı',
+      ].join(', ');
+  @override
+  String get todoAdd => 'Görev';
+  @override
+  String get todoAddInline => 'Görev ekle';
+  @override
+  String get todoNewTitle => 'Yeni görev';
+  @override
+  String get todoEditTitle => 'Görevi düzenle';
+  @override
+  String get todoFieldTitle => 'Başlık';
+  @override
+  String get todoFieldNotes => 'Notlar';
+  @override
+  String get todoFieldDue => 'Tarih';
+  @override
+  String get todoDuePick => 'Tarih seç';
+  @override
+  String get todoAddTime => 'Saat ekle';
+  @override
+  String get todoRemoveTime => 'Saati kaldır';
+  @override
+  String get todoFieldPriority => 'Öncelik';
+  @override
+  String todoPriority(String priority) => switch (priority) {
+        'low' => 'Düşük',
+        'high' => 'Yüksek',
+        'urgent' => 'Acil',
+        _ => 'Orta',
+      };
+  @override
+  String get todoFieldList => 'Liste';
+  @override
+  String get todoFieldGoal => 'Hedef';
+  @override
+  String get todoGoalLinked => 'Bağlı hedef';
+  @override
+  String get todoTitleRequired => 'Bir başlık yaz';
+  @override
+  String get todoSaveAndNew => 'Kaydet ve yeni';
+  @override
+  String todoCreated(String title) => 'Görev eklendi: $title';
+  @override
+  String get todoUpdated => 'Görev güncellendi';
+  @override
+  String get todoSaveFailed => 'Görev kaydedilemedi';
+  @override
+  String todoDeleted(String title) => '“$title” silindi';
+  @override
+  String get todoDeleteFailed => 'Görev silinemedi';
+  @override
+  String get todoComplete => 'Tamamla';
+  @override
+  String get todoReopen => 'Yeniden aç';
+  @override
+  String get todoPostpone => 'Yarına ertele';
+  @override
+  String todoPostponed(String title) => '“$title” yarına ertelendi';
+  @override
+  String todoAllOpen(int count) => 'Tüm açık görevler ($count)';
+  @override
+  String get todoNoneUpcoming => 'Önümüzdeki 7 günde görev yok';
+
+  @override
+  String get todoListsTitle => 'Listeler';
+  @override
+  String get todoListsManage => 'Listeleri yönet';
+  @override
+  String get todoListNew => 'Yeni liste';
+  @override
+  String get todoListEdit => 'Listeyi düzenle';
+  @override
+  String get todoListName => 'Ad';
+  @override
+  String get todoListNameRequired => 'Listeye bir ad ver';
+  @override
+  String get todoListColor => 'Renk';
+  @override
+  String todoListCounts(int open, int total) => '$open açık · $total görev';
+  @override
+  String get todoListsEmpty =>
+      'Henüz liste yok — görevlerini Ev, İş gibi listelere ayır';
+  @override
+  String todoListCreated(String name) => '“$name” listesi oluşturuldu';
+  @override
+  String get todoListUpdated => 'Liste güncellendi';
+  @override
+  String get todoListSaveFailed => 'Liste kaydedilemedi';
+  @override
+  String todoListDeleteTitle(String name) => '“$name” listesi silinsin mi?';
+  @override
+  String todoListDeleteBody(int total) => total == 0
+      ? 'Bu liste boş.'
+      : 'Bu listede $total görev var (tamamlananlar dahil). '
+          'Listeyle birlikte silinebilir ya da listesiz olarak kalabilir.';
+  @override
+  String get todoListDeleteKeep => 'Görevler listesiz kalsın';
+  @override
+  String get todoListDeleteAll => 'Görevlerle birlikte sil';
+  @override
+  String todoListDeleted(String name) => '“$name” listesi silindi';
+  @override
+  String get todoListDeleteFailed => 'Liste silinemedi';
+
+  // --- Events and agenda ----------------------------------------------------
+
+  @override
+  String get titleAgenda => 'Ajanda';
+  @override
+  String get agendaThisWeek => 'Bu hafta';
+  @override
+  String get agendaEmptyWeek => 'Bu hafta etkinlik yok';
+  @override
+  String get agendaEmpty => 'Önümüzdeki günlerde etkinlik yok';
+  @override
+  String get agendaShowMore => 'Daha fazla göster';
+  @override
+  String get agendaLoadFailed => 'Etkinlikler yüklenemedi';
+  @override
+  String agendaMore(int count) => '+$count etkinlik daha';
+  @override
+  String get eventAdd => 'Etkinlik';
+  @override
+  String get eventNewTitle => 'Yeni etkinlik';
+  @override
+  String get eventEditTitle => 'Etkinliği düzenle';
+  @override
+  String get eventFieldTitle => 'Başlık';
+  @override
+  String get eventStarts => 'Başlangıç';
+  @override
+  String get eventEnds => 'Bitiş';
+  @override
+  String get eventNoEnd => 'Bitiş yok';
+  @override
+  String get eventAddEnd => 'Bitiş ekle';
+  @override
+  String get eventRemoveEnd => 'Bitişi kaldır';
+  @override
+  String get eventLocation => 'Konum';
+  @override
+  String get eventDescription => 'Açıklama';
+  @override
+  String get eventFieldType => 'Tür';
+  @override
+  String eventType(String type) => switch (type) {
+        'work' => 'İş',
+        'health' => 'Sağlık',
+        'finance' => 'Finans',
+        'other' => 'Diğer',
+        _ => 'Kişisel',
+      };
+  @override
+  String get eventColor => 'Renk';
+  @override
+  String get eventRepeat => 'Tekrar';
+  @override
+  String recurrence(RecurrencePreset preset) => switch (preset) {
+        RecurrencePreset.none => 'Tekrarlanmaz',
+        RecurrencePreset.daily => 'Her gün',
+        RecurrencePreset.weekdays => 'Hafta içi her gün',
+        RecurrencePreset.weekly => 'Her hafta',
+        RecurrencePreset.monthly => 'Her ay',
+        RecurrencePreset.yearly => 'Her yıl',
+        RecurrencePreset.custom => 'Özel tekrar (webde ayarlandı)',
+      };
+  @override
+  String get eventRepeatEnds => 'Tekrar bitişi';
+  @override
+  String get eventRepeatForever => 'Süresiz';
+  @override
+  String recurrenceUntil(DateTime day) =>
+      '${formatDate(day, withYear: day.year != appToday().year, locale: localeCode)} '
+      'tarihine kadar';
+  @override
+  String recurrenceCount(int count) => '$count kez';
+  @override
+  String get eventTitleRequired => 'Bir başlık yaz';
+  @override
+  String get eventEndBeforeStart => 'Bitiş başlangıçtan sonra olmalı';
+  @override
+  String get eventSeriesFormNote =>
+      'Tekrarlayan etkinlik: kaydettiğin değişiklik serideki tüm etkinlikleri '
+      'etkiler. Tarih, serinin ilk etkinliğinin tarihidir.';
+  @override
+  String get eventSeriesNote =>
+      'Tekrarlayan etkinlik: düzenlemek ya da silmek serideki tüm etkinlikleri '
+      'etkiler.';
+  @override
+  String eventCreated(String title) => '“$title” eklendi';
+  @override
+  String get eventUpdated => 'Etkinlik güncellendi';
+  @override
+  String get eventSaveFailed => 'Etkinlik kaydedilemedi';
+  @override
+  String eventDeleted(String title) => '“$title” silindi';
+  @override
+  String get eventDeleteFailed => 'Etkinlik silinemedi';
+  @override
+  String get eventDeleteSeriesTitle => 'Tekrarlayan etkinliği sil';
+  @override
+  String eventDeleteFollowing(DateTime day) =>
+      '${relativeDay(day)} ve sonrakiler';
+  @override
+  String eventDeleteFollowingHint(DateTime day) =>
+      'Bu tarihten önceki etkinlikler kalır.';
+  @override
+  String get eventDeleteAll => 'Tüm seri';
+  @override
+  String get eventDeleteAllHint => 'Serideki bütün etkinlikler silinir.';
+  @override
+  String eventSeriesEnded(String title) =>
+      '“$title” serisi bu tarihten itibaren kaldırıldı';
+  @override
+  String get eventLoadFailed => 'Etkinlik yüklenemedi';
+  @override
+  String eventSemantics(String title, {required String when, String? where}) =>
+      [title, when, ?where].join(', ');
 
   // --- Habit day log --------------------------------------------------------
 
@@ -1077,7 +1363,9 @@ class AppL10nTr extends AppL10n {
   @override
   String get habitsArchive => 'Arşivle';
   @override
-  String habitsArchiveBody(String name) => '$name listeden kaldırılacak.';
+  String habitsArchiveBody(String name) =>
+      '$name Bugün\'den ve listeden kalkar, artık işaretlenemez. Geçmişi '
+      'saklanır; Arşiv\'den geri alabilirsin.';
   @override
   String get habitsArchiveTitle => 'Alışkanlık arşivlensin mi?';
   @override
@@ -1114,6 +1402,97 @@ class AppL10nTr extends AppL10n {
   String get habitsAdded => 'Alışkanlık eklendi ✓';
   @override
   String get habitsSaveFailed => 'Kaydedilemedi, tekrar dene';
+  @override
+  String get habitsFormEditTitle => 'Alışkanlığı düzenle';
+  @override
+  String get habitsFormDescription => 'Açıklama (isteğe bağlı)';
+  @override
+  String get habitsFormDescriptionHint => 'ör. Kahvaltıdan önce, 2 bardak';
+  @override
+  String get habitsFormHistoryNote =>
+      'Geçmiş günler kaydedildikleri gibi kalır; değişiklik bugünden itibaren geçerli.';
+  @override
+  String get habitsUpdated => 'Alışkanlık güncellendi ✓';
+  @override
+  String habitsArchiveFreezes(String goals) =>
+      'Şu hedefler bu alışkanlığın tamamlanan günlerini sayıyor: $goals. '
+      'Arşivlersen ilerlemeleri durur, yeni gün eklenmez.';
+  @override
+  String habitsArchivedNamed(String name) => '“$name” arşivlendi';
+  @override
+  String get habitsUnarchive => 'Arşivden çıkar';
+  @override
+  String habitsUnarchived(String name) => '“$name” yeniden aktif';
+  @override
+  String get habitsUnarchiveFailed => 'Arşivden çıkarılamadı';
+  @override
+  String get habitsDelete => 'Alışkanlığı sil';
+  @override
+  String habitsDeleteTitle(String name) => '“$name” silinsin mi?';
+  @override
+  String habitsDeleteBody({required int days, required String goals}) {
+    final logs = days == 0
+        ? 'Henüz işaretlenmiş günü yok.'
+        : 'İşaretlenmiş $days günün kaydı, serileri ve oranları kalıcı olarak silinir.';
+    final linked = goals.isEmpty
+        ? ''
+        : ' Bu alışkanlığı sayan hedefler ($goals) bağlantısız kalır ve '
+            'son değerini korur; ilerlemeyi bundan sonra elle girersin.';
+    return '$logs$linked Bu geri alınamaz.';
+  }
+
+  @override
+  String habitsDeleted(String name) => '“$name” silindi';
+  @override
+  String get habitsDeleteFailed => 'Alışkanlık silinemedi';
+  @override
+  String get habitsArchivedTitle => 'Arşivlenmiş alışkanlıklar';
+  @override
+  String get habitsArchivedEmpty => 'Arşivde alışkanlık yok';
+  @override
+  String get habitsArchivedEmptyBody =>
+      'Arşivlediğin alışkanlıklar geçmişleriyle burada durur.';
+  @override
+  String habitsArchivedOn(String date) => 'Arşivlendi: $date';
+  @override
+  String get habitsArchivedNote =>
+      'Arşivde: işaretlenemez ve Bugün\'de görünmez. Geçmişi saklanır.';
+  @override
+  String habitsTrackedBy(String goals) => 'Bu alışkanlığı sayan hedefler: $goals';
+  @override
+  String habitsServesGoal(String goal) => 'Hedef: $goal';
+  @override
+  String get habitsCalendar => 'Takvim';
+  @override
+  String get habitsCalendarHint => 'Kaydını düzeltmek için bir güne dokun.';
+  @override
+  String get habitsPrevMonth => 'Önceki ay';
+  @override
+  String get habitsNextMonth => 'Sonraki ay';
+  @override
+  String get habitsDayFuture => 'Gelecek günler işaretlenemez.';
+  @override
+  String habitsDayBeforeStart(String date) =>
+      'Bu alışkanlık o gün henüz yoktu ($date tarihinde başladı).';
+  @override
+  String get habitsDayDone => 'Yapıldı';
+  @override
+  String get habitsDayNotDone => 'Yapılmadı';
+  @override
+  String habitsDaySemantics(
+    String date, {
+    required int count,
+    required int target,
+    required bool done,
+    required bool loggable,
+  }) {
+    final state = done
+        ? 'yapıldı'
+        : count > 0
+            ? '$count / $target'
+            : 'yapılmadı';
+    return loggable ? '$date, $state' : '$date, $state, değiştirilemez';
+  }
 
   // --- Goals ----------------------------------------------------------------
 
@@ -1171,11 +1550,6 @@ class AppL10nTr extends AppL10n {
   @override
   String get goalsMarkAbandoned => 'Bırakıldı olarak işaretle';
   @override
-  String get goalsAbandonTitle => 'Hedef bırakılsın mı?';
-  @override
-  String get goalsAbandonBody =>
-      'Bu hedefi bırakıldı olarak işaretleyeceksin.';
-  @override
   String get goalsAbandonAction => 'Bırak';
   @override
   String get goalsActionFailed => 'İşlem başarısız';
@@ -1209,6 +1583,9 @@ class AppL10nTr extends AppL10n {
   @override
   String get goalsFormTargetRequired => 'Geçerli bir hedef değer gir';
   @override
+  String goalsNumberAmbiguous(String mark) =>
+      'Belirsiz sayı: ondalık için “$mark” kullan, binlik ayırıcı koyma';
+  @override
   String get goalsFormUnit => 'Birim';
   @override
   String get goalsFormUnitHint => 'kg · gün · TRY';
@@ -1224,6 +1601,72 @@ class AppL10nTr extends AppL10n {
   String get goalsCreated => 'Hedef oluşturuldu ✓';
   @override
   String get goalsCreateFailed => 'Hedef oluşturulamadı';
+  @override
+  String get goalsFormEditTitle => 'Hedefi düzenle';
+  @override
+  String get goalsUpdated => 'Hedef güncellendi ✓';
+  @override
+  String get goalsSaveFailed => 'Hedef kaydedilemedi';
+  @override
+  String get goalsFormCurrentValue => 'Mevcut ilerleme';
+  @override
+  String get goalsFormNoDeadline => 'Yok';
+  @override
+  String get goalsFormClearDeadline => 'Bitiş tarihini kaldır';
+  @override
+  String get goalsFormTypeChangeNote =>
+      'Tür değişince eski bağlantı kalkar; hedef o anki değerini korur.';
+  @override
+  String get goalsReopen => 'Yeniden aç';
+  @override
+  String get goalsReopened => 'Hedef yeniden açıldı';
+  @override
+  String get goalsReopenTitle => 'Hedefi yeniden aç';
+  @override
+  String goalsReopenNeedsHigherTarget(String current) =>
+      'İlerleme hedefe zaten ulaştı ($current). Yeniden açmak için daha '
+      'yüksek bir hedef gir.';
+  @override
+  String get goalsReopenNewTarget => 'Yeni hedef değer';
+  @override
+  String goalsReopenTargetTooLow(String current) =>
+      'Hedef, mevcut ilerlemeden ($current) büyük olmalı';
+  @override
+  String get goalsMarkAchieved => 'Tamamlandı olarak işaretle';
+  @override
+  String get goalsMarkedAchieved => 'Hedef tamamlandı 🎉';
+  @override
+  String get goalsAbandonedSnack => 'Hedef bırakıldı';
+  @override
+  String get goalsDelete => 'Hedefi sil';
+  @override
+  String goalsDeleted(String name) => '“$name” silindi';
+  @override
+  String get goalsDeleteFailed => 'Hedef silinemedi';
+  @override
+  String get goalsLinkAccount => 'Hesap bağla';
+  @override
+  String get goalsLinkHabit => 'Alışkanlık bağla';
+  @override
+  String get goalsChangeLink => 'Bağlantıyı değiştir';
+  @override
+  String get goalsNoHabitLinked =>
+      'Bağlı alışkanlık yok: ilerlemeyi elle girersin. Bir alışkanlık '
+      'bağlarsan tamamlanan günleri sayılır.';
+  @override
+  String get goalsNoAccountLinked =>
+      'Bağlı hesap yok: ilerleme tüm gelirlerinden hesaplanıyor. Bir hesap '
+      'bağlarsan bakiyesi izlenir.';
+  @override
+  String goalsLinked(String name) => '“$name” bağlandı';
+  @override
+  String get goalsUnlinked => 'Bağlantı kaldırıldı';
+  @override
+  String get goalsTotalIncome => 'Toplam gelir';
+  @override
+  String goalsDaysOverdue(int days) => '$days gün geçti';
+  @override
+  String get goalsMore => 'Diğer işlemler';
 
   // --- Journal --------------------------------------------------------------
 
@@ -1243,11 +1686,6 @@ class AppL10nTr extends AppL10n {
   String get journalEnergy => 'Enerji';
   @override
   String get journalGratitude => 'MİNNET';
-  @override
-  String get journalDeleteTitle => 'Kayıt silinsin mi?';
-  @override
-  String get journalDeleteBody =>
-      'Bu günlük kaydı kalıcı olarak silinecek.';
   @override
   String get journalDeleteFailed => 'Kayıt silinemedi';
   @override
@@ -1281,6 +1719,50 @@ class AppL10nTr extends AppL10n {
   String get journalAdded => 'Kayıt eklendi ✓';
   @override
   String get journalSaveFailed => 'Kayıt kaydedilemedi';
+  @override
+  String journalRichNotice(String formatting) =>
+      'Bu kayıt web\'de biçimlendirilmiş ($formatting). Başlığı, ruh halini '
+      've etiketleri güvenle düzenleyebilirsin; metni değiştirirsen '
+      'biçimlendirme kalkar.';
+  @override
+  String get journalRichConfirmTitle => 'Biçimlendirme kaldırılsın mı?';
+  @override
+  String journalRichConfirmBody(String formatting) =>
+      'Metni değiştirdin. Kaydedersen web\'de eklenen biçimlendirme '
+      '($formatting) kalkar, yazın düz metin olarak saklanır.';
+  @override
+  String get journalRichConfirmAction => 'Yine de kaydet';
+  @override
+  String journalFormatting(String kind) => switch (kind) {
+        'bold' => 'kalın yazı',
+        'italic' => 'italik',
+        'strikethrough' => 'üstü çizili',
+        'link' => 'bağlantı',
+        'heading' => 'başlık',
+        'quote' => 'alıntı',
+        'code' => 'kod',
+        'list' => 'liste',
+        'attachment' => 'ek',
+        _ => 'diğer',
+      };
+  @override
+  String get journalDraftRestored => 'Kaydedilmemiş taslak geri yüklendi';
+  @override
+  String get journalDraftDiscard => 'Taslağı at';
+  @override
+  String get journalDraftRestoredStale =>
+      'Taslak geri yüklendi. Bu kayıt o zamandan beri başka yerde değişti; kaydetmeden önce kontrol et';
+  @override
+  String get journalEditorEntryGone =>
+      'Bu kayıt başka yerde silindi. Yazdıkların burada duruyor; yeni kayıt olarak kaydedebilirsin';
+  @override
+  String get journalEditorSaveAsNew => 'Yeni kayıt olarak kaydet';
+  @override
+  String get journalDeleted => 'Kayıt silindi';
+  @override
+  String get journalEditorMood => 'Ruh hali';
+  @override
+  String get journalEditorMoodClear => 'Ruh halini kaldır';
 
   @override
   String moodLabel(String mood) => switch (mood) {
@@ -1358,12 +1840,111 @@ class AppL10nTr extends AppL10n {
   String get profileSignOutTitle => 'Çıkış yapılsın mı?';
   @override
   String get profileSignOutBody =>
-      'Oturumun kapatılacak. Sunucu adresi kayıtlı kalır.';
+      'Bu hesapla giriş yapılmış tüm cihazlarda oturum kapanır: her hesabın '
+      'tek bir oturum anahtarı var. Sunucu adresi bu telefonda kayıtlı kalır.';
   @override
   String get profileFallbackName => 'Kullanıcı';
   @override
   String get profileLanguageSaveFailed =>
       'Dil sunucuya kaydedilemedi — bu cihazda geçerli';
+  @override
+  String get profileThemeSaveFailed =>
+      'Tema sunucuya kaydedilemedi — bu cihazda geçerli';
+  @override
+  String get profileSignOutEverywhere => 'Tüm cihazlarda oturumu kapatır';
+  @override
+  String get profileSignOutDraft =>
+      'Kaydedilmemiş günlük taslağın bu telefondan silinecek.';
+  @override
+  String get noticeSignOutNotRevoked =>
+      'Bu telefonda çıkış yapıldı, ancak sunucuya ulaşılamadı: oturum '
+      'sunucuda kapatılamadı, diğer cihazlar açık kalabilir.';
+  @override
+  String get profileSectionAccount => 'Hesap';
+  @override
+  String get profileName => 'Ad';
+  @override
+  String get profileEmail => 'E-posta';
+  @override
+  String get profilePassword => 'Şifre';
+  @override
+  String get profilePasswordAction => 'Değiştir';
+  @override
+  String get profileEditName => 'Adını düzenle';
+  @override
+  String get profileNameHint => 'Uygulamada ve web\'de böyle görünür.';
+  @override
+  String get profileNameSaved => 'Adın güncellendi';
+  @override
+  String get profileEmailTitle => 'E-posta adresi';
+  @override
+  String get profileEmailNew => 'Yeni e-posta';
+  @override
+  String get profileEmailNote =>
+      'E-posta giriş adın olduğu için değiştirmek mevcut şifreni ister.';
+  @override
+  String get profileEmailSaved => 'E-posta adresin güncellendi';
+  @override
+  String get profileCurrentPassword => 'Mevcut şifre';
+  @override
+  String get profileNewPassword => 'Yeni şifre';
+  @override
+  String get profileConfirmPassword => 'Yeni şifre (tekrar)';
+  @override
+  String get profilePasswordTitle => 'Şifreyi değiştir';
+  @override
+  String get profilePasswordNote =>
+      'Şifre değişince diğer tüm cihazlarda oturum kapanır; bu telefonda '
+      'açık kalır.';
+  @override
+  String get profilePasswordSaved =>
+      'Şifren değişti. Diğer cihazlarda yeniden giriş yapman gerekecek.';
+  @override
+  String get profileShowPassword => 'Şifreyi göster';
+  @override
+  String get profileHidePassword => 'Şifreyi gizle';
+  @override
+  String get profileRateLimited =>
+      'Çok fazla şifre denemesi. Birkaç dakika bekleyip tekrar dene.';
+  @override
+  String get profileSaveFailed => 'Kaydedilemedi · Tekrar dene';
+  @override
+  String get profileOptionsFailed => 'Seçenekler yüklenemedi';
+  @override
+  String get profileCurrencyNote => 'Mevcut tutarlar dönüştürülmez.';
+  @override
+  String profileCurrencyConfirmTitle(String code) => '$code kullanılsın mı?';
+  @override
+  String profileCurrencyConfirmBody(String before, String after) =>
+      'Hiçbir tutar dönüştürülmez: bütçe limitleri ve toplamlar aynı rakamla '
+      'yeni para biriminde okunur — $before, $after olur. Hesaplar kendi '
+      'para birimlerini korur.';
+  @override
+  String get profileCurrencyConfirm => 'Değiştir';
+  @override
+  String profileCurrencySaved(String code) => 'Para birimi: $code';
+  @override
+  String get profileTimeZoneNote =>
+      '“Bugün”, gün sınırları ve saatler bu dilime göre hesaplanır.';
+  @override
+  String get profileTimeZoneSearch => 'Şehir ya da UTC+03 ara';
+  @override
+  String profileTimeZoneDeviceGroup(String offset) =>
+      'Bu cihazın saati (UTC$offset)';
+  @override
+  String get profileTimeZoneAllGroup => 'Tüm saat dilimleri';
+  @override
+  String get profileTimeZoneNoMatch => 'Eşleşen saat dilimi yok';
+  @override
+  String profileTimeZoneSaved(String zone) => 'Saat dilimi: $zone';
+  @override
+  String get profileWeeklyReview => 'Haftalık değerlendirme';
+  @override
+  String get profileWeeklyReviewNote =>
+      'Web\'deki haftalık değerlendirme hatırlatıcısının günü.';
+  @override
+  String profileWeeklyReviewSaved(String day) =>
+      'Haftalık değerlendirme günü: $day';
   @override
   String get serverBlurb =>
       'Meridian sunucusunun LAN adresi. Telefonun aynı Wi-Fi ağında olmalı.';

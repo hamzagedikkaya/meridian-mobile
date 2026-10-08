@@ -13,6 +13,7 @@ import '../models/subscription.dart';
 import '../models/habit.dart';
 import '../models/home.dart';
 import '../models/journal.dart';
+import '../models/me_options.dart';
 import '../models/quick_capture.dart';
 import '../models/todo.dart';
 import '../models/transaction.dart';
@@ -35,19 +36,98 @@ class MeridianRepository {
 
   // --- Me -------------------------------------------------------------------
 
-  /// The two preferences the phone owns: UI language and theme. Sending them
-  /// to the server keeps the choice with the account, so the web app and a
-  /// reinstall pick it up too. Neither shapes anything the server reports, so
-  /// nothing is refetched; the caller adopts the returned user.
-  Future<User> updateMe({String? locale, String? themePreference}) => _write(
+  /// Changes the account's settings (`PATCH /me`); only the keys given are
+  /// sent. The caller adopts the returned user.
+  ///
+  /// The currency every sum is reported in, the time zone that decides what
+  /// "today" is and the language the server writes its text in (currency
+  /// names, the uncategorized slice, option labels) shape every read model,
+  /// so a change to any of them refetches everything — and the signed-in
+  /// user (see `DataSync`). The name, e-mail, weekly review day and theme
+  /// shape nothing the server reports, so nothing is refetched for them.
+  ///
+  /// A new [email] needs [currentPassword]; send it only with an e-mail
+  /// change, since every request that carries it counts toward the
+  /// password-check rate limit (429 `too_many_requests`). A refusal names
+  /// the error to act on first: `current_password_required`,
+  /// `invalid_current_password` or `validation_failed`, with every failing
+  /// field listed together. Nothing is saved on any error.
+  Future<User> updateMe({
+    String? name,
+    String? email,
+    String? currentPassword,
+    String? currency,
+    String? timezone,
+    int? weeklyReviewDay,
+    String? locale,
+    String? themePreference,
+  }) =>
+      _write(
         'PATCH',
         '/me',
         body: _pruned({
+          'name': name,
+          'email': email,
+          'current_password': currentPassword,
+          'currency': currency,
+          'timezone': timezone,
+          'weekly_review_day': weeklyReviewDay,
           'locale': locale,
           'theme_preference': themePreference,
         }),
-        touches: const {},
+        touches: {
+          if (currency != null || timezone != null || locale != null)
+            DataScope.me,
+        },
         parse: (data) => User.fromJson(_entity(data, 'user')),
+      );
+
+  /// The currencies and time zones the account can be set to
+  /// (`GET /me/options`), labelled in the account's language.
+  Future<MeOptions> fetchMeOptions() =>
+      _get('/me/options', (data) => MeOptions.fromJson(data));
+
+  /// Changes the password (`PATCH /me/password`). The server replaces the
+  /// account's token on success — every other device, and any request still
+  /// on its way with the old one, gets 401 from then on — and returns the
+  /// new one, which must be stored before anything else is sent (see
+  /// `SessionController.replacingToken`). On any error nothing changes and
+  /// the old token stays: `current_password_required`,
+  /// `invalid_current_password` (the new password's own errors listed too),
+  /// `validation_failed`, or 429 `too_many_requests`.
+  Future<PasswordChanged> changePassword({
+    required String currentPassword,
+    required String password,
+    required String passwordConfirmation,
+  }) =>
+      _write(
+        'PATCH',
+        '/me/password',
+        body: {
+          'current_password': currentPassword,
+          'password': password,
+          'password_confirmation': passwordConfirmation,
+        },
+        // Nothing the app reads changes: the token is the session's.
+        touches: const {},
+        parse: (data) {
+          final token = data['token'];
+          if (token is! String || token.isEmpty) {
+            throw const FormatException('PATCH /me/password: no token');
+          }
+          return (token: token, user: User.fromJson(_entity(data, 'user')));
+        },
+      );
+
+  /// Signs out on the server (`DELETE /session`): the account's token is
+  /// replaced with one no client receives, which signs out every device
+  /// that uses it. A 401 means it was already replaced (another device
+  /// signed out, or the password changed) — as good as done.
+  Future<void> revokeSession() => _write(
+        'DELETE',
+        '/session',
+        touches: const {},
+        parse: (_) {},
       );
 
   // --- Home -----------------------------------------------------------------
@@ -365,6 +445,16 @@ class MeridianRepository {
   Future<HabitsBundle> fetchHabits() =>
       _get('/habits', (data) => HabitsBundle.fromJson(data));
 
+  /// Only the archived habits, most recently archived first, each with its
+  /// chain ending on its archive day (`GET /habits?archived=true`).
+  Future<List<Habit>> fetchArchivedHabits() => _get(
+        '/habits',
+        (data) => HabitsBundle.fromJson(data).habits,
+        query: {'archived': true},
+      );
+
+  /// One habit, archived ones too, with [days] of chain and what an archive
+  /// or delete would touch (`logged_days_count`, `tracked_by_goals`).
   Future<Habit> fetchHabit(int id, {int days = 84}) => _get(
         '/habits/$id',
         (data) => Habit.fromJson(_entity(data, 'habit')),
@@ -405,18 +495,42 @@ class MeridianRepository {
         parse: (data) => Habit.fromJson(_entity(data, 'habit')),
       );
 
-  Future<Habit> updateHabit(int id, HabitInput input) => _write(
+  /// Saves an edit of [before], sending only the fields [input] changes —
+  /// a description written on the web, or the goal it serves, stays as it
+  /// is unless the form changed it. Archived habits can be edited too.
+  Future<Habit> updateHabit(Habit before, HabitInput input) => _write(
         'PATCH',
-        '/habits/$id',
-        body: input.toJson(),
+        '/habits/${before.id}',
+        body: input.changesFrom(before),
         touches: const {DataScope.habits},
         parse: (data) => Habit.fromJson(_entity(data, 'habit')),
       );
 
-  Future<void> archiveHabit(int id) => _write(
+  /// Takes the habit off the active list, Today and quick capture, and
+  /// freezes its logs — and with them the goals that count it. Idempotent.
+  Future<Habit> archiveHabit(int id) => _write(
         'PATCH',
         '/habits/$id/archive',
         touches: const {DataScope.habits},
+        parse: (data) => Habit.fromJson(_entity(data, 'habit')),
+      );
+
+  /// Brings an archived habit back: listed, loggable, its chain ending
+  /// today. Idempotent.
+  Future<Habit> unarchiveHabit(int id) => _write(
+        'PATCH',
+        '/habits/$id/unarchive',
+        touches: const {DataScope.habits},
+        parse: (data) => Habit.fromJson(_entity(data, 'habit')),
+      );
+
+  /// Deletes the habit with every log of it; the goals that counted it are
+  /// unlinked and keep its final count, logged by hand from then on.
+  Future<void> deleteHabit(int id) => _write(
+        'DELETE',
+        '/habits/$id',
+        touches: const {DataScope.habits},
+        deletes: (scope: DataScope.habits, id: id),
         parse: (_) {},
       );
 
@@ -448,24 +562,101 @@ class MeridianRepository {
         'POST',
         '/goals',
         body: input.toJson(),
-        touches: const {DataScope.goals},
+        touches: {
+          DataScope.goals,
+          if (input.related != 'none') DataScope.goalLinks,
+        },
         parse: (data) => Goal.fromJson(_entity(data, 'goal')),
       );
 
-  Future<Goal> updateGoal(int id, GoalInput input) => _write(
+  /// Saves an edit of [before], sending only what [input] changes: the
+  /// current link (`related`) goes only when it was changed, so an edit
+  /// never unlinks the account or habit a goal tracks.
+  Future<Goal> updateGoal(Goal before, GoalInput input) {
+    final changes = input.changesFrom(before);
+    return _write(
+        'PATCH',
+        '/goals/${before.id}',
+        body: changes,
+        touches: {
+          DataScope.goals,
+          // A new type drops a link that no longer fits.
+          if (changes.containsKey('related') ||
+              changes.containsKey('target_type'))
+            DataScope.goalLinks,
+        },
+        parse: (data) => Goal.fromJson(_entity(data, 'goal')),
+      );
+  }
+
+  /// Links goal [id] to [related] (`"Account-12"`, `"Habit-7"`), or unlinks
+  /// it (`"none"`): its progress then follows that account or habit.
+  Future<Goal> linkGoal(int id, String related) => _write(
         'PATCH',
         '/goals/$id',
-        body: input.toJson(),
-        touches: const {DataScope.goals},
+        body: {'related': related},
+        touches: const {DataScope.goals, DataScope.goalLinks},
         parse: (data) => Goal.fromJson(_entity(data, 'goal')),
       );
 
+  /// Always allowed; the goal stays abandoned until it is reopened.
   Future<Goal> abandonGoal(int id) => _write(
         'PATCH',
         '/goals/$id',
         body: {'status': 'abandoned'},
         touches: const {DataScope.goals},
         parse: (data) => Goal.fromJson(_entity(data, 'goal')),
+      );
+
+  /// Makes the goal active again. One whose progress already reaches its
+  /// target needs a higher [targetValue] with it, or the server refuses
+  /// (`target_reached`).
+  Future<Goal> reopenGoal(int id, {num? targetValue}) => _write(
+        'PATCH',
+        '/goals/$id',
+        body: {
+          'status': 'active',
+          'target_value': ?targetValue,
+        },
+        touches: const {DataScope.goals},
+        // The progress moved on elsewhere (an account's balance, say):
+        // the goal shown is out of date.
+        staleOn: const {
+          'target_reached': {DataScope.goals},
+          'target_not_reached': {DataScope.goals},
+        },
+        parse: (data) => Goal.fromJson(_entity(data, 'goal')),
+      );
+
+  /// Marks a goal logged by hand achieved by setting its progress to its
+  /// target. Goals that track an account, income or a habit become achieved
+  /// on their own (`target_not_reached` otherwise).
+  Future<Goal> markGoalAchieved(Goal goal) => _write(
+        'PATCH',
+        '/goals/${goal.id}',
+        body: {'status': 'achieved', 'current_value': goal.targetValue},
+        touches: const {DataScope.goals},
+        staleOn: const {
+          'target_reached': {DataScope.goals},
+          'target_not_reached': {DataScope.goals},
+        },
+        parse: (data) => Goal.fromJson(_entity(data, 'goal')),
+      );
+
+  /// Deletes the goal. The habits, todos and subscriptions that served it
+  /// stay, without a goal; its linked account or habit is not touched.
+  Future<void> deleteGoal(int id) => _write(
+        'DELETE',
+        '/goals/$id',
+        touches: const {
+          DataScope.goals,
+          DataScope.goalLinks,
+          DataScope.habits,
+          DataScope.todos,
+          DataScope.subscriptions,
+        },
+        deletes: (scope: DataScope.goals, id: id),
+        parse: (_) {},
       );
 
   // --- Journal --------------------------------------------------------------
@@ -489,11 +680,20 @@ class MeridianRepository {
         parse: (data) => JournalEntry.fromJson(_entity(data, 'entry')),
       );
 
-  Future<JournalEntry> updateJournalEntry(int id, JournalInput input) =>
+  /// Saves an edit of [before] — the full entry — sending only what
+  /// [input] changes. The body goes, as plain text, only when its text
+  /// changed, so a web entry keeps its formatting through an edit of its
+  /// title, mood or tags. A changed body over a rich one is refused
+  /// (`body_has_formatting`) unless [discardFormatting] confirms it.
+  Future<JournalEntry> updateJournalEntry(
+    JournalEntry before,
+    JournalInput input, {
+    bool discardFormatting = false,
+  }) =>
       _write(
         'PATCH',
-        '/journal_entries/$id',
-        body: input.toJson(),
+        '/journal_entries/${before.id}',
+        body: input.changesFrom(before, discardFormatting: discardFormatting),
         touches: const {DataScope.journal},
         parse: (data) => JournalEntry.fromJson(_entity(data, 'entry')),
       );
@@ -508,18 +708,28 @@ class MeridianRepository {
 
   // --- Todos ----------------------------------------------------------------
 
+  /// The todos one of the server's filters lists (contract §9), in [listId]
+  /// or — [unlisted] — in no list, in [sort] order; with [perPage], only
+  /// the first page of that many. `meta.counts` says how many each filter
+  /// would list with the same list (the filter chips).
   Future<TodosBundle> fetchTodos({
     String? filter,
     int? listId,
+    bool unlisted = false,
     String? priority,
+    String? sort,
+    int? perPage,
   }) =>
       _get(
         '/todos',
         (data) => TodosBundle.fromJson(data),
         query: _pruned({
           'filter': filter,
-          'list_id': listId,
+          'list_id': unlisted ? 'none' : listId,
           'priority': priority,
+          'sort': sort,
+          'page': perPage == null ? null : 1,
+          'per_page': perPage,
         }),
       );
 
@@ -534,6 +744,7 @@ class MeridianRepository {
         parse: (data) => Todo.fromJson(_entity(data, 'todo')),
       );
 
+  /// A new todo, due on a day ([TodoInput.dueDate]) with or without a time.
   Future<Todo> createTodo(TodoInput input) => _write(
         'POST',
         '/todos',
@@ -542,12 +753,71 @@ class MeridianRepository {
         parse: (data) => Todo.fromJson(_entity(data, 'todo')),
       );
 
-  Future<Todo> updateTodo(int id, TodoInput input) => _write(
+  /// Saves an edit of [before], sending only what [input] changes — so a
+  /// postponed todo keeps its list, notes and goal.
+  Future<Todo> updateTodo(Todo before, TodoInput input) => _write(
         'PATCH',
-        '/todos/$id',
-        body: input.toJson(),
+        '/todos/${before.id}',
+        body: input.changesFrom(before),
         touches: const {DataScope.todos},
         parse: (data) => Todo.fromJson(_entity(data, 'todo')),
+      );
+
+  /// Moves todo [id] to [day], keeping its time of day — a date-only todo
+  /// stays date-only (contract §9, `PATCH` with `due_date` alone).
+  Future<Todo> postponeTodo(int id, DateTime day) => _write(
+        'PATCH',
+        '/todos/$id',
+        body: {'due_date': isoDate(day)},
+        touches: const {DataScope.todos},
+        parse: (data) => Todo.fromJson(_entity(data, 'todo')),
+      );
+
+  /// Deletes todo [id]; the goal it was linked to is not affected.
+  Future<void> deleteTodo(int id) => _write(
+        'DELETE',
+        '/todos/$id',
+        touches: const {DataScope.todos},
+        deletes: (scope: DataScope.todos, id: id),
+        parse: (_) {},
+      );
+
+  // --- Todo lists -----------------------------------------------------------
+
+  /// The active lists, by position then name, and how many open todos are
+  /// in no list.
+  Future<TodoListsBundle> fetchTodoLists() =>
+      _get('/todo_lists', (data) => TodoListsBundle.fromJson(data));
+
+  /// A new list holds no todos yet: only the lists change.
+  Future<TodoList> createTodoList(TodoListInput input) => _write(
+        'POST',
+        '/todo_lists',
+        body: input.toJson(),
+        touches: const {DataScope.todoLists},
+        parse: (data) => TodoList.fromJson(_entity(data, 'todo_list')),
+      );
+
+  /// Renames or recolours [before], sending only what changed; its todos
+  /// show the list's name and colour.
+  Future<TodoList> updateTodoList(TodoList before, TodoListInput input) =>
+      _write(
+        'PATCH',
+        '/todo_lists/${before.id}',
+        body: input.changesFrom(before),
+        touches: const {DataScope.todoLists},
+        parse: (data) => TodoList.fromJson(_entity(data, 'todo_list')),
+      );
+
+  /// Deletes list [id]. With [keepTodos] its todos stay, in no list
+  /// (`todos=keep`); otherwise they are deleted with it, whatever their
+  /// status (`todos=delete`, the server's default).
+  Future<void> deleteTodoList(int id, {required bool keepTodos}) => _write(
+        'DELETE',
+        '/todo_lists/$id?todos=${keepTodos ? 'keep' : 'delete'}',
+        touches: const {DataScope.todoLists, DataScope.todos},
+        deletes: (scope: DataScope.todoLists, id: id),
+        parse: (_) {},
       );
 
   // --- Events ---------------------------------------------------------------
@@ -559,6 +829,50 @@ class MeridianRepository {
           'from': from == null ? null : isoDate(from),
           'to': to == null ? null : isoDate(to),
         }),
+      );
+
+  /// One event in full: its description and recurrence rule too.
+  Future<Event> fetchEvent(int id) =>
+      _get('/events/$id', (data) => Event.fromJson(_entity(data, 'event')));
+
+  Future<Event> createEvent(EventInput input) => _write(
+        'POST',
+        '/events',
+        body: input.toJson(),
+        touches: const {DataScope.events},
+        parse: (data) => Event.fromJson(_entity(data, 'event')),
+      );
+
+  /// Saves an edit of [before], sending only what changed. For a series it
+  /// changes every occurrence (contract §10.2).
+  Future<Event> updateEvent(Event before, EventInput input) => _write(
+        'PATCH',
+        '/events/${before.id}',
+        body: input.changesFrom(before),
+        touches: const {DataScope.events},
+        parse: (data) => Event.fromJson(_entity(data, 'event')),
+      );
+
+  /// Ends series [event] on [lastDay] (inclusive) — "this and following"
+  /// from the occurrence after it: its rule's `UNTIL` replaced, the earlier
+  /// occurrences kept (contract §10.2).
+  Future<Event> endSeries(Event event, DateTime lastDay) => _write(
+        'PATCH',
+        '/events/${event.id}',
+        body: {
+          'recurrence_rule': Recurrence.endingOn(event.recurrenceRule ?? '', lastDay),
+        },
+        touches: const {DataScope.events},
+        parse: (data) => Event.fromJson(_entity(data, 'event')),
+      );
+
+  /// Deletes event [id] — for a series, every occurrence.
+  Future<void> deleteEvent(int id) => _write(
+        'DELETE',
+        '/events/$id',
+        touches: const {DataScope.events},
+        deletes: (scope: DataScope.events, id: id),
+        parse: (_) {},
       );
 
   // --- Quick capture --------------------------------------------------------

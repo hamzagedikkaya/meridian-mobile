@@ -6,31 +6,22 @@
 /// completion %, perfect day), todos, events and the top active goals into
 /// one payload (meridian `Api::V1::HomeController`). `GET /finance/dashboard`
 /// folds transactions, categories, budgets and subscriptions together.
-/// `GET /goals` and `GET /goals/:id` recalculate financial goals from account
-/// balances or total income and habit goals from completed logs on every read
-/// (`Goals::CalculateProgress`) and store the result — which is all `/home`
-/// shows of them: its top active goals carry the progress stored at the last
-/// recalculation. So one write changes several screens, and the table below
-/// says which — derived from what each endpoint returns, not from which
-/// screen happened to make the write — and whenever both are due,
-/// [DataSync.refresh] has the goals recalculated alongside `/home` and asks
-/// `/home` again if that moved a goal it shows.
+/// `GET /goals`, `GET /goals/:id` and `/home` itself recalculate every goal's
+/// progress on each read — financial goals from account balances or total
+/// income, habit goals from completed logs (`Goals::CalculateProgress`) — so
+/// each shows the current progress without waiting on another. One write
+/// changes several screens, and the table below says which — derived from
+/// what each endpoint returns, not from which screen happened to make the
+/// write.
 library;
 
 import 'dart:async';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_riverpod/misc.dart'
-    show
-        AsyncProviderListenable,
-        Family,
-        ProviderBase,
-        ProviderListenable,
-        ProviderOrFamily;
+    show AsyncProviderListenable, Family, ProviderBase, ProviderOrFamily;
 
 import '../core/session.dart';
-import '../models/goal.dart';
-import '../models/home.dart';
 import 'data_scope.dart';
 import 'providers.dart';
 
@@ -47,9 +38,8 @@ Set<ProviderOrFamily> readModelsFor(DataScope scope) => switch (scope) {
       // can still be deleted or change currency), as a category's does
       // (what its delete would leave uncategorized); a budget's spend sums
       // them; /home has month net and 7-day spending; financial goals track
-      // an account balance or total income (and /home shows their progress
-      // once the goals are recalculated). A transaction's detail is the row
-      // and its linked pair.
+      // an account balance or total income (as /home's goal bars do). A
+      // transaction's detail is the row and its linked pair.
       DataScope.transactions => {
           transactionsProvider,
           transactionDetailProvider,
@@ -129,9 +119,11 @@ Set<ProviderOrFamily> readModelsFor(DataScope scope) => switch (scope) {
         },
       // /home lists today's active habits and derives streaks, the week's
       // completion % and the perfect-day chain from them; a habit goal shows
-      // its linked habit and counts its completed logs.
+      // its linked habit and counts its completed logs. Archiving, restoring
+      // or deleting one moves it in or out of the archive list.
       DataScope.habits => {
           habitsProvider,
+          archivedHabitsProvider,
           habitDetailProvider,
           homeProvider,
           goalsProvider,
@@ -156,15 +148,33 @@ Set<ProviderOrFamily> readModelsFor(DataScope scope) => switch (scope) {
           homeProvider,
           accountDetailProvider,
         },
+      // An account's detail counts the goals that track it, a habit's lists
+      // the goals that count its days (what archiving it would freeze).
+      DataScope.goalLinks => {
+          accountDetailProvider,
+          habitDetailProvider,
+        },
       // /home counts open and overdue todos (the Today tab's badge) and lists
-      // the upcoming ones.
+      // the upcoming ones; each list counts its open and its total todos.
       DataScope.todos => {
           todosProvider,
           homeProvider,
+          todoListsProvider,
         },
-      // /home lists today's events and counts them.
+      // Every todo embeds its list's name and colour — in the todo lists
+      // and /home's upcoming ones — and a delete takes the list's todos with
+      // it or out of it.
+      DataScope.todoLists => {
+          todoListsProvider,
+          todosProvider,
+          homeProvider,
+        },
+      // /home lists today's events and counts them; the agendas list every
+      // occurrence in their window; an event's detail is the event itself.
       DataScope.events => {
           eventsTodayProvider,
+          eventsProvider,
+          eventDetailProvider,
           homeProvider,
         },
       // /home carries no journal data.
@@ -173,8 +183,9 @@ Set<ProviderOrFamily> readModelsFor(DataScope scope) => switch (scope) {
           journalEntryProvider,
         },
       // Currency and time zone shape every aggregate the server reports (sums,
-      // "today", day boundaries). The signed-in user itself (name, currency,
-      // the greeting and avatar) is re-read as well — see [DataSync].
+      // "today", day boundaries), and the language every text the server
+      // writes. The signed-in user itself (name, currency, the greeting and
+      // avatar) is re-read as well — see [DataSync].
       DataScope.me => allReadModels,
     };
 
@@ -192,12 +203,14 @@ ProviderBase<Object?>? detailReadModelOf(DeletedRecord record) =>
       DataScope.habits => habitDetailProvider(record.id),
       DataScope.goals => goalDetailProvider(record.id),
       DataScope.journal => journalEntryProvider(record.id),
+      DataScope.events => eventDetailProvider(record.id),
       _ => null,
     };
 
 /// Every server read model the app caches.
 Set<ProviderOrFamily> get allReadModels => {
       homeProvider,
+      meOptionsProvider,
       accountsProvider,
       accountDetailProvider,
       currenciesProvider,
@@ -209,11 +222,15 @@ Set<ProviderOrFamily> get allReadModels => {
       budgetsProvider,
       subscriptionsProvider,
       habitsProvider,
+      archivedHabitsProvider,
       habitDetailProvider,
       goalsProvider,
       goalDetailProvider,
       todosProvider,
+      todoListsProvider,
       eventsTodayProvider,
+      eventsProvider,
+      eventDetailProvider,
       journalProvider,
       journalEntryProvider,
     };
@@ -230,8 +247,6 @@ Set<ProviderOrFamily> get allReadModels => {
 /// flight: a refetch that starts mid-write could bring back pre-write data
 /// over a tap that already shows the result. Explicit refreshes ([refresh],
 /// [refreshAll]: pull-to-refresh, a tab re-tap, app resume) run at once.
-/// Either way, when `/home` and the goals are both due, the goals'
-/// recalculation runs alongside `/home` (see [refresh]).
 final class DataSync implements WriteListener {
   DataSync(this._container);
 
@@ -250,10 +265,6 @@ final class DataSync implements WriteListener {
   var _writesInFlight = 0;
   Timer? _flush;
   var _disposed = false;
-
-  /// Refreshes of `/home` and the goals so far: only the latest one's
-  /// recalculation may still ask `/home` again (see [refresh]).
-  var _recalculations = 0;
 
   /// Writes sent and not yet answered.
   int get writesInFlight => _writesInFlight;
@@ -294,24 +305,15 @@ final class DataSync implements WriteListener {
   /// [except]. Screens keep showing their current data while the new data
   /// loads, and each fetch gets its own quick retry (see `retried`).
   ///
-  /// When [models] include both `/home` and the goals, `/home` is still asked
-  /// at once, and the goals alongside it. `/home` shows each goal's progress
-  /// as the server stored it, and the server recalculates and stores it only
-  /// when the goals are read (`GET /goals`), so a `/home` answered before
-  /// that may show the old progress. Once the goals are in — and `/home`'s
-  /// own fetch has landed — `/home` is asked once more, but only if a goal
-  /// it shows is no longer active or not at the progress the recalculation
-  /// stored. Neither waits for the other: when the server cannot be reached,
-  /// Today says so as soon as `/home` itself fails.
+  /// Each read model is asked on its own: `/home` recalculates the goals it
+  /// shows itself, so Today never waits for the Goals tab (or asks again
+  /// after it), and a goals list nobody shows is not fetched at all.
   void refresh(
     Iterable<ProviderOrFamily> models, {
     Set<ProviderBase<Object?>> except = const {},
   }) {
     if (_disposed) return;
-    final batch = models.toSet();
-    final recalculate =
-        batch.contains(homeProvider) && batch.remove(goalsProvider);
-    for (final model in batch) {
+    for (final model in models.toSet()) {
       switch (model) {
         case ProviderBase<Object?>() when except.contains(model):
           break;
@@ -325,68 +327,9 @@ final class DataSync implements WriteListener {
           _invalidate(model);
       }
     }
-    if (recalculate) {
-      _invalidate(goalsProvider);
-      unawaited(_recalculateGoalsFor(++_recalculations));
-    }
   }
 
   void _invalidate(ProviderOrFamily model) => _container.invalidate(model);
-
-  /// Has the server recalculate every goal — which it does on `GET /goals` —
-  /// then asks `/home` again if its goal bars predate that (see [refresh]).
-  /// [round] is this refresh's number: a newer refresh of both does its own.
-  ///
-  /// The goals are read through the Goals tab's read model, created for the
-  /// read when there is no Goals tab: a tab's refetch is not doubled by a
-  /// second `GET /goals`, a hidden tab's refetch runs now instead of when the
-  /// tab is shown, and the read gets the quick retry like any other.
-  Future<void> _recalculateGoalsFor(int round) async {
-    final goals = await _landed(goalsProvider);
-    if (goals == null || !_isLatest(round)) return;
-    if (!_container.exists(homeProvider)) return;
-    final home = await _landed(homeProvider);
-    // A `/home` that failed is on screen as such: its retry asks again.
-    if (home == null || !_isLatest(round)) return;
-    if (!_showsProgressOf(home.data, goals.data)) _invalidate(homeProvider);
-  }
-
-  bool _isLatest(int round) => !_disposed && round == _recalculations;
-
-  /// What [model] shows once its fetch in flight, if any, has landed; null
-  /// when that failed. Listened to meanwhile, so a fetch that waits for its
-  /// screen to be shown again runs now.
-  ///
-  /// It watches the state rather than `future`, which a tap made meanwhile
-  /// completes early with the data it patched (see `FetchedNotifier`).
-  Future<T?> _landed<T>(ProviderListenable<AsyncValue<T>> model) async {
-    final landed = Completer<T?>();
-    final subscription = _container.listen<AsyncValue<T>>(
-      model,
-      (_, next) {
-        if (next.isLoading || landed.isCompleted) return;
-        landed.complete(next.hasError ? null : next.value);
-      },
-      fireImmediately: true,
-    );
-    try {
-      return await landed.future;
-    } finally {
-      subscription.close();
-    }
-  }
-
-  /// Whether `/home`'s goal bars show what the goals' recalculation stored:
-  /// each goal `/home` shows is still active, at the same progress. (Which
-  /// goals `/home` picks for its top three is the server's call; a goal the
-  /// recalculation moves into them shows with the next refresh.)
-  static bool _showsProgressOf(HomeSummary home, GoalsBundle goals) {
-    final stored = {
-      for (final goal in goals.active) goal.id: goal.progressPercent,
-    };
-    return home.activeGoals
-        .every((goal) => stored[goal.id] == goal.progressPercent);
-  }
 
   /// A record of [scope] is gone — [detail], the read model of that one
   /// record, was just answered 404 because it was deleted on the web or

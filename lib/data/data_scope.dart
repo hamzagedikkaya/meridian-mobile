@@ -49,8 +49,17 @@ enum DataScope {
   /// Goals: created, edited, progress logged, recalculated, abandoned.
   goals,
 
+  /// Which account or habit a goal tracks: a goal linked, relinked,
+  /// unlinked, created with a link or deleted. An account's detail counts
+  /// the goals that track it, a habit's lists them.
+  goalLinks,
+
   /// Todos: created, edited, completed, reopened.
   todos,
+
+  /// Todo lists: created, renamed, recoloured, deleted — what each todo
+  /// embeds of its list.
+  todoLists,
 
   /// Calendar events.
   events,
@@ -59,8 +68,10 @@ enum DataScope {
   journal,
 
   /// The account settings that shape every server aggregate: the currency
-  /// sums are reported in and the time zone that decides what "today" is.
-  /// (Language and theme shape nothing the server reports.)
+  /// sums are reported in, the time zone that decides what "today" is, and
+  /// the language the server writes its own text in (currency names, option
+  /// labels, the uncategorized slice). (The theme, the name and the e-mail
+  /// shape nothing the server reports.)
   me,
 }
 

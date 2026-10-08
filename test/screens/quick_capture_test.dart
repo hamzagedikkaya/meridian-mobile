@@ -233,7 +233,17 @@ void main() {
       );
       expect(find.text('dişçi · Yarın · 15:00'), findsOneWidget);
       expect(find.text('Görev olarak kaydet'), findsOneWidget);
-      // No event form yet (Part 2.4): not offered.
+      // The event form is offered next to it.
+      expect(find.text('Etkinlik olarak ekle'), findsOneWidget);
+    });
+
+    testWidgets('without an event form, only "save as a task" is offered', (
+      tester,
+    ) async {
+      final api = FakeApi()..on(_post, _suggestion(tomorrow));
+      await _open(tester, api, flows: _Flows());
+      await _send(tester, 'yarın 15:00 dişçi');
+      expect(find.text('Görev olarak kaydet'), findsOneWidget);
       expect(find.text('Etkinlik olarak ekle'), findsNothing);
     });
 

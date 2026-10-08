@@ -36,6 +36,7 @@ import '../models/subscription.dart';
 import '../models/habit.dart';
 import '../models/home.dart';
 import '../models/journal.dart';
+import '../models/me_options.dart';
 import '../models/todo.dart';
 import '../models/transaction.dart';
 import 'current_day.dart';
@@ -317,17 +318,23 @@ final class PendingEdit<T> {
 
 // --- Screen providers: AsyncValue<Fetched<T>> --------------------------------
 
+/// The currencies and time zones the account can be set to (GET /me/options),
+/// for the profile's pickers. Its labels are in the account's language, so a
+/// language change refetches it with everything else (`DataScope.me`).
+final meOptionsProvider = FutureProvider.autoDispose<Fetched<MeOptions>>(
+  (ref) => fetched(ref, (r) => r.fetchMeOptions(), dateRelative: false),
+  retry: _retriedInFetch,
+);
+
 final homeProvider =
     AsyncNotifierProvider.autoDispose<HomeNotifier, Fetched<HomeSummary>>(
   HomeNotifier.new,
   retry: _retriedInFetch,
 );
 
-/// `/home`'s goal bars are each goal's progress as the server stored it the
-/// last time it recalculated the goals, which only reading them does. A
-/// refresh of both — after a transaction or a check-in, say — asks `/home`
-/// at once anyway, alongside the goals, and asks it again only if the
-/// recalculation moved a goal it shows (see [DataSync.refresh]).
+/// Today's summary. Its goal bars are recalculated by the server on every
+/// `GET /home`, like the Goals tab's, so `/home` is fetched on its own and
+/// never waits for the goals.
 class HomeNotifier extends FetchedNotifier<HomeSummary> {
   @override
   Future<HomeSummary> load(MeridianRepository repo) async {
@@ -493,13 +500,25 @@ final class HabitCadence extends Notifier<Map<int, bool>> {
   }
 }
 
-/// One habit with an 84-day chain (the detail sheet).
+/// The archived habits (`GET /habits?archived=true`): the Archive page,
+/// where they are restored or deleted.
+final archivedHabitsProvider = FutureProvider.autoDispose<Fetched<List<Habit>>>(
+  (ref) => fetched(ref, (r) => r.fetchArchivedHabits()),
+  retry: _retriedInFetch,
+);
+
+/// How many days of a habit's history its detail sheet reads: a year, the
+/// most the server gives, so any day of it can be opened and logged.
+const habitHistoryDays = 366;
+
+/// One habit with a year of chain (the detail sheet: its calendar, the
+/// 84-day heatmap) and what an archive or delete would touch.
 final FutureProviderFamily<Fetched<Habit>, int> habitDetailProvider =
     FutureProvider.autoDispose.family<Fetched<Habit>, int>(
   (ref, id) => fetched(
     ref,
     (r) async {
-      final habit = await r.fetchHabit(id, days: 84);
+      final habit = await r.fetchHabit(id, days: habitHistoryDays);
       if (ref.mounted) ref.read(habitCadenceProvider.notifier).learn([habit]);
       return habit;
     },
@@ -540,6 +559,70 @@ final eventsTodayProvider = FutureProvider.autoDispose<Fetched<List<Event>>>(
   retry: _retriedInFetch,
 );
 
+/// A span of whole local days for `GET /events` — the family key of
+/// [eventsProvider]. Both days are included (contract §10).
+@immutable
+class EventWindow {
+  final DateTime from;
+  final DateTime to;
+
+  EventWindow(DateTime from, DateTime to)
+      : from = DateTime(from.year, from.month, from.day),
+        to = DateTime(to.year, to.month, to.day);
+
+  /// [today], tomorrow and the rest of this week (Monday to Sunday) — the
+  /// Today tab's agenda. Never shorter than through tomorrow, so on a
+  /// Sunday it still shows Monday.
+  factory EventWindow.thisWeek(DateTime today) {
+    final sunday = DateTime(
+      today.year,
+      today.month,
+      today.day + DateTime.sunday - today.weekday,
+    );
+    final tomorrow = DateTime(today.year, today.month, today.day + 1);
+    return EventWindow(today, sunday.isBefore(tomorrow) ? tomorrow : sunday);
+  }
+
+  /// [days] days from [today] on, [today] included.
+  factory EventWindow.days(DateTime today, int days) =>
+      EventWindow(today, DateTime(today.year, today.month, today.day + days - 1));
+
+  bool contains(DateTime day) => !day.isBefore(from) && !day.isAfter(to);
+
+  @override
+  bool operator ==(Object other) =>
+      other is EventWindow && other.from == from && other.to == to;
+
+  @override
+  int get hashCode => Object.hash(from, to);
+}
+
+/// The events occurring in a span of days, each with the days it occurs on
+/// in it (a series once, with every occurrence): the Today agenda and the
+/// agenda screen.
+final FutureProviderFamily<Fetched<List<Event>>, EventWindow> eventsProvider =
+    FutureProvider.autoDispose.family<Fetched<List<Event>>, EventWindow>(
+  (ref, window) => fetched(
+    ref,
+    (r) => r.fetchEvents(from: window.from, to: window.to),
+  ),
+  retry: _retriedInFetch,
+);
+
+/// One event in full — its description and recurrence rule, which lists
+/// leave out (GET /events/:id): the detail sheet and the edit form.
+final FutureProviderFamily<Fetched<Event>, int> eventDetailProvider =
+    FutureProvider.autoDispose.family<Fetched<Event>, int>(
+  (ref, id) => fetched(
+    ref,
+    (r) => r.fetchEvent(id),
+    dateRelative: false,
+    recordOf: DataScope.events,
+    detail: eventDetailProvider,
+  ),
+  retry: _retriedInFetch,
+);
+
 // --- Family screen providers -------------------------------------------------
 
 final journalProvider =
@@ -561,9 +644,104 @@ final FutureProviderFamily<Fetched<JournalEntry>, int> journalEntryProvider =
   retry: _retriedInFetch,
 );
 
-final todosProvider =
-    FutureProvider.autoDispose.family<Fetched<TodosBundle>, String>(
-  (ref, filter) => fetched(ref, (r) => r.fetchTodos(filter: filter)),
+/// What a todo list shows — the family key of [todosProvider]: one of the
+/// server's filters (contract §9: `open`, `today`, `week`, `upcoming`,
+/// `overdue`, `undated`, `done`, `cancelled`, `all`), in one list or in none.
+@immutable
+class TodoQuery {
+  final String filter;
+
+  /// Only the todos of this list.
+  final int? listId;
+
+  /// Only the todos in no list (`list_id=none`); wins over [listId].
+  final bool unlisted;
+
+  const TodoQuery({this.filter = 'open', this.listId, this.unlisted = false});
+
+  /// The order the list is read in: the most recently finished first for
+  /// done ones, the manual order for undated ones, else the soonest due.
+  String get sort => switch (filter) {
+        'done' => 'completed',
+        'cancelled' => 'created',
+        'undated' => 'position',
+        _ => 'due',
+      };
+
+  /// Finished todos pile up: those lists read the latest page only.
+  int? get perPage => switch (filter) {
+        'done' || 'cancelled' || 'all' => 100,
+        _ => null,
+      };
+
+  /// Whether [todo], open, belongs in this list by the server's rules, on
+  /// the account's [today] — to put back a todo whose tick was undone
+  /// before a refetch brings it back. Lists of finished todos never take an
+  /// open one.
+  bool admitsOpen(Todo todo, DateTime today) {
+    if (unlisted ? todo.todoList != null : (listId != null && todo.todoList?.id != listId)) {
+      return false;
+    }
+    final day = todo.dueDay;
+    // Counted in calendar days, so a 23- or 25-hour day is still one.
+    int? delta() => day == null
+        ? null
+        : DateTime.utc(day.year, day.month, day.day)
+            .difference(DateTime.utc(today.year, today.month, today.day))
+            .inDays;
+    return switch (filter) {
+      'open' || 'all' => true,
+      'undated' => day == null,
+      'today' => delta() == 0,
+      'overdue' => todo.overdue,
+      'upcoming' => (delta() ?? 0) >= 1 && (delta() ?? 0) <= 7,
+      'week' => day != null &&
+          !day.isBefore(today.subtract(Duration(days: today.weekday - 1))) &&
+          !day.isAfter(today.add(Duration(days: DateTime.sunday - today.weekday))),
+      _ => false,
+    };
+  }
+
+  @override
+  bool operator ==(Object other) =>
+      other is TodoQuery &&
+      other.filter == filter &&
+      other.listId == listId &&
+      other.unlisted == unlisted;
+
+  @override
+  int get hashCode => Object.hash(filter, listId, unlisted);
+}
+
+/// The todos of a [TodoQuery], with the counts of every filter (the chips'
+/// badges). A tap — a tick, an undo — patches it before the server answers,
+/// like `/home` (see [FetchedNotifier] and `TodoActions`).
+final todosProvider = AsyncNotifierProvider.autoDispose
+    .family<TodosNotifier, Fetched<TodosBundle>, TodoQuery>(
+  TodosNotifier.new,
+  retry: _retriedInFetch,
+);
+
+class TodosNotifier extends FetchedNotifier<TodosBundle> {
+  TodosNotifier(this.query);
+
+  final TodoQuery query;
+
+  @override
+  Future<TodosBundle> load(MeridianRepository repo) => repo.fetchTodos(
+        filter: query.filter,
+        listId: query.listId,
+        unlisted: query.unlisted,
+        sort: query.sort,
+        perPage: query.perPage,
+      );
+}
+
+/// The active todo lists with their open counts, and the open todos in no
+/// list (GET /todo_lists): the list chips, the pickers and the lists page.
+final todoListsProvider = FutureProvider.autoDispose<Fetched<TodoListsBundle>>(
+  // Open counts do not move with the date.
+  (ref) => fetched(ref, (r) => r.fetchTodoLists(), dateRelative: false),
   retry: _retriedInFetch,
 );
 

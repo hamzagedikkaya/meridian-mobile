@@ -2,6 +2,7 @@ import 'package:flutter/foundation.dart' show SynchronousFuture;
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 
+import '../models/event.dart';
 import 'app_l10n_en.dart';
 import 'app_l10n_tr.dart';
 
@@ -105,6 +106,13 @@ abstract class AppL10n {
 
   /// 429 `too_many_requests`: too many sign-in attempts.
   String get errTooManyRequests;
+
+  /// `current_password_required`: an e-mail or password change was sent
+  /// without the current password.
+  String get errCurrentPasswordRequired;
+
+  /// `invalid_current_password`: the current password given is wrong.
+  String get errInvalidCurrentPassword;
 
   /// `invalid_parameter`: the app sent a value the server cannot use.
   String errInvalidParameter(String param);
@@ -246,6 +254,146 @@ abstract class AppL10n {
   String get captureAddAsEvent;
   String get captureCreateAccount;
   String captureCreateHabit(String name);
+
+  // --- Todos and todo lists -------------------------------------------------
+
+  String get titleTodos;
+
+  /// A todo filter's chip (contract §9: `open`, `today`, `upcoming`,
+  /// `week`, `overdue`, `undated`, `done`, `cancelled`, `all`).
+  String todoFilter(String filter);
+
+  /// What a filter shows when nothing matches it.
+  String todoFilterEmpty(String filter);
+  String get todoAllLists;
+
+  /// The todos in no list.
+  String get todoNoList;
+  String get todoGroupOverdue;
+  String get todoGroupUndated;
+
+  /// A todo's due day, with its time when it has one ("Yarın · 18:00").
+  String todoDue(DateTime day, String? time);
+
+  /// Screen readers: a todo row — its title, when it is due, and whether it
+  /// is overdue or done.
+  String todoSemantics(
+    String title, {
+    String? due,
+    required bool overdue,
+    required bool done,
+  });
+  String get todoAdd;
+  String get todoAddInline;
+  String get todoNewTitle;
+  String get todoEditTitle;
+  String get todoFieldTitle;
+  String get todoFieldNotes;
+  String get todoFieldDue;
+  String get todoDuePick;
+  String get todoAddTime;
+  String get todoRemoveTime;
+  String get todoFieldPriority;
+  String todoPriority(String priority);
+  String get todoFieldList;
+  String get todoFieldGoal;
+
+  /// The goal a todo links to, when the goals list does not name it.
+  String get todoGoalLinked;
+  String get todoTitleRequired;
+  String get todoSaveAndNew;
+  String todoCreated(String title);
+  String get todoUpdated;
+  String get todoSaveFailed;
+  String todoDeleted(String title);
+  String get todoDeleteFailed;
+  String get todoComplete;
+  String get todoReopen;
+  String get todoPostpone;
+  String todoPostponed(String title);
+
+  /// Today's footer under the upcoming todos: every open one is on the
+  /// Todos screen.
+  String todoAllOpen(int count);
+  String get todoNoneUpcoming;
+
+  String get todoListsTitle;
+  String get todoListsManage;
+  String get todoListNew;
+  String get todoListEdit;
+  String get todoListName;
+  String get todoListNameRequired;
+  String get todoListColor;
+  String todoListCounts(int open, int total);
+  String get todoListsEmpty;
+  String todoListCreated(String name);
+  String get todoListUpdated;
+  String get todoListSaveFailed;
+  String todoListDeleteTitle(String name);
+
+  /// What deleting a list does to the [total] todos in it.
+  String todoListDeleteBody(int total);
+  String get todoListDeleteKeep;
+  String get todoListDeleteAll;
+  String todoListDeleted(String name);
+  String get todoListDeleteFailed;
+
+  // --- Events and agenda ----------------------------------------------------
+
+  String get titleAgenda;
+  String get agendaThisWeek;
+  String get agendaEmptyWeek;
+  String get agendaEmpty;
+  String get agendaShowMore;
+  String get agendaLoadFailed;
+
+  /// More events than the Today card shows.
+  String agendaMore(int count);
+  String get eventAdd;
+  String get eventNewTitle;
+  String get eventEditTitle;
+  String get eventFieldTitle;
+  String get eventStarts;
+  String get eventEnds;
+  String get eventNoEnd;
+  String get eventAddEnd;
+  String get eventRemoveEnd;
+  String get eventLocation;
+  String get eventDescription;
+  String get eventFieldType;
+  String eventType(String type);
+  String get eventColor;
+  String get eventRepeat;
+  String recurrence(RecurrencePreset preset);
+  String get eventRepeatEnds;
+  String get eventRepeatForever;
+
+  /// A series' end: "31 Aralık tarihine kadar".
+  String recurrenceUntil(DateTime day);
+  String recurrenceCount(int count);
+  String get eventTitleRequired;
+  String get eventEndBeforeStart;
+
+  /// The form's note on a series: a save changes every occurrence.
+  String get eventSeriesFormNote;
+
+  /// The detail sheet's note on a series.
+  String get eventSeriesNote;
+  String eventCreated(String title);
+  String get eventUpdated;
+  String get eventSaveFailed;
+  String eventDeleted(String title);
+  String get eventDeleteFailed;
+  String get eventDeleteSeriesTitle;
+  String eventDeleteFollowing(DateTime day);
+  String eventDeleteFollowingHint(DateTime day);
+  String get eventDeleteAll;
+  String get eventDeleteAllHint;
+  String eventSeriesEnded(String title);
+  String get eventLoadFailed;
+
+  /// Screen readers: an event row — its title, when, and where.
+  String eventSemantics(String title, {required String when, String? where});
 
   // --- Habit day log --------------------------------------------------------
 
@@ -643,6 +791,61 @@ abstract class AppL10n {
   String get habitsFormLinkGoal;
   String get habitsAdded;
   String get habitsSaveFailed;
+  String get habitsFormEditTitle;
+  String get habitsFormDescription;
+  String get habitsFormDescriptionHint;
+
+  /// Under frequency/target when an edit changes them: past days keep the
+  /// count they were logged with.
+  String get habitsFormHistoryNote;
+  String get habitsUpdated;
+
+  /// The archive dialog's line when goals count the habit: [goals] (names,
+  /// joined) freeze.
+  String habitsArchiveFreezes(String goals);
+  String habitsArchivedNamed(String name);
+  String get habitsUnarchive;
+  String habitsUnarchived(String name);
+  String get habitsUnarchiveFailed;
+  String get habitsDelete;
+  String habitsDeleteTitle(String name);
+
+  /// What a delete loses: [days] logged days and, when [goals] (names,
+  /// joined) is not empty, the goals that count it lose the link.
+  String habitsDeleteBody({required int days, required String goals});
+  String habitsDeleted(String name);
+  String get habitsDeleteFailed;
+  String get habitsArchivedTitle;
+  String get habitsArchivedEmpty;
+  String get habitsArchivedEmptyBody;
+  String habitsArchivedOn(String date);
+
+  /// The detail sheet of an archived habit.
+  String get habitsArchivedNote;
+
+  /// The goals ([goals], names joined) whose progress counts this habit.
+  String habitsTrackedBy(String goals);
+
+  /// The goal the habit serves (its `goal_id`).
+  String habitsServesGoal(String goal);
+  String get habitsCalendar;
+  String get habitsCalendarHint;
+  String get habitsPrevMonth;
+  String get habitsNextMonth;
+  String get habitsDayFuture;
+  String habitsDayBeforeStart(String date);
+  String get habitsDayDone;
+  String get habitsDayNotDone;
+
+  /// A calendar day for a screen reader: its date and log, and whether it
+  /// can be changed.
+  String habitsDaySemantics(
+    String date, {
+    required int count,
+    required int target,
+    required bool done,
+    required bool loggable,
+  });
 
   // --- Goals ----------------------------------------------------------------
 
@@ -672,8 +875,6 @@ abstract class AppL10n {
   String get goalsRefresh;
   String get goalsEnterValue;
   String get goalsMarkAbandoned;
-  String get goalsAbandonTitle;
-  String get goalsAbandonBody;
   String get goalsAbandonAction;
   String get goalsActionFailed;
   String get goalsLoadFailed;
@@ -690,6 +891,10 @@ abstract class AppL10n {
   String get goalsFormColor;
   String get goalsFormTargetValue;
   String get goalsFormTargetRequired;
+
+  /// A goal number that reads two ways ("1.500"): [mark] is the language's
+  /// decimal mark.
+  String goalsNumberAmbiguous(String mark);
   String get goalsFormUnit;
   String get goalsFormUnitHint;
   String get goalsFormEndDate;
@@ -698,6 +903,45 @@ abstract class AppL10n {
   String get goalsFormSubmit;
   String get goalsCreated;
   String get goalsCreateFailed;
+  String get goalsFormEditTitle;
+  String get goalsUpdated;
+  String get goalsSaveFailed;
+
+  /// The starting progress of a goal logged by hand.
+  String get goalsFormCurrentValue;
+  String get goalsFormNoDeadline;
+  String get goalsFormClearDeadline;
+
+  /// Under the type when an edit changes it: the old link goes.
+  String get goalsFormTypeChangeNote;
+  String get goalsReopen;
+  String get goalsReopened;
+  String get goalsReopenTitle;
+
+  /// Reopening a goal whose progress ([current]) already reaches its target.
+  String goalsReopenNeedsHigherTarget(String current);
+  String get goalsReopenNewTarget;
+  String goalsReopenTargetTooLow(String current);
+  String get goalsMarkAchieved;
+  String get goalsMarkedAchieved;
+  String get goalsAbandonedSnack;
+  String get goalsDelete;
+  String goalsDeleted(String name);
+  String get goalsDeleteFailed;
+  String get goalsLinkAccount;
+  String get goalsLinkHabit;
+  String get goalsChangeLink;
+
+  /// A habit goal without a habit: its progress is logged by hand.
+  String get goalsNoHabitLinked;
+
+  /// A financial goal without an account: it counts all income.
+  String get goalsNoAccountLinked;
+  String goalsLinked(String name);
+  String get goalsUnlinked;
+  String get goalsTotalIncome;
+  String goalsDaysOverdue(int days);
+  String get goalsMore;
 
   // --- Journal --------------------------------------------------------------
 
@@ -709,8 +953,6 @@ abstract class AppL10n {
   String get journalUntitled;
   String get journalEnergy;
   String get journalGratitude;
-  String get journalDeleteTitle;
-  String get journalDeleteBody;
   String get journalDeleteFailed;
   String get journalLoadFailed;
   String get journalGone;
@@ -727,6 +969,27 @@ abstract class AppL10n {
   String get journalUpdated;
   String get journalAdded;
   String get journalSaveFailed;
+  /// A web entry with formatting the plain editor cannot keep.
+  String journalRichNotice(String formatting);
+  String get journalRichConfirmTitle;
+  String journalRichConfirmBody(String formatting);
+  String get journalRichConfirmAction;
+
+  /// One kind of web formatting (`body_formatting` value), lower case.
+  String journalFormatting(String kind);
+  String get journalDraftRestored;
+  String get journalDraftDiscard;
+
+  /// A restored draft of an entry that was changed elsewhere since.
+  String get journalDraftRestoredStale;
+
+  /// In the editor: the entry being edited was deleted elsewhere; the text
+  /// stays and can become a new entry.
+  String get journalEditorEntryGone;
+  String get journalEditorSaveAsNew;
+  String get journalDeleted;
+  String get journalEditorMood;
+  String get journalEditorMoodClear;
 
   /// Mood label by API `mood` value.
   String moodLabel(String mood);
@@ -766,6 +1029,68 @@ abstract class AppL10n {
   String get profileSignOutBody;
   String get profileFallbackName;
   String get profileLanguageSaveFailed;
+  String get profileThemeSaveFailed;
+
+  /// Under "Çıkış Yap": signing out ends the session on every device.
+  String get profileSignOutEverywhere;
+
+  /// In the sign-out sheet when an unsaved journal draft would be lost.
+  String get profileSignOutDraft;
+
+  /// After a sign-out the server never heard of (on the login screen).
+  String get noticeSignOutNotRevoked;
+
+  // Account: name, e-mail, password, currency, time zone, weekly review.
+  String get profileSectionAccount;
+  String get profileName;
+  String get profileEmail;
+  String get profilePassword;
+
+  /// The password row's value: it is never shown, only changed.
+  String get profilePasswordAction;
+
+  /// Screen-reader hint of the header card: tapping it edits the name.
+  String get profileEditName;
+  String get profileNameHint;
+  String get profileNameSaved;
+  String get profileEmailTitle;
+  String get profileEmailNew;
+  String get profileEmailNote;
+  String get profileEmailSaved;
+  String get profileCurrentPassword;
+  String get profileNewPassword;
+  String get profileConfirmPassword;
+  String get profilePasswordTitle;
+  String get profilePasswordNote;
+  String get profilePasswordSaved;
+  String get profileShowPassword;
+  String get profileHidePassword;
+
+  /// 429 on an e-mail or password change: the password-check limit.
+  String get profileRateLimited;
+
+  /// A profile change that never got an answer.
+  String get profileSaveFailed;
+  String get profileOptionsFailed;
+  String get profileCurrencyNote;
+  String profileCurrencyConfirmTitle(String code);
+
+  /// [before] and [after] are the same example amount in the old and the
+  /// new currency: nothing is converted.
+  String profileCurrencyConfirmBody(String before, String after);
+  String get profileCurrencyConfirm;
+  String profileCurrencySaved(String code);
+  String get profileTimeZoneNote;
+  String get profileTimeZoneSearch;
+
+  /// The zones that read the same time as this device, listed first.
+  String profileTimeZoneDeviceGroup(String offset);
+  String get profileTimeZoneAllGroup;
+  String get profileTimeZoneNoMatch;
+  String profileTimeZoneSaved(String zone);
+  String get profileWeeklyReview;
+  String get profileWeeklyReviewNote;
+  String profileWeeklyReviewSaved(String day);
   String get serverBlurb;
   String get serverTest;
   String get serverConnected;

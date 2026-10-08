@@ -14,6 +14,7 @@ import 'package:meridian_mobile/data/repository.dart';
 import 'package:meridian_mobile/data/sync.dart';
 import 'package:meridian_mobile/models/account.dart';
 import 'package:meridian_mobile/models/budget.dart';
+import 'package:meridian_mobile/models/event.dart';
 import 'package:meridian_mobile/models/finance_category.dart';
 import 'package:meridian_mobile/models/finance_dashboard.dart';
 import 'package:meridian_mobile/models/goal.dart';
@@ -50,6 +51,26 @@ const _transactionReads = {
 const _habitReads = {'/habits', '/habits/7', '/home', '/goals', '/goals/3'};
 // An account's detail counts the goals that track it.
 const _goalReads = {'/goals', '/goals/3', '/home', '/accounts/1'};
+// A goal (re)linked: the account's and the habit's detail list the goals that
+// track them.
+const _goalLinkReads = {..._goalReads, '/habits/7'};
+// A deleted habit is not asked for again (that could only answer 404).
+const _habitDeleteReads = {'/habits', '/home', '/goals', '/goals/3'};
+// A deleted goal leaves the habits, todos and subscriptions that served it
+// without one; its own detail is not asked for again. Todo lists come with
+// the todos scope (they count todos), so they are asked for too.
+const _goalDeleteReads = {
+  '/goals',
+  '/home',
+  '/accounts/1',
+  '/habits',
+  '/habits/7',
+  '/todos',
+  '/todo_lists',
+  '/subscriptions',
+  '/finance/dashboard',
+  '/finance_categories/5',
+};
 // An account's own data is embedded in transaction rows, the dashboard,
 // subscriptions and goals; its opening balance moves balances and goals.
 const _accountReads = {
@@ -101,7 +122,14 @@ const _subscriptionReads = {
   '/accounts/1',
   '/finance_categories/5',
 };
-const _todoReads = {'/todos', '/home'};
+const _todoReads = {'/todos', '/home', '/todo_lists'};
+// Todos embed their list's name and colour; a delete takes its todos with it
+// or out of it.
+const _todoListReads = {'/todo_lists', '/todos', '/home'};
+// /home lists today's events; an event's detail is the event itself.
+const _eventReads = {'/events', '/events/12', '/home'};
+// A deleted event is not asked for again: that could only answer 404.
+const _eventDeleteReads = {'/events', '/home'};
 const _journalReads = {'/journal_entries', '/journal_entries/20'};
 // A deleted entry is not asked for again: that could only answer 404.
 const _journalDeleteReads = {'/journal_entries'};
@@ -124,8 +152,25 @@ const _goalInput = GoalInput(
   color: '#6B8E5A',
   targetValue: 10,
 );
-final _journalInput = JournalInput(date: DateTime(2026, 10, 4), body: 'Not');
+final _journalInput =
+    JournalInput(date: DateTime(2026, 10, 4), bodyText: 'Not');
+const _linkedGoalInput = GoalInput(
+  name: 'Kitap',
+  targetType: 'habit',
+  color: '#6B8E5A',
+  targetValue: 100,
+  related: 'Habit-7',
+);
+final _habit = Habit.fromJson(habitJson());
+final _goal = Goal.fromJson(goalJson());
+final _entry = JournalEntry.fromJson(journalEntryJson());
 const _todoInput = TodoInput(title: 'Süt al');
+final _todo = Todo.fromJson(todoJson());
+const _todoListInput = TodoListInput(name: 'İş', color: '#6B8FA0');
+final _todoList = TodoList.fromJson(todoListJson());
+final _eventInput = EventInput(title: 'Koşu', start: DateTime(2026, 10, 5, 7));
+final _event = Event.fromJson(eventJson(full: true));
+final _series = Event.fromJson(eventJson(recurring: true, full: true));
 final _savedTx = Transaction.fromJson(transactionJson());
 final _account = Account.fromJson(accountJson());
 const _accountInput = AccountInput(
@@ -250,16 +295,23 @@ void main() {
       'deleteTransaction': ((r) => r.deleteTransaction(316), _transactionReads.difference({'/transactions/316'})),
       'setHabitLog': ((r) => r.setHabitLog(7, _day, count: 1), _habitReads),
       'createHabit': ((r) => r.createHabit(_habitInput), _habitReads),
-      'updateHabit': ((r) => r.updateHabit(7, _habitInput), _habitReads),
+      'updateHabit': ((r) => r.updateHabit(_habit, _habitInput), _habitReads),
       'archiveHabit': ((r) => r.archiveHabit(7), _habitReads),
+      'unarchiveHabit': ((r) => r.unarchiveHabit(7), _habitReads),
+      'deleteHabit': ((r) => r.deleteHabit(7), _habitDeleteReads),
       'goalUpdateProgress (delta)': ((r) => r.goalUpdateProgress(3, delta: 1), _goalReads),
       'goalUpdateProgress (value)': ((r) => r.goalUpdateProgress(3, currentValue: 50), _goalReads),
       'goalRecalculate': ((r) => r.goalRecalculate(3), _goalReads),
       'createGoal': ((r) => r.createGoal(_goalInput), _goalReads),
-      'updateGoal': ((r) => r.updateGoal(3, _goalInput), _goalReads),
+      'updateGoal': ((r) => r.updateGoal(_goal, _goalInput), _goalReads),
+      'updateGoal (a new link)': ((r) => r.updateGoal(_goal, _linkedGoalInput), _goalLinkReads),
+      'linkGoal': ((r) => r.linkGoal(3, 'Habit-7'), _goalLinkReads),
       'abandonGoal': ((r) => r.abandonGoal(3), _goalReads),
+      'reopenGoal': ((r) => r.reopenGoal(3, targetValue: 120), _goalReads),
+      'markGoalAchieved': ((r) => r.markGoalAchieved(_goal), _goalReads),
+      'deleteGoal': ((r) => r.deleteGoal(3), _goalDeleteReads),
       'createJournalEntry': ((r) => r.createJournalEntry(_journalInput), _journalReads),
-      'updateJournalEntry': ((r) => r.updateJournalEntry(20, _journalInput), _journalReads),
+      'updateJournalEntry': ((r) => r.updateJournalEntry(_entry, _journalInput), _journalReads),
       'deleteJournalEntry': ((r) => r.deleteJournalEntry(20), _journalDeleteReads),
       'setTodoDone': ((r) => r.setTodoDone(39, done: true), _todoReads),
       'createAccount': ((r) => r.createAccount(_accountInput), _accountListReads),
@@ -279,9 +331,29 @@ void main() {
       'deleteSubscription': ((r) => r.deleteSubscription(6), _subscriptionReads),
       'chargeSubscription': ((r) => r.chargeSubscription(6), {..._subscriptionReads, ..._transactionReads}),
       'createTodo': ((r) => r.createTodo(_todoInput), _todoReads),
-      'updateTodo': ((r) => r.updateTodo(39, _todoInput), _todoReads),
-      // Language and theme shape nothing the server reports.
-      'updateMe': ((r) => r.updateMe(locale: 'en', themePreference: 'light'), <String>{}),
+      'updateTodo': ((r) => r.updateTodo(_todo, _todoInput), _todoReads),
+      'postponeTodo': ((r) => r.postponeTodo(39, DateTime(2026, 10, 5)), _todoReads),
+      'deleteTodo': ((r) => r.deleteTodo(39), _todoReads),
+      'createTodoList': ((r) => r.createTodoList(_todoListInput), _todoListReads),
+      'updateTodoList': ((r) => r.updateTodoList(_todoList, _todoListInput), _todoListReads),
+      'deleteTodoList (keep)': ((r) => r.deleteTodoList(5, keepTodos: true), _todoListReads),
+      'deleteTodoList (with todos)': ((r) => r.deleteTodoList(5, keepTodos: false), _todoListReads),
+      'createEvent': ((r) => r.createEvent(_eventInput), _eventReads),
+      'updateEvent': ((r) => r.updateEvent(_event, _eventInput), _eventReads),
+      'endSeries': ((r) => r.endSeries(_series, DateTime(2026, 10, 19)), _eventReads),
+      'deleteEvent': ((r) => r.deleteEvent(12), _eventDeleteReads),
+      // The theme, the name, the e-mail and the weekly review day shape
+      // nothing the server reports.
+      'updateMe (theme)': ((r) => r.updateMe(themePreference: 'light'), <String>{}),
+      'updateMe (name, e-mail, review day)': ((r) => r.updateMe(name: 'Yeni', email: 'yeni@x.dev', currentPassword: 'eski', weeklyReviewDay: 1), <String>{}),
+      // Currency, time zone and language shape every read model — and the
+      // signed-in user (GET /me).
+      'updateMe (currency)': ((r) => r.updateMe(currency: 'USD'), readModelsByPath().keys.toSet()),
+      'updateMe (time zone)': ((r) => r.updateMe(timezone: 'Tokyo'), readModelsByPath().keys.toSet()),
+      'updateMe (language)': ((r) => r.updateMe(locale: 'en', themePreference: 'light'), readModelsByPath().keys.toSet()),
+      // The token is the session's: nothing the screens show changes.
+      'changePassword': ((r) => r.changePassword(currentPassword: 'eski-sifre', password: 'yeni-sifre', passwordConfirmation: 'yeni-sifre'), <String>{}),
+      'revokeSession': ((r) => r.revokeSession(), <String>{}),
     };
 
     for (final MapEntry(key: name, value: (write, expected)) in cases.entries) {
@@ -707,10 +779,8 @@ void main() {
     habitsTab.pause();
     await container.read(repositoryProvider).setHabitLog(7, _day, count: 1);
     await settle(api);
-    // (The goals are read only to have the server recalculate them for
-    // /home's goal bars; no Goals tab was ever opened.)
-    expect(api.gets, unorderedEquals(['/goals', '/home']),
-        reason: 'only what is visible fetches now');
+    // /home recalculates its goal bars itself: no Goals tab, no GET /goals.
+    expect(api.gets, ['/home'], reason: 'only what is visible fetches now');
 
     api.clearLog();
     habitsTab.resume();
@@ -737,13 +807,12 @@ void main() {
     expect(container.read(goalsProvider).isLoading, isFalse);
   });
 
-  group('Today\'s goal bars: /home shows each goal\'s progress as the server '
-      'last stored it, and only reading the goals recalculates it', () {
+  group('Today\'s goal bars: /home recalculates the goals it shows itself, '
+      'so it is fetched on its own and never waits for the goals', () {
     late FakeApi api;
     late ProviderContainer container;
-    // The server: the progress /home reads, and what recalculating the goal
-    // (GET /goals) would store now.
-    late num stored;
+    // The server: the progress every read recalculates — /home's goal bars
+    // and the Goals tab alike.
     late num actual;
 
     num todayBar() => container
@@ -765,18 +834,14 @@ void main() {
     int reads(String path) => api.gets.where((p) => p == path).length;
 
     setUp(() async {
-      stored = 40;
       actual = 40;
       api = FakeApi()
-        ..onRequest('GET /home', (_) => homeJson(goalProgress: stored))
-        ..onRequest('GET /goals', (_) {
-          stored = actual;
-          return {
-            'active': [goalJson(current: stored)],
-            'achieved': const [],
-            'abandoned': const [],
-          };
-        })
+        ..onRequest('GET /home', (_) => homeJson(goalProgress: actual))
+        ..onRequest('GET /goals', (_) => {
+              'active': [goalJson(current: actual)],
+              'achieved': const [],
+              'abandoned': const [],
+            })
         // Goal 3 tracks habit 7 — and, say, total income.
         ..onRequest(_log7, (_) {
           actual = 50;
@@ -793,64 +858,57 @@ void main() {
       api.clearLog();
     });
 
-    test('a check-in on Today, the Goals tab never opened: the goals are '
-        'recalculated, and Today shows the new progress', () async {
+    test('a check-in on Today, the Goals tab never opened: only /home is '
+        'asked, and it brings the new progress', () async {
+      await container.read(habitActionsProvider).setToday(7, 1);
+      await settle(api);
+      expect(api.gets, ['/home']);
+      expect(todayBar(), 50);
+    });
+
+    test('an income transaction: /home is asked once and shows the goal\'s '
+        'new progress', () async {
+      await container.read(repositoryProvider).createTransaction(_txInput);
+      await settle(api);
+      expect(reads('/home'), 1);
+      expect(reads('/goals'), 0, reason: 'no Goals tab is shown');
+      expect(todayBar(), 50);
+    });
+
+    test('the Goals tab on screen: it and /home are each asked once, and '
+        'agree', () async {
+      container.listen(goalsProvider, (_, _) {});
+      await settle(api);
+      api.clearLog();
+
       await container.read(habitActionsProvider).setToday(7, 1);
       await settle(api);
       expect(api.gets, unorderedEquals(['/goals', '/home']));
       expect(todayBar(), 50);
+      expect(goalsTabRing(), 50);
     });
 
-    test('an income transaction: /home is asked at once, without waiting for '
-        'the goals, and once more when their recalculation moved a goal it '
-        'shows', () async {
-      api.hold('GET /goals');
-      await container.read(repositoryProvider).createTransaction(_txInput);
+    test('/home does not wait for the goals: Today lands while GET /goals is '
+        'still on its way', () async {
+      container.listen(goalsProvider, (_, _) {});
       await settle(api);
-      expect(api.gets, unorderedEquals(['/goals', '/home']),
-          reason: '/home does not wait for the goals');
+      api.clearLog();
+
+      api.hold('GET /goals');
+      await container.read(habitActionsProvider).setToday(7, 1);
+      await settle(api);
       expect(container.read(homeProvider).isLoading, isFalse);
-      expect(todayBar(), 40, reason: 'answered before the recalculation');
-
-      api.release('GET /goals');
-      await settle(api);
-      expect(reads('/goals'), 1);
-      expect(reads('/home'), 2);
       expect(todayBar(), 50);
-    });
+      expect(reads('/home'), 1, reason: 'never asked again for the goals');
 
-    test('a recalculation that moves no goal Today shows does not ask /home '
-        'again', () async {
-      api.hold('GET /goals');
-      // A todo and a goal-neutral habit change: nothing moves.
-      container.read(dataSyncProvider).refresh([homeProvider, goalsProvider]);
-      await settle(api);
       api.release('GET /goals');
       await settle(api);
-      expect(api.gets, unorderedEquals(['/goals', '/home']));
-      expect(todayBar(), 40);
+      expect(reads('/home'), 1);
+      expect(goalsTabRing(), 50);
     });
 
-    test('a goal the recalculation achieves leaves Today\'s bars: /home is '
-        'asked again', () async {
-      api
-        ..hold('GET /goals')
-        ..onRequest('GET /goals', (_) => {
-              'active': const [],
-              'achieved': [
-                {...goalJson(current: 100), 'status': 'achieved'},
-              ],
-              'abandoned': const [],
-            });
-      container.read(dataSyncProvider).refresh([homeProvider, goalsProvider]);
-      await settle(api);
-      api.release('GET /goals');
-      await settle(api);
-      expect(reads('/home'), 2);
-    });
-
-    test('a hidden Goals tab: its own refetch is the recalculation, so the '
-        'goals are fetched once, and the tab has them when shown', () async {
+    test('a hidden Goals tab refetches when it is shown again, not for the '
+        'write', () async {
       final goalsTab = container.listen(goalsProvider, (_, _) {});
       await settle(api);
       goalsTab.pause(); // back on Today
@@ -858,7 +916,7 @@ void main() {
 
       await container.read(habitActionsProvider).setToday(7, 1);
       await settle(api);
-      expect(reads('/goals'), 1);
+      expect(api.gets, ['/home']);
       expect(todayBar(), 50);
 
       goalsTab.resume();
@@ -867,58 +925,23 @@ void main() {
       expect(goalsTabRing(), 50);
     });
 
-    test('the Goals tab on screen: its refetch is the recalculation — one '
-        'GET /goals — and /home, asked alongside it, is asked again once it '
-        'moved a goal', () async {
-      container.listen(goalsProvider, (_, _) {});
-      await settle(api);
-      api.clearLog();
-
-      api.hold('GET /goals');
-      await container.read(habitActionsProvider).setToday(7, 1);
-      await settle(api);
-      expect(api.gets, unorderedEquals(['/goals', '/home']));
-
-      api.release('GET /goals');
-      await settle(api);
-      expect(reads('/goals'), 1);
-      expect(reads('/home'), 2);
-      expect(todayBar(), 50);
-      expect(goalsTabRing(), 50);
-    });
-
-    test('pull-to-refresh, a re-tap or a resume recalculates the goals too: '
-        'a transaction added on the web reaches the bars', () async {
+    test('pull-to-refresh, a re-tap or a resume: a transaction added on the '
+        'web reaches the bars with /home alone', () async {
       actual = 50;
-      api.hold('GET /goals');
       container.read(dataSyncProvider).refreshAll();
       await settle(api);
-      expect(todayBar(), 40, reason: '/home answered first');
-      api.release('GET /goals');
-      await settle(api);
+      expect(reads('/home'), 1);
       expect(todayBar(), 50);
-    });
-
-    test('the goals cannot be read: /home is fetched anyway', () async {
-      api.failNetwork('GET /goals');
-      await container.read(habitActionsProvider).setToday(7, 1);
-      await settle(api);
-      expect(api.gets, unorderedEquals(['/goals', '/home']));
-      expect(container.read(homeProvider).hasError, isFalse);
     });
 
     test('the server cannot be reached: Today shows it as soon as /home '
-        'fails, without waiting for the goals', () async {
-      api
-        ..hold('GET /goals')
-        ..failNetwork('GET /home');
+        'fails', () async {
+      api.failNetwork('GET /home');
       container.read(dataSyncProvider).refresh([homeProvider, goalsProvider]);
       await settle(api);
       final home = container.read(homeProvider);
       expect(home.isLoading, isFalse);
       expect(home.refreshFailed, isTrue);
-      api.release('GET /goals');
-      await settle(api);
       expect(reads('/home'), 1, reason: 'a failed /home is not asked again');
     });
 
@@ -929,8 +952,8 @@ void main() {
     });
   });
 
-  testWidgets('a hidden Goals tab whose read blips: its quick retry runs at '
-      'once, not when the tab is shown, and Today is not held up by it',
+  testWidgets('a hidden Goals tab is not fetched for a write; shown again, it '
+      'refetches with its quick retry, and Today is not held up by it',
       (tester) async {
     final api = FakeApi();
     final container = ProviderContainer.test(
@@ -943,24 +966,21 @@ void main() {
     goalsTab.pause(); // the Goals tab is hidden
     api.clearLog();
 
-    api.blip('GET /goals');
     unawaited(
         container.read(repositoryProvider).setHabitLog(7, _day, count: 1));
     await tester.pump(const Duration(milliseconds: 50));
-    expect(api.gets, unorderedEquals(['/goals', '/home']),
-        reason: 'the retry of /goals is pending');
-    expect(container.read(homeProvider).isLoading, isFalse,
-        reason: 'Today landed meanwhile');
+    expect(api.gets, ['/home']);
+    expect(container.read(homeProvider).isLoading, isFalse);
 
+    api
+      ..clearLog()
+      ..blip('GET /goals');
+    goalsTab.resume(); // back on Goals
+    await tester.pump(const Duration(milliseconds: 50));
+    expect(api.gets, ['/goals'], reason: 'the retry of /goals is pending');
     await tester.pump(const Duration(milliseconds: 800));
     await tester.pump(const Duration(milliseconds: 50));
-    expect(api.gets.where((p) => p == '/goals'), hasLength(2));
-    expect(container.read(homeProvider).hasError, isFalse);
-
-    api.clearLog();
-    goalsTab.resume(); // back on Goals: it has the recalculated goals
-    await tester.pump(const Duration(milliseconds: 50));
-    expect(api.gets, isEmpty);
+    expect(api.gets, ['/goals', '/goals']);
     final goals = container.read(goalsProvider);
     expect((goals.isLoading, goals.hasError), (false, false));
     container.dispose(); // cancels the midnight timer

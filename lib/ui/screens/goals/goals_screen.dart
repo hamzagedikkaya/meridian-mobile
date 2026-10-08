@@ -1,7 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 
 import '../../../core/haptics.dart';
+import '../../../data/data_scope.dart';
+import '../../../data/deferred_deletes.dart';
 import '../../../l10n/app_l10n.dart';
 import '../../../models/goal.dart';
 import '../../../theme/app_colors.dart';
@@ -14,7 +17,6 @@ import '../../widgets/nokturn_card.dart';
 import '../../widgets/offline_banner.dart';
 import '../../widgets/section_header.dart';
 import '../../widgets/skeletons.dart';
-import '../../widgets/slide_up_route.dart';
 import '../../widgets/sync_hint.dart';
 import '../shell/app_tabs.dart';
 import 'goal_card.dart';
@@ -44,11 +46,7 @@ class _GoalsScreenState extends ConsumerState<GoalsScreen>
 
   void _retry() => refreshTab(ref, AppTab.goals);
 
-  void _openForm() {
-    Navigator.of(context, rootNavigator: true).push(
-      slideUpModalRoute((_) => const GoalFormScreen()),
-    );
-  }
+  void _openForm() => openGoalForm(context);
 
   @override
   Widget build(BuildContext context) {
@@ -56,7 +54,7 @@ class _GoalsScreenState extends ConsumerState<GoalsScreen>
     final text = Theme.of(context).textTheme;
     final l = context.l10n;
     final async = ref.watch(goalsProvider);
-    final bundle = async.value?.data;
+    final bundle = _withoutDeleted(async.value?.data);
 
     if (bundle != null && _firstLoad) {
       // No setState: the cards already mounted keep playing (Entrance ignores
@@ -83,6 +81,19 @@ class _GoalsScreenState extends ConsumerState<GoalsScreen>
         ),
       ),
     ));
+  }
+
+  /// [bundle] without the goals being deleted: they leave the grid at once.
+  GoalsBundle? _withoutDeleted(GoalsBundle? bundle) {
+    final hidden = ref.watch(deferredDeletesProvider);
+    if (bundle == null || hidden.isEmpty) return bundle;
+    List<Goal> keep(List<Goal> goals) =>
+        withoutDeleted(goals, hidden, DataScope.goals, (g) => g.id);
+    return GoalsBundle(
+      active: keep(bundle.active),
+      achieved: keep(bundle.achieved),
+      abandoned: keep(bundle.abandoned),
+    );
   }
 
   Widget _body(AsyncValue<Fetched<GoalsBundle>> async, GoalsBundle? bundle) {
@@ -231,7 +242,10 @@ class _CollapsedGoals extends StatelessWidget {
               children: [
                 for (final g in goals)
                   ListTile(
-                    dense: true,
+                    // Opens like an active goal: its details, reopening,
+                    // editing, deleting.
+                    onTap: () => context.push('/goals/${g.id}'),
+                    minTileHeight: 48,
                     leading: Icon(
                       achieved ? Icons.check_circle : Icons.flag_outlined,
                       size: 20,

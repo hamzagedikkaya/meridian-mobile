@@ -255,6 +255,55 @@ Map<String, dynamic> todoJson({int id = 39, String status = 'pending'}) => {
       'subtask_count': 0,
     };
 
+/// A todo list (contract §8.1).
+Map<String, dynamic> todoListJson({
+  int id = 5,
+  String name = 'Ev',
+  String color = '#6B8E5A',
+  int open = 1,
+  int total = 2,
+}) =>
+    {
+      'id': id,
+      'name': name,
+      'color': color,
+      'position': 0,
+      'archived': false,
+      'archived_at': null,
+      'open_count': open,
+      'todos_count': total,
+    };
+
+/// An event (contract §10.1): a one-off by default, or a weekly series
+/// ([recurring]); [full] adds what `GET /events/:id` carries.
+Map<String, dynamic> eventJson({
+  int id = 12,
+  String title = 'Yoga',
+  String start = '2026-10-04T18:00:00.000+03:00',
+  String? end = '2026-10-04T19:00:00.000+03:00',
+  bool allDay = false,
+  bool recurring = false,
+  List<String>? occurrences,
+  bool full = false,
+}) =>
+    {
+      'id': id,
+      'title': title,
+      'start_at': start,
+      'end_at': end,
+      'all_day': allDay,
+      'color': '#6B8E5A',
+      'event_type': 'health',
+      'location': 'Stüdyo',
+      'duration_minutes': end == null ? null : 60,
+      'recurring': recurring,
+      if (full) 'description': 'Mat getir',
+      if (full)
+        'recurrence_rule':
+            recurring ? 'FREQ=WEEKLY;UNTIL=20261231T205959Z' : null,
+      'occurrences': ?occurrences,
+    };
+
 /// The answer to `PATCH /todos/:id/toggle`: the old top-level keys and the
 /// whole todo (G1.2).
 Map<String, dynamic> todoToggleJson({int id = 39, required bool done}) {
@@ -602,6 +651,32 @@ Map<String, dynamic> userJson({String name = 'Demo'}) => {
       'timezone_iana': 'Europe/Istanbul',
       'utc_offset': '+03:00',
       'theme_preference': 'dark',
+      'weekly_review_day': 0,
+    };
+
+/// GET /me/options, cut to a few zones: two that read UTC+03:00 now, one
+/// that does not, and London (UTC+01:00 in summer).
+Map<String, dynamic> meOptionsJson() => {
+      'currencies': currenciesJson()['currencies'],
+      'timezones': [
+        {'value': 'London', 'name': '(GMT+00:00) London', 'iana': 'Europe/London', 'utc_offset': '+01:00'},
+        {'value': 'Kyiv', 'name': '(GMT+02:00) Kyiv', 'iana': 'Europe/Kiev', 'utc_offset': '+03:00'},
+        {'value': 'Istanbul', 'name': '(GMT+03:00) Istanbul', 'iana': 'Europe/Istanbul', 'utc_offset': '+03:00'},
+        {'value': 'Tokyo', 'name': '(GMT+09:00) Tokyo', 'iana': 'Asia/Tokyo', 'utc_offset': '+09:00'},
+      ],
+      'locales': [
+        {'value': 'tr', 'name': 'Türkçe'},
+        {'value': 'en', 'name': 'English'},
+      ],
+      'theme_preferences': [
+        {'value': 'dark', 'name': 'Koyu (varsayılan)'},
+        {'value': 'light', 'name': 'Açık'},
+        {'value': 'system', 'name': 'Sistemi takip et'},
+      ],
+      'weekly_review_days': [
+        for (final (i, name) in const ['Pazar', 'Pazartesi', 'Salı', 'Çarşamba', 'Perşembe', 'Cuma', 'Cumartesi'].indexed)
+          {'value': i, 'name': name},
+      ],
     };
 
 /// A quick capture saved as a todo (G1.5).
@@ -644,6 +719,7 @@ _Route? _patterned(String key) {
 final Map<String, _Route> _defaults = {
   // Reads.
   'GET /me': _Route(body: {'user': userJson()}),
+  'GET /me/options': _Route(body: meOptionsJson()),
   'GET /home': _Route(body: homeJson()),
   'GET /habits': _Route(body: habitsJson()),
   'GET /habits/7': _Route(body: {'habit': habitJson()}),
@@ -692,6 +768,11 @@ final Map<String, _Route> _defaults = {
     'meta': const {'open_count': 1, 'overdue_count': 1},
   }),
   'GET /events': const _Route(body: {'events': []}),
+  'GET /events/12': _Route(body: {'event': eventJson(full: true)}),
+  'GET /todo_lists': _Route(body: {
+    'todo_lists': [todoListJson()],
+    'meta': const {'unlisted_open_count': 1},
+  }),
   'GET /journal_entries': _Route(body: {
     'entries': [journalEntryJson()],
     'meta': const {
@@ -704,6 +785,8 @@ final Map<String, _Route> _defaults = {
   'GET /journal_entries/20': _Route(body: {'entry': journalEntryJson()}),
   // Writes.
   'PATCH /me': _Route(body: {'user': userJson()}),
+  'PATCH /me/password': _Route(body: {'token': 'new-token', 'user': userJson()}),
+  'DELETE /session': const _Route(status: 204),
   'POST /accounts': _Route(
       body: {'account': accountJson(id: 2, name: 'Banka', type: 'bank')},
       status: 201),
@@ -732,14 +815,26 @@ final Map<String, _Route> _defaults = {
   'POST /habits': _Route(body: {'habit': habitJson(id: 9, name: 'Yeni')}, status: 201),
   'PATCH /habits/7': _Route(body: {'habit': habitJson()}),
   'PATCH /habits/7/archive': _Route(body: {'habit': habitJson()}),
+  'PATCH /habits/7/unarchive': _Route(body: {'habit': habitJson()}),
+  'DELETE /habits/7': const _Route(status: 204),
   'PATCH /goals/3/update_progress': _Route(body: {'goal': goalJson(current: 41)}),
   'PATCH /goals/3/recalculate': _Route(body: {'goal': goalJson()}),
   'POST /goals': _Route(body: {'goal': goalJson(id: 4)}, status: 201),
   'PATCH /goals/3': _Route(body: {'goal': goalJson()}),
+  'DELETE /goals/3': const _Route(status: 204),
   'POST /journal_entries': _Route(body: {'entry': journalEntryJson(id: 21)}, status: 201),
   'PATCH /journal_entries/20': _Route(body: {'entry': journalEntryJson()}),
   'DELETE /journal_entries/20': const _Route(status: 204),
   'POST /todos': _Route(body: {'todo': todoJson(id: 40)}, status: 201),
   'PATCH /todos/39': _Route(body: {'todo': todoJson()}),
+  'DELETE /todos/39': const _Route(status: 204),
+  'POST /todo_lists': _Route(
+      body: {'todo_list': todoListJson(id: 6, name: 'İş', open: 0, total: 0)},
+      status: 201),
+  'PATCH /todo_lists/5': _Route(body: {'todo_list': todoListJson()}),
+  'DELETE /todo_lists/5': const _Route(status: 204),
+  'POST /events': _Route(body: {'event': eventJson(id: 13, full: true)}, status: 201),
+  'PATCH /events/12': _Route(body: {'event': eventJson(full: true)}),
+  'DELETE /events/12': const _Route(status: 204),
   'POST /quick_captures': _Route(body: captureTodoJson(), status: 201),
 };

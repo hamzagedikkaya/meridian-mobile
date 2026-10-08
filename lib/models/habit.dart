@@ -1,3 +1,4 @@
+import 'date_utils.dart';
 import 'json_read.dart';
 
 /// Chain-day + perfect-day status (design §4.5 / api-samples statuses).
@@ -125,6 +126,27 @@ class HabitPeriod {
       );
 }
 
+/// A goal whose progress counts a habit's done days (`tracked_by_goals` of
+/// `GET /habits/:id`): archiving the habit freezes it, deleting the habit
+/// unlinks it.
+class TrackingGoal {
+  final int id;
+  final String name;
+  final String status;
+
+  const TrackingGoal({
+    required this.id,
+    required this.name,
+    required this.status,
+  });
+
+  factory TrackingGoal.fromJson(Map<String, dynamic> json) => TrackingGoal(
+        id: readId(json['id']),
+        name: (json['name'] as String?) ?? '',
+        status: (json['status'] as String?) ?? 'active',
+      );
+}
+
 class Habit {
   final int id;
   final String name;
@@ -140,6 +162,23 @@ class Habit {
   final HabitPeriod? period;
   final List<ChainDay> chain;
 
+  /// Archived habits are frozen: they cannot be logged, leave the active
+  /// list and Today, and are listed by `GET /habits?archived=true`.
+  final bool archived;
+  final DateTime? archivedAt;
+
+  /// The first day a log can be set for (the day it was created, in the
+  /// account's zone): earlier chain days are "missed" only because the
+  /// habit did not exist yet. Null from an older server.
+  final DateTime? startDate;
+
+  /// Detail only (`GET /habits/:id`): the days a delete would remove, the
+  /// complete days a habit goal counts, and the goals that count it.
+  /// Null when the payload is a list item.
+  final int? loggedDaysCount;
+  final int? completedDaysCount;
+  final List<TrackingGoal>? trackedByGoals;
+
   const Habit({
     required this.id,
     required this.name,
@@ -154,6 +193,12 @@ class Habit {
     required this.today,
     this.period,
     required this.chain,
+    this.archived = false,
+    this.archivedAt,
+    this.startDate,
+    this.loggedDaysCount,
+    this.completedDaysCount,
+    this.trackedByGoals,
   });
 
   factory Habit.fromJson(Map<String, dynamic> json) => Habit(
@@ -175,7 +220,29 @@ class Habit {
         chain: ((json['chain'] as List?) ?? const [])
             .map((e) => ChainDay.fromJson(e as Map<String, dynamic>))
             .toList(),
+        archived: readBool(json['archived']) || json['archived_at'] != null,
+        archivedAt: parseDateTime(json['archived_at']),
+        startDate: parseDateTime(json['start_date']),
+        loggedDaysCount: readIntOrNull(json['logged_days_count']),
+        completedDaysCount: readIntOrNull(json['completed_days_count']),
+        trackedByGoals: json['tracked_by_goals'] is List
+            ? [
+                for (final g in json['tracked_by_goals'] as List)
+                  if (g is Map<String, dynamic>) TrackingGoal.fromJson(g),
+              ]
+            : null,
       );
+
+  /// Whether [day] can be logged: from [startDate] (when known) through
+  /// [today] — the server's today — and never on an archived habit
+  /// (`future_date`, `before_habit_start`, `habit_archived`).
+  bool canLog(DateTime day) {
+    if (archived) return false;
+    final d = dateOnly(day);
+    if (d.isAfter(dateOnly(today.date))) return false;
+    final start = startDate;
+    return start == null || !d.isBefore(dateOnly(start));
+  }
 
   /// Weekly and monthly habits count days per period, not times per day.
   bool get isDaily => frequency == 'daily';
@@ -206,7 +273,77 @@ class Habit {
         today: today ?? this.today,
         period: period ?? this.period,
         chain: chain,
+        archived: archived,
+        archivedAt: archivedAt,
+        startDate: startDate,
+        loggedDaysCount: loggedDaysCount,
+        completedDaysCount: completedDaysCount,
+        trackedByGoals: trackedByGoals,
       );
+
+  /// This habit's [day] as the chain shows it, set to [count] — what a
+  /// past-day log shows before the server answers (see [loggedDay]). Only
+  /// the chain cell changes; streaks and rates come with the answer.
+  Habit withDayCount(DateTime day, int count) {
+    final d = dateOnly(day);
+    final log = logFor(count);
+    final isToday = d == dateOnly(today.date);
+    ChainDay cell(ChainDay c) {
+      if (dateOnly(c.date) != d) return c;
+      final status = log.completed
+          ? ChainStatus.completed
+          : log.count > 0
+              ? ChainStatus.partial
+              : isToday
+                  ? ChainStatus.todayPending
+                  : ChainStatus.missed;
+      return ChainDay(
+        date: c.date,
+        status: status,
+        completed: status == ChainStatus.partial ? log.count : null,
+        possible: status == ChainStatus.partial ? targetCount : null,
+      );
+    }
+
+    final next = isToday ? withToday(log) : this;
+    return Habit(
+      id: id,
+      name: name,
+      description: description,
+      frequency: frequency,
+      targetCount: targetCount,
+      color: color,
+      goalId: goalId,
+      currentStreak: currentStreak,
+      longestStreak: longestStreak,
+      completionRate30d: completionRate30d,
+      today: next.today,
+      period: next.period,
+      chain: [for (final c in chain) cell(c)],
+      archived: archived,
+      archivedAt: archivedAt,
+      startDate: startDate,
+      loggedDaysCount: loggedDaysCount,
+      completedDaysCount: completedDaysCount,
+      trackedByGoals: trackedByGoals,
+    );
+  }
+
+  /// The count [day] shows in the chain: the stored count of a partial day,
+  /// the target for a complete one, 0 otherwise.
+  int countOn(DateTime day) {
+    final d = dateOnly(day);
+    if (d == dateOnly(today.date)) return today.count;
+    for (final c in chain) {
+      if (dateOnly(c.date) != d) continue;
+      return switch (c.status) {
+        ChainStatus.completed || ChainStatus.perfect => targetCount,
+        ChainStatus.partial => c.completed ?? 1,
+        _ => 0,
+      };
+    }
+    return 0;
+  }
 
   /// This habit with today's log set to [log], before the server answers,
   /// and a weekly/monthly period count that follows the day's completion.
@@ -421,12 +558,35 @@ class HabitInput {
     this.goalId,
   });
 
+  String? get _description {
+    final text = description?.trim() ?? '';
+    return text.isEmpty ? null : text;
+  }
+
+  /// `POST /habits`: every field.
   Map<String, dynamic> toJson() => {
         'name': name,
         'frequency': frequency,
         'target_count': targetCount,
         'color': color,
-        'description': description,
+        'description': _description,
         'goal_id': goalId,
       };
+
+  /// `PATCH /habits/:id`: only what differs from [before] — the server
+  /// applies every key it gets, nulls included, so a field the form left
+  /// alone (a description written on the web, the goal it serves) is never
+  /// sent back over a newer value. Empty when nothing changed.
+  Map<String, dynamic> changesFrom(Habit before) {
+    final previousDescription =
+        before.description.trim().isEmpty ? null : before.description.trim();
+    return {
+      if (name != before.name) 'name': name,
+      if (frequency != before.frequency) 'frequency': frequency,
+      if (targetCount != before.targetCount) 'target_count': targetCount,
+      if (color.toUpperCase() != before.color.toUpperCase()) 'color': color,
+      if (_description != previousDescription) 'description': _description,
+      if (goalId != before.goalId) 'goal_id': goalId,
+    };
+  }
 }

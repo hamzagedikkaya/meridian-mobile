@@ -22,6 +22,10 @@ class User {
   /// Null from a server that predates G1.
   final Duration? utcOffset;
 
+  /// The day the web's weekly review reminder falls on: 0 Sunday … 6
+  /// Saturday. Null from a server that predates it.
+  final int? weeklyReviewDay;
+
   const User({
     required this.id,
     required this.displayName,
@@ -34,6 +38,7 @@ class User {
     this.timezone,
     this.timezoneIana,
     this.utcOffset,
+    this.weeklyReviewDay,
   });
 
   /// The zone's name to show: the IANA id, else the Rails name, else UTC.
@@ -51,5 +56,9 @@ class User {
         timezone: json['timezone'] as String?,
         timezoneIana: json['timezone_iana'] as String?,
         utcOffset: parseUtcOffset(json['utc_offset']),
+        weeklyReviewDay: switch (readIntOrNull(json['weekly_review_day'])) {
+          final int day when day >= 0 && day <= 6 => day,
+          _ => null,
+        },
       );
 }

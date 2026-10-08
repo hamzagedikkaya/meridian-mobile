@@ -6,6 +6,9 @@ import '../../../core/api.dart';
 import '../../../core/haptics.dart';
 import '../../../core/session.dart';
 import '../../../data/actions.dart';
+import '../../../data/current_day.dart';
+import '../../../data/data_scope.dart';
+import '../../../data/deferred_deletes.dart';
 import '../../../data/providers.dart';
 import '../../../data/sync.dart';
 import '../../../l10n/app_l10n.dart';
@@ -25,11 +28,13 @@ import '../../widgets/stat_chip.dart';
 import '../../widgets/sync_hint.dart';
 import '../habits/habit_log_sheet.dart';
 import '../shell/app_tabs.dart';
+import '../todos/todo_flows.dart';
+import '../todos/todo_sheet.dart';
 import 'widgets/today_common.dart';
 import 'widgets/today_skeleton.dart';
-import 'widgets/event_row.dart';
 import 'widgets/home_habit_row.dart';
 import 'widgets/quick_capture_sheet.dart';
+import 'widgets/today_agenda.dart';
 import 'widgets/todo_row.dart';
 import 'widgets/zone_notice.dart';
 
@@ -64,49 +69,18 @@ class _TodayScreenState extends ConsumerState<TodayScreen>
   /// Checks [todo] off ([done]) or reopens it, on the spot (CheckPop fires
   /// the success haptic), and sends that state. A finished todo leaves Today
   /// with the refetch that follows; the snackbar's "Geri al" reopens it and
-  /// puts it back where it was ([restore]).
-  Future<void> _setTodoDone(
-    Todo todo, {
-    required bool done,
-    TodoPlace? restore,
-  }) async {
-    final l = context.l10n;
-    final actions = ref.read(todoActionsProvider);
+  /// puts it back where it was.
+  Future<void> _setTodoDone(Todo todo, {required bool done}) {
     final listed =
         ref.read(homeProvider).value?.data.upcomingTodos ?? const <Todo>[];
     final index = listed.indexWhere((t) => t.id == todo.id);
-    if (done) {
-      final place = (todo: todo, index: index < 0 ? listed.length : index);
-      // Up for 6 s, then gone — on every tab, since they share the
-      // messenger — or until dismissed while a screen reader is on (see
-      // [showAppSnack]).
-      showAppSnack(
-        context,
-        l.todayTodoDone(todo.title),
-        actionLabel: l.actionUndo,
-        onAction: () {
-          if (mounted) {
-            _setTodoDone(todo, done: false, restore: place);
-          } else {
-            // The snackbar outlived the screen (signed out, say): the undo
-            // still goes through, with nothing left to show it on.
-            actions
-                .setDone(todo.id, done: false, restore: place)
-                .then((_) {}, onError: (Object _) {});
-          }
-        },
-      );
-    }
-    try {
-      await actions.setDone(todo.id, done: done, restore: restore);
-    } catch (e) {
-      if (!mounted) return;
-      showAppSnack(
-        context,
-        failureMessage(e, l, fallback: l.todayTodoUpdateFailed),
-        isError: true,
-      );
-    }
+    return setTodoDone(
+      context,
+      ref,
+      todo,
+      done: done,
+      index: index < 0 ? listed.length : index,
+    );
   }
 
   /// Logs [habit] for today here and on the Habits tab in the same frame;
@@ -255,11 +229,21 @@ class _TodayScreenState extends ConsumerState<TodayScreen>
                       const SizedBox(height: 12),
                       _stagger(_statStrip(context, data), 1, animate),
                       const SizedBox(height: 32),
-                      _stagger(_todaySection(context, data), 2, animate),
+                      _stagger(
+                        TodayAgenda(
+                          home: data,
+                          today: data.today ??
+                              ref.watch<DateTime>(currentDayProvider),
+                        ),
+                        2,
+                        animate,
+                      ),
                       const SizedBox(height: 32),
-                      _stagger(_habitsSection(context, data), 3, animate),
+                      _stagger(_todosSection(context, data), 3, animate),
                       const SizedBox(height: 32),
-                      _stagger(_goalsSection(context, data), 4, animate),
+                      _stagger(_habitsSection(context, data), 4, animate),
+                      const SizedBox(height: 32),
+                      _stagger(_goalsSection(context, data), 5, animate),
                     ]),
                   ),
                 ),
@@ -362,7 +346,7 @@ class _TodayScreenState extends ConsumerState<TodayScreen>
           child: StatChip(
             value: '${data.openTodos}',
             label: l.todayStatOpenTodos,
-            onTap: () => _showTodosSheet(context),
+            onTap: () => context.push('/todos'),
           ),
         ),
         const SizedBox(width: 12),
@@ -377,50 +361,70 @@ class _TodayScreenState extends ConsumerState<TodayScreen>
     );
   }
 
-  // --- Today section ---------------------------------------------------------
+  // --- Todos section ---------------------------------------------------------
 
-  Widget _todaySection(BuildContext context, HomeSummary data) {
-    final todos = data.upcomingTodos;
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        SectionHeader(
-          context.l10n.titleToday,
-          onSeeAll: todos.isEmpty ? null : () => _showTodosSheet(context),
-        ),
-        _todayCard(context, data),
-      ],
+  /// The open todos due in the next seven days, overdue ones included (as
+  /// `/home` lists them), a row that adds one for today, and the way to
+  /// every open todo — undated ones too — on the Todos screen.
+  Widget _todosSection(BuildContext context, HomeSummary data) {
+    final c = context.nok;
+    final text = Theme.of(context).textTheme;
+    final l = context.l10n;
+    final hidden = ref.watch(deferredDeletesProvider);
+    final todos = withoutDeleted(
+      data.upcomingTodos,
+      hidden,
+      DataScope.todos,
+      (t) => t.id,
     );
-  }
-
-  Widget _todayCard(BuildContext context, HomeSummary data) {
-    final events = [...data.todayEvents]
-      ..sort((a, b) => (a.allDay ? 0 : 1).compareTo(b.allDay ? 0 : 1));
+    final today = data.today ?? ref.read<DateTime>(currentDayProvider);
     // Keyed, so a row's check state follows its todo when the list shifts
     // after a refetch.
     final rows = <Widget>[
-      for (final e in events.take(4))
-        EventRow(key: ValueKey('event-${e.id}'), event: e),
-      for (final t in data.upcomingTodos)
+      for (final (i, t) in todos.indexed)
         TodoRow(
           key: ValueKey('todo-${t.id}'),
           todo: t,
           done: t.isDone,
           onToggle: () => _setTodoDone(t, done: !t.isDone),
+          onTap: () => openTodoSheet(context, existing: t),
+          onLongPress: () =>
+              showTodoMenu(context, ref, t, done: t.isDone, index: i),
+        ),
+      if (todos.isEmpty)
+        Padding(
+          padding: const EdgeInsets.fromLTRB(20, 16, 20, 8),
+          child: Text(
+            l.todoNoneUpcoming,
+            style: text.bodyMedium!.copyWith(color: c.inkLow),
+          ),
+        ),
+      _InlineAction(
+        key: const ValueKey('todo-add'),
+        icon: Icons.add,
+        label: l.todoAddInline,
+        onTap: () => openTodoSheet(context, due: today),
+      ),
+      if (data.openTodos > todos.where((t) => !t.isDone).length)
+        _InlineAction(
+          icon: Icons.checklist,
+          label: l.todoAllOpen(data.openTodos),
+          onTap: () => context.push('/todos'),
         ),
     ];
 
-    if (rows.isEmpty) {
-      return _emptyCard(
-        context,
-        Icons.wb_sunny_outlined,
-        context.l10n.todayEmptyDay,
-      );
-    }
-
-    return NokturnCard(
-      padding: const EdgeInsets.symmetric(vertical: 8),
-      child: _withDividers(rows),
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        SectionHeader(
+          l.titleTodos,
+          onSeeAll: () => context.push('/todos'),
+        ),
+        NokturnCard(
+          padding: const EdgeInsets.symmetric(vertical: 8),
+          child: _withDividers(rows),
+        ),
+      ],
     );
   }
 
@@ -483,7 +487,13 @@ class _TodayScreenState extends ConsumerState<TodayScreen>
     final c = context.nok;
     final text = Theme.of(context).textTheme;
     final l = context.l10n;
-    final goals = data.activeGoals.take(3).toList();
+    // A goal being deleted leaves Today at once, as it leaves the Goals tab.
+    final goals = withoutDeleted(
+      data.activeGoals,
+      ref.watch(deferredDeletesProvider),
+      DataScope.goals,
+      (g) => g.id,
+    ).take(3).toList();
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -583,87 +593,6 @@ class _TodayScreenState extends ConsumerState<TodayScreen>
     }
     return Column(children: children);
   }
-
-  /// Opens the full open-todo list (fetched from [todosProvider], not the home
-  /// preview subset) in a §3 modal bottom sheet.
-  void _showTodosSheet(BuildContext context) {
-    final c = context.nok;
-    final text = Theme.of(context).textTheme;
-    final l = context.l10n;
-    showModalBottomSheet<void>(
-      context: context,
-      isScrollControlled: true,
-      barrierColor: const Color(0xFF171310).withValues(alpha: 0.6),
-      backgroundColor: c.surface3,
-      builder: (_) => SafeArea(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const SizedBox(height: 12),
-            Container(
-              width: 32,
-              height: 4,
-              decoration: BoxDecoration(
-                color: c.inkFaint,
-                borderRadius: BorderRadius.circular(999),
-              ),
-            ),
-            Padding(
-              padding: const EdgeInsets.fromLTRB(20, 16, 20, 12),
-              child: Align(
-                alignment: Alignment.centerLeft,
-                child: Text(l.todayOpenTodos, style: text.titleLarge),
-              ),
-            ),
-            Flexible(
-              child: Consumer(
-                builder: (context, ref, _) {
-                  final async = ref.watch(todosProvider('today'));
-                  final bundle = async.value?.data;
-                  if (bundle != null) {
-                    final todos = bundle.todos;
-                    if (todos.isEmpty) {
-                      return Padding(
-                        padding: const EdgeInsets.fromLTRB(20, 8, 20, 24),
-                        child: Text(
-                          l.todayNoOpenTodos,
-                          style: text.bodyMedium!.copyWith(color: c.inkLow),
-                        ),
-                      );
-                    }
-                    return ListView.builder(
-                      shrinkWrap: true,
-                      padding: EdgeInsets.zero,
-                      itemCount: todos.length,
-                      itemBuilder: (_, i) => _SheetTodoRow(todo: todos[i]),
-                    );
-                  }
-                  // The same rule as every screen (AsyncScreenState): the
-                  // failure only once the load's quick retry has failed too,
-                  // so a blip that the retry heals never flashes it.
-                  if (async.hasFailed) {
-                    return Padding(
-                      padding: const EdgeInsets.fromLTRB(20, 8, 20, 24),
-                      child: Text(
-                        l.todayTodosFailed,
-                        style: text.bodyMedium!.copyWith(color: c.inkLow),
-                      ),
-                    );
-                  }
-                  // isFirstLoad: the first load, its quick retry included.
-                  return const Padding(
-                    padding: EdgeInsets.symmetric(vertical: 32),
-                    child: CircularProgressIndicator.adaptive(),
-                  );
-                },
-              ),
-            ),
-            const SizedBox(height: 8),
-          ],
-        ),
-      ),
-    );
-  }
 }
 
 class _Avatar extends StatelessWidget {
@@ -699,53 +628,49 @@ class _Avatar extends StatelessWidget {
   }
 }
 
-/// Read-only row for the open-todo sheet.
-class _SheetTodoRow extends StatelessWidget {
-  final Todo todo;
+/// A row of a Today card that leads somewhere: "＋ Görev ekle", every open
+/// todo. A 48 dp target.
+class _InlineAction extends StatelessWidget {
+  final IconData icon;
+  final String label;
+  final VoidCallback onTap;
 
-  const _SheetTodoRow({required this.todo});
+  const _InlineAction({
+    super.key,
+    required this.icon,
+    required this.label,
+    required this.onTap,
+  });
 
   @override
   Widget build(BuildContext context) {
     final c = context.nok;
     final text = Theme.of(context).textTheme;
-    final edge = priorityEdgeColor(c, todo.priority);
-    final due = todo.dueDay;
-
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
-      child: Row(
-        children: [
-          Container(
-            width: 3,
-            height: 32,
-            decoration: BoxDecoration(
-              color: edge == Colors.transparent ? c.inkFaint : edge,
-              borderRadius: BorderRadius.circular(2),
-            ),
-          ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
+    return Semantics(
+      button: true,
+      child: InkWell(
+        onTap: onTap,
+        splashColor: c.gold.withValues(alpha: 0.08),
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(minHeight: 48),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+            child: Row(
               children: [
-                Text(
-                  todo.title,
-                  style: text.titleSmall,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
+                SizedBox(
+                  width: 36,
+                  child: Icon(icon, size: 20, color: c.gold),
                 ),
-                if (due != null)
-                  Text(
-                    context.l10n.relativeDay(due),
-                    style: text.bodySmall!.copyWith(
-                      color: todo.overdue ? c.error : c.inkMid,
-                    ),
+                Expanded(
+                  child: Text(
+                    label,
+                    style: text.labelLarge!.copyWith(color: c.gold),
                   ),
+                ),
               ],
             ),
           ),
-        ],
+        ),
       ),
     );
   }

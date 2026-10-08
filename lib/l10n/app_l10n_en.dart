@@ -1,4 +1,5 @@
 import '../core/formats.dart';
+import '../models/event.dart';
 import 'app_l10n.dart';
 
 /// English copy. Keep this file and [AppL10nTr] member-for-member identical —
@@ -122,6 +123,10 @@ class AppL10nEn extends AppL10n {
   String get errTooManyRequests =>
       'Too many attempts. Try again in a few minutes.';
   @override
+  String get errCurrentPasswordRequired => 'Enter your current password';
+  @override
+  String get errInvalidCurrentPassword => 'Your current password is wrong';
+  @override
   String errInvalidParameter(String param) =>
       'The server didn\'t accept a value ($param)';
   @override
@@ -203,8 +208,9 @@ class AppL10nEn extends AppL10n {
             ? 'Too short'
             : 'At least ${_n(count)} characters',
         'wrong_length' => count == null
-            ? 'The wrong length'
-            : 'Exactly ${_n(count)} characters',
+            ? 'Wrong length'
+            : 'Must be exactly ${_n(count)} characters',
+        'confirmation' => 'Doesn\'t match the new password',
         'inclusion' => 'Not a valid option',
         'exclusion' => 'This value can\'t be used',
         'invalid' => 'Isn\'t valid',
@@ -284,9 +290,20 @@ class AppL10nEn extends AppL10n {
         'tags' => 'Tags',
         'gratitude' => 'Gratitude',
         'email' => 'Email',
-        'password' || 'current_password' => 'Password',
+        'password' => 'Password',
+        'current_password' => 'Current password',
+        'password_confirmation' => 'Password confirmation',
+        'timezone' => 'Time zone',
+        'weekly_review_day' => 'Weekly review day',
+        'locale' => 'Language',
+        'theme_preference' => 'Theme',
         'todo_list_id' => 'List',
         'goal_id' => 'Goal',
+        'list_id' => 'List',
+        'todos' => 'Tasks',
+        'done' => 'Status',
+        'all_day' => 'All day',
+        'event_type' => 'Event type',
         _ => null,
       };
 
@@ -441,6 +458,277 @@ class AppL10nEn extends AppL10n {
   String get captureCreateAccount => 'Create an account';
   @override
   String captureCreateHabit(String name) => 'Create the habit “$name”';
+
+  // --- Todos and todo lists -------------------------------------------------
+
+  @override
+  String get titleTodos => 'Tasks';
+  @override
+  String todoFilter(String filter) => switch (filter) {
+        'today' => 'Today',
+        'upcoming' => 'Upcoming',
+        'week' => 'This week',
+        'overdue' => 'Overdue',
+        'undated' => 'No date',
+        'done' => 'Done',
+        'cancelled' => 'Cancelled',
+        'all' => 'All',
+        _ => 'Open',
+      };
+  @override
+  String todoFilterEmpty(String filter) => switch (filter) {
+        'today' => 'Nothing due today',
+        'upcoming' => 'Nothing due in the next 7 days',
+        'week' => 'Nothing due this week',
+        'overdue' => 'Nothing overdue — nice ✦',
+        'undated' => 'No tasks without a date',
+        'done' => 'No finished tasks yet',
+        'cancelled' => 'No cancelled tasks',
+        _ => 'No open tasks — all done ✦',
+      };
+  @override
+  String get todoAllLists => 'All lists';
+  @override
+  String get todoNoList => 'No list';
+  @override
+  String get todoGroupOverdue => 'Overdue';
+  @override
+  String get todoGroupUndated => 'No date';
+  @override
+  String todoDue(DateTime day, String? time) =>
+      time == null ? relativeDay(day) : '${relativeDay(day)} · $time';
+  @override
+  String todoSemantics(
+    String title, {
+    String? due,
+    required bool overdue,
+    required bool done,
+  }) =>
+      [
+        title,
+        ?due,
+        if (overdue && !done) 'overdue',
+        if (done) 'done',
+      ].join(', ');
+  @override
+  String get todoAdd => 'Task';
+  @override
+  String get todoAddInline => 'Add a task';
+  @override
+  String get todoNewTitle => 'New task';
+  @override
+  String get todoEditTitle => 'Edit task';
+  @override
+  String get todoFieldTitle => 'Title';
+  @override
+  String get todoFieldNotes => 'Notes';
+  @override
+  String get todoFieldDue => 'Due';
+  @override
+  String get todoDuePick => 'Pick a date';
+  @override
+  String get todoAddTime => 'Add a time';
+  @override
+  String get todoRemoveTime => 'Remove the time';
+  @override
+  String get todoFieldPriority => 'Priority';
+  @override
+  String todoPriority(String priority) => switch (priority) {
+        'low' => 'Low',
+        'high' => 'High',
+        'urgent' => 'Urgent',
+        _ => 'Medium',
+      };
+  @override
+  String get todoFieldList => 'List';
+  @override
+  String get todoFieldGoal => 'Goal';
+  @override
+  String get todoGoalLinked => 'Linked goal';
+  @override
+  String get todoTitleRequired => 'Write a title';
+  @override
+  String get todoSaveAndNew => 'Save and add another';
+  @override
+  String todoCreated(String title) => 'Task added: $title';
+  @override
+  String get todoUpdated => 'Task updated';
+  @override
+  String get todoSaveFailed => 'Couldn’t save the task';
+  @override
+  String todoDeleted(String title) => '“$title” deleted';
+  @override
+  String get todoDeleteFailed => 'Couldn’t delete the task';
+  @override
+  String get todoComplete => 'Complete';
+  @override
+  String get todoReopen => 'Reopen';
+  @override
+  String get todoPostpone => 'Move to tomorrow';
+  @override
+  String todoPostponed(String title) => '“$title” moved to tomorrow';
+  @override
+  String todoAllOpen(int count) => 'All open tasks ($count)';
+  @override
+  String get todoNoneUpcoming => 'Nothing due in the next 7 days';
+
+  @override
+  String get todoListsTitle => 'Lists';
+  @override
+  String get todoListsManage => 'Manage lists';
+  @override
+  String get todoListNew => 'New list';
+  @override
+  String get todoListEdit => 'Edit list';
+  @override
+  String get todoListName => 'Name';
+  @override
+  String get todoListNameRequired => 'Give the list a name';
+  @override
+  String get todoListColor => 'Colour';
+  @override
+  String todoListCounts(int open, int total) =>
+      '$open open · $total ${total == 1 ? 'task' : 'tasks'}';
+  @override
+  String get todoListsEmpty =>
+      'No lists yet — sort your tasks into lists like Home or Work';
+  @override
+  String todoListCreated(String name) => 'List “$name” created';
+  @override
+  String get todoListUpdated => 'List updated';
+  @override
+  String get todoListSaveFailed => 'Couldn’t save the list';
+  @override
+  String todoListDeleteTitle(String name) => 'Delete the list “$name”?';
+  @override
+  String todoListDeleteBody(int total) => total == 0
+      ? 'This list is empty.'
+      : 'This list has $total ${total == 1 ? 'task' : 'tasks'} (finished ones '
+          'included). They can be deleted with it, or kept without a list.';
+  @override
+  String get todoListDeleteKeep => 'Keep the tasks, without a list';
+  @override
+  String get todoListDeleteAll => 'Delete with its tasks';
+  @override
+  String todoListDeleted(String name) => 'List “$name” deleted';
+  @override
+  String get todoListDeleteFailed => 'Couldn’t delete the list';
+
+  // --- Events and agenda ----------------------------------------------------
+
+  @override
+  String get titleAgenda => 'Agenda';
+  @override
+  String get agendaThisWeek => 'This week';
+  @override
+  String get agendaEmptyWeek => 'No events this week';
+  @override
+  String get agendaEmpty => 'No events in the coming days';
+  @override
+  String get agendaShowMore => 'Show more';
+  @override
+  String get agendaLoadFailed => 'Couldn’t load the events';
+  @override
+  String agendaMore(int count) =>
+      '+$count more ${count == 1 ? 'event' : 'events'}';
+  @override
+  String get eventAdd => 'Event';
+  @override
+  String get eventNewTitle => 'New event';
+  @override
+  String get eventEditTitle => 'Edit event';
+  @override
+  String get eventFieldTitle => 'Title';
+  @override
+  String get eventStarts => 'Starts';
+  @override
+  String get eventEnds => 'Ends';
+  @override
+  String get eventNoEnd => 'No end';
+  @override
+  String get eventAddEnd => 'Add an end';
+  @override
+  String get eventRemoveEnd => 'Remove the end';
+  @override
+  String get eventLocation => 'Location';
+  @override
+  String get eventDescription => 'Description';
+  @override
+  String get eventFieldType => 'Type';
+  @override
+  String eventType(String type) => switch (type) {
+        'work' => 'Work',
+        'health' => 'Health',
+        'finance' => 'Finance',
+        'other' => 'Other',
+        _ => 'Personal',
+      };
+  @override
+  String get eventColor => 'Colour';
+  @override
+  String get eventRepeat => 'Repeat';
+  @override
+  String recurrence(RecurrencePreset preset) => switch (preset) {
+        RecurrencePreset.none => 'Doesn’t repeat',
+        RecurrencePreset.daily => 'Every day',
+        RecurrencePreset.weekdays => 'Every weekday',
+        RecurrencePreset.weekly => 'Every week',
+        RecurrencePreset.monthly => 'Every month',
+        RecurrencePreset.yearly => 'Every year',
+        RecurrencePreset.custom => 'Custom repeat (set on the web)',
+      };
+  @override
+  String get eventRepeatEnds => 'Repeat ends';
+  @override
+  String get eventRepeatForever => 'Never';
+  @override
+  String recurrenceUntil(DateTime day) =>
+      'until ${formatDate(day, withYear: day.year != appToday().year, locale: localeCode)}';
+  @override
+  String recurrenceCount(int count) =>
+      '$count ${count == 1 ? 'time' : 'times'}';
+  @override
+  String get eventTitleRequired => 'Write a title';
+  @override
+  String get eventEndBeforeStart => 'The end must be after the start';
+  @override
+  String get eventSeriesFormNote =>
+      'Recurring event: what you save changes every event in the series. '
+      'The date is the series’ first event.';
+  @override
+  String get eventSeriesNote =>
+      'Recurring event: editing or deleting it changes every event in the '
+      'series.';
+  @override
+  String eventCreated(String title) => '“$title” added';
+  @override
+  String get eventUpdated => 'Event updated';
+  @override
+  String get eventSaveFailed => 'Couldn’t save the event';
+  @override
+  String eventDeleted(String title) => '“$title” deleted';
+  @override
+  String get eventDeleteFailed => 'Couldn’t delete the event';
+  @override
+  String get eventDeleteSeriesTitle => 'Delete a recurring event';
+  @override
+  String eventDeleteFollowing(DateTime day) =>
+      '${relativeDay(day)} and after';
+  @override
+  String eventDeleteFollowingHint(DateTime day) =>
+      'The events before this date stay.';
+  @override
+  String get eventDeleteAll => 'The whole series';
+  @override
+  String get eventDeleteAllHint => 'Every event in the series is deleted.';
+  @override
+  String eventSeriesEnded(String title) =>
+      '“$title” removed from this date on';
+  @override
+  String get eventLoadFailed => 'Couldn’t load the event';
+  @override
+  String eventSemantics(String title, {required String when, String? where}) =>
+      [title, when, ?where].join(', ');
 
   // --- Habit day log --------------------------------------------------------
 
@@ -1110,7 +1398,8 @@ class AppL10nEn extends AppL10n {
   String get habitsArchive => 'Archive';
   @override
   String habitsArchiveBody(String name) =>
-      '$name will be removed from the list.';
+      '$name leaves Today and the list and can no longer be logged. Its '
+      'history is kept; you can restore it from the Archive.';
   @override
   String get habitsArchiveTitle => 'Archive this habit?';
   @override
@@ -1147,6 +1436,98 @@ class AppL10nEn extends AppL10n {
   String get habitsAdded => 'Habit added ✓';
   @override
   String get habitsSaveFailed => 'Couldn\'t save, try again';
+  @override
+  String get habitsFormEditTitle => 'Edit habit';
+  @override
+  String get habitsFormDescription => 'Description (optional)';
+  @override
+  String get habitsFormDescriptionHint => 'e.g. Before breakfast, 2 glasses';
+  @override
+  String get habitsFormHistoryNote =>
+      'Past days stay as they were logged; the change applies from today.';
+  @override
+  String get habitsUpdated => 'Habit updated ✓';
+  @override
+  String habitsArchiveFreezes(String goals) =>
+      'These goals count this habit\'s completed days: $goals. '
+      'Archiving it stops their progress: no new days are added.';
+  @override
+  String habitsArchivedNamed(String name) => '“$name” archived';
+  @override
+  String get habitsUnarchive => 'Restore';
+  @override
+  String habitsUnarchived(String name) => '“$name” is active again';
+  @override
+  String get habitsUnarchiveFailed => 'Couldn\'t restore the habit';
+  @override
+  String get habitsDelete => 'Delete habit';
+  @override
+  String habitsDeleteTitle(String name) => 'Delete “$name”?';
+  @override
+  String habitsDeleteBody({required int days, required String goals}) {
+    final logs = days == 0
+        ? 'No days have been logged yet.'
+        : 'The log of $days ${days == 1 ? 'day' : 'days'}, its streaks and '
+            'rates are deleted for good.';
+    final linked = goals.isEmpty
+        ? ''
+        : ' Goals that count this habit ($goals) are unlinked and keep their '
+            'last value; you log their progress by hand from then on.';
+    return '$logs$linked This can\'t be undone.';
+  }
+
+  @override
+  String habitsDeleted(String name) => '“$name” deleted';
+  @override
+  String get habitsDeleteFailed => 'Couldn\'t delete the habit';
+  @override
+  String get habitsArchivedTitle => 'Archived habits';
+  @override
+  String get habitsArchivedEmpty => 'No archived habits';
+  @override
+  String get habitsArchivedEmptyBody =>
+      'Habits you archive stay here with their history.';
+  @override
+  String habitsArchivedOn(String date) => 'Archived $date';
+  @override
+  String get habitsArchivedNote =>
+      'Archived: it can\'t be logged and stays off Today. Its history is kept.';
+  @override
+  String habitsTrackedBy(String goals) => 'Counted by goals: $goals';
+  @override
+  String habitsServesGoal(String goal) => 'Goal: $goal';
+  @override
+  String get habitsCalendar => 'Calendar';
+  @override
+  String get habitsCalendarHint => 'Tap a day to fix its log.';
+  @override
+  String get habitsPrevMonth => 'Previous month';
+  @override
+  String get habitsNextMonth => 'Next month';
+  @override
+  String get habitsDayFuture => 'Future days can\'t be logged.';
+  @override
+  String habitsDayBeforeStart(String date) =>
+      'This habit didn\'t exist yet on that day (it starts on $date).';
+  @override
+  String get habitsDayDone => 'Done';
+  @override
+  String get habitsDayNotDone => 'Not done';
+  @override
+  String habitsDaySemantics(
+    String date, {
+    required int count,
+    required int target,
+    required bool done,
+    required bool loggable,
+  }) {
+    final state = done
+        ? 'done'
+        : count > 0
+            ? '$count of $target'
+            : 'not done';
+    return loggable ? '$date, $state' : '$date, $state, can\'t be changed';
+  }
 
   // --- Goals ----------------------------------------------------------------
 
@@ -1203,10 +1584,6 @@ class AppL10nEn extends AppL10n {
   @override
   String get goalsMarkAbandoned => 'Mark as abandoned';
   @override
-  String get goalsAbandonTitle => 'Abandon this goal?';
-  @override
-  String get goalsAbandonBody => 'It will be marked as abandoned.';
-  @override
   String get goalsAbandonAction => 'Abandon';
   @override
   String get goalsActionFailed => 'That didn\'t work';
@@ -1240,6 +1617,9 @@ class AppL10nEn extends AppL10n {
   @override
   String get goalsFormTargetRequired => 'Enter a valid target value';
   @override
+  String goalsNumberAmbiguous(String mark) =>
+      'Ambiguous number: use “$mark” for decimals and no thousands separator';
+  @override
   String get goalsFormUnit => 'Unit';
   @override
   String get goalsFormUnitHint => 'kg · days · TRY';
@@ -1255,6 +1635,73 @@ class AppL10nEn extends AppL10n {
   String get goalsCreated => 'Goal created ✓';
   @override
   String get goalsCreateFailed => 'Couldn\'t create the goal';
+  @override
+  String get goalsFormEditTitle => 'Edit goal';
+  @override
+  String get goalsUpdated => 'Goal updated ✓';
+  @override
+  String get goalsSaveFailed => 'Couldn\'t save the goal';
+  @override
+  String get goalsFormCurrentValue => 'Progress so far';
+  @override
+  String get goalsFormNoDeadline => 'None';
+  @override
+  String get goalsFormClearDeadline => 'Remove end date';
+  @override
+  String get goalsFormTypeChangeNote =>
+      'Changing the type removes the old link; the goal keeps its current value.';
+  @override
+  String get goalsReopen => 'Reopen';
+  @override
+  String get goalsReopened => 'Goal reopened';
+  @override
+  String get goalsReopenTitle => 'Reopen goal';
+  @override
+  String goalsReopenNeedsHigherTarget(String current) =>
+      'Its progress already reaches the target ($current). Enter a higher '
+      'target to reopen it.';
+  @override
+  String get goalsReopenNewTarget => 'New target';
+  @override
+  String goalsReopenTargetTooLow(String current) =>
+      'The target must be above the current progress ($current)';
+  @override
+  String get goalsMarkAchieved => 'Mark as achieved';
+  @override
+  String get goalsMarkedAchieved => 'Goal achieved 🎉';
+  @override
+  String get goalsAbandonedSnack => 'Goal abandoned';
+  @override
+  String get goalsDelete => 'Delete goal';
+  @override
+  String goalsDeleted(String name) => '“$name” deleted';
+  @override
+  String get goalsDeleteFailed => 'Couldn\'t delete the goal';
+  @override
+  String get goalsLinkAccount => 'Link an account';
+  @override
+  String get goalsLinkHabit => 'Link a habit';
+  @override
+  String get goalsChangeLink => 'Change link';
+  @override
+  String get goalsNoHabitLinked =>
+      'No habit linked: you log progress by hand. Link a habit and its '
+      'completed days are counted.';
+  @override
+  String get goalsNoAccountLinked =>
+      'No account linked: progress counts all your income. Link an account '
+      'to track its balance.';
+  @override
+  String goalsLinked(String name) => '“$name” linked';
+  @override
+  String get goalsUnlinked => 'Link removed';
+  @override
+  String get goalsTotalIncome => 'Total income';
+  @override
+  String goalsDaysOverdue(int days) =>
+      '$days ${days == 1 ? 'day' : 'days'} past';
+  @override
+  String get goalsMore => 'More actions';
 
   // --- Journal --------------------------------------------------------------
 
@@ -1275,10 +1722,6 @@ class AppL10nEn extends AppL10n {
   String get journalEnergy => 'Energy';
   @override
   String get journalGratitude => 'GRATITUDE';
-  @override
-  String get journalDeleteTitle => 'Delete this entry?';
-  @override
-  String get journalDeleteBody => 'This journal entry will be gone for good.';
   @override
   String get journalDeleteFailed => 'Couldn\'t delete the entry';
   @override
@@ -1311,6 +1754,50 @@ class AppL10nEn extends AppL10n {
   String get journalAdded => 'Entry added ✓';
   @override
   String get journalSaveFailed => 'Couldn\'t save the entry';
+  @override
+  String journalRichNotice(String formatting) =>
+      'This entry has formatting from the web ($formatting). You can safely '
+      'edit its title, mood and tags; changing the text removes the '
+      'formatting.';
+  @override
+  String get journalRichConfirmTitle => 'Remove the formatting?';
+  @override
+  String journalRichConfirmBody(String formatting) =>
+      'You changed the text. Saving removes the formatting added on the web '
+      '($formatting) and keeps your writing as plain text.';
+  @override
+  String get journalRichConfirmAction => 'Save anyway';
+  @override
+  String journalFormatting(String kind) => switch (kind) {
+        'bold' => 'bold',
+        'italic' => 'italic',
+        'strikethrough' => 'strikethrough',
+        'link' => 'links',
+        'heading' => 'headings',
+        'quote' => 'quotes',
+        'code' => 'code',
+        'list' => 'lists',
+        'attachment' => 'attachments',
+        _ => 'other',
+      };
+  @override
+  String get journalDraftRestored => 'Unsaved draft restored';
+  @override
+  String get journalDraftDiscard => 'Discard draft';
+  @override
+  String get journalDraftRestoredStale =>
+      'Draft restored. This entry has changed elsewhere since; check it before saving';
+  @override
+  String get journalEditorEntryGone =>
+      'This entry was deleted elsewhere. Your text is still here; you can save it as a new entry';
+  @override
+  String get journalEditorSaveAsNew => 'Save as new entry';
+  @override
+  String get journalDeleted => 'Entry deleted';
+  @override
+  String get journalEditorMood => 'Mood';
+  @override
+  String get journalEditorMoodClear => 'Clear mood';
 
   @override
   String moodLabel(String mood) => switch (mood) {
@@ -1388,12 +1875,110 @@ class AppL10nEn extends AppL10n {
   String get profileSignOutTitle => 'Sign out?';
   @override
   String get profileSignOutBody =>
-      'You\'ll be signed out. The server address is kept.';
+      'This signs out every device signed in to this account: each account '
+      'has a single session key. The server address stays on this phone.';
   @override
   String get profileFallbackName => 'User';
   @override
   String get profileLanguageSaveFailed =>
       'Couldn\'t save the language to the server — it applies on this device';
+  @override
+  String get profileThemeSaveFailed =>
+      'Couldn\'t save the theme to the server — it applies on this device';
+  @override
+  String get profileSignOutEverywhere => 'Signs out on every device';
+  @override
+  String get profileSignOutDraft =>
+      'Your unsaved journal draft will be deleted from this phone.';
+  @override
+  String get noticeSignOutNotRevoked =>
+      'Signed out on this phone, but the server couldn\'t be reached: the '
+      'session couldn\'t be ended there, so other devices may stay signed in.';
+  @override
+  String get profileSectionAccount => 'Account';
+  @override
+  String get profileName => 'Name';
+  @override
+  String get profileEmail => 'Email';
+  @override
+  String get profilePassword => 'Password';
+  @override
+  String get profilePasswordAction => 'Change';
+  @override
+  String get profileEditName => 'Edit your name';
+  @override
+  String get profileNameHint => 'How you appear in the app and on the web.';
+  @override
+  String get profileNameSaved => 'Name updated';
+  @override
+  String get profileEmailTitle => 'Email address';
+  @override
+  String get profileEmailNew => 'New email';
+  @override
+  String get profileEmailNote =>
+      'Your email is how you sign in, so changing it needs your current '
+      'password.';
+  @override
+  String get profileEmailSaved => 'Email updated';
+  @override
+  String get profileCurrentPassword => 'Current password';
+  @override
+  String get profileNewPassword => 'New password';
+  @override
+  String get profileConfirmPassword => 'Confirm new password';
+  @override
+  String get profilePasswordTitle => 'Change password';
+  @override
+  String get profilePasswordNote =>
+      'Changing it signs out every other device; this phone stays signed in.';
+  @override
+  String get profilePasswordSaved =>
+      'Password changed. You\'ll need to sign in again on your other devices.';
+  @override
+  String get profileShowPassword => 'Show password';
+  @override
+  String get profileHidePassword => 'Hide password';
+  @override
+  String get profileRateLimited =>
+      'Too many password attempts. Wait a few minutes and try again.';
+  @override
+  String get profileSaveFailed => 'Couldn\'t save · Try again';
+  @override
+  String get profileOptionsFailed => 'Couldn\'t load the options';
+  @override
+  String get profileCurrencyNote => 'Existing amounts aren\'t converted.';
+  @override
+  String profileCurrencyConfirmTitle(String code) => 'Switch to $code?';
+  @override
+  String profileCurrencyConfirmBody(String before, String after) =>
+      'Nothing is converted: budget limits and totals keep their numbers and '
+      'are read in the new currency — $before becomes $after. Accounts keep '
+      'their own currencies.';
+  @override
+  String get profileCurrencyConfirm => 'Switch';
+  @override
+  String profileCurrencySaved(String code) => 'Currency: $code';
+  @override
+  String get profileTimeZoneNote =>
+      '“Today”, day boundaries and times follow this zone.';
+  @override
+  String get profileTimeZoneSearch => 'Search a city or UTC+03';
+  @override
+  String profileTimeZoneDeviceGroup(String offset) =>
+      'This device\'s time (UTC$offset)';
+  @override
+  String get profileTimeZoneAllGroup => 'All time zones';
+  @override
+  String get profileTimeZoneNoMatch => 'No matching time zone';
+  @override
+  String profileTimeZoneSaved(String zone) => 'Time zone: $zone';
+  @override
+  String get profileWeeklyReview => 'Weekly review';
+  @override
+  String get profileWeeklyReviewNote =>
+      'The day of the web\'s weekly review reminder.';
+  @override
+  String profileWeeklyReviewSaved(String day) => 'Weekly review day: $day';
   @override
   String get serverBlurb =>
       'Your Meridian server\'s LAN address. The phone has to be on the same Wi-Fi network.';

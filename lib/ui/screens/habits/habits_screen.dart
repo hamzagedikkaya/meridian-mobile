@@ -1,8 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 import '../../../core/api.dart';
 import '../../../core/haptics.dart';
 import '../../../data/actions.dart';
+import '../../../data/data_scope.dart';
+import '../../../data/deferred_deletes.dart';
 import '../../../data/providers.dart';
 import '../../../data/sync.dart';
 import '../../../l10n/app_l10n.dart';
@@ -155,6 +158,20 @@ class _HabitsScreenState extends ConsumerState<HabitsScreen>
             tooltip: l.habitsHistory,
             onPressed: bundle == null ? null : _openHistory,
           ),
+          PopupMenuButton<String>(
+            tooltip: MaterialLocalizations.of(context).moreButtonTooltip,
+            onSelected: (_) => context.push('/habits/archived'),
+            itemBuilder: (_) => [
+              PopupMenuItem(
+                value: 'archived',
+                child: ListTile(
+                  contentPadding: EdgeInsets.zero,
+                  leading: const Icon(Icons.archive_outlined),
+                  title: Text(l.habitsArchivedTitle),
+                ),
+              ),
+            ],
+          ),
           const SizedBox(width: 4),
         ],
       ),
@@ -190,7 +207,13 @@ class _HabitsScreenState extends ConsumerState<HabitsScreen>
     DateTime lastUpdated,
   ) {
     final l = context.l10n;
-    final habits = bundle.habits;
+    // A habit being deleted leaves the list at once.
+    final habits = withoutDeleted(
+      bundle.habits,
+      ref.watch(deferredDeletesProvider),
+      DataScope.habits,
+      (h) => h.id,
+    );
 
     if (habits.isEmpty) {
       return CustomScrollView(

@@ -18,6 +18,17 @@ class JournalEntry {
   final String? bodyHtml;
   final String? gratitude;
 
+  /// The whole body as plain text — line breaks and blank lines between
+  /// paragraphs kept — what the editor edits. Detail only: a list item's
+  /// [bodyPlain] is a 200-character preview, never to be edited or saved.
+  final String? bodyText;
+
+  /// `"rich"` when the body has web formatting plain text cannot hold
+  /// (bold, lists, links…: [bodyFormatting]); `"plain"` otherwise.
+  final String? bodyFormat;
+  final List<String> bodyFormatting;
+  final DateTime? updatedAt;
+
   const JournalEntry({
     required this.id,
     required this.date,
@@ -32,7 +43,23 @@ class JournalEntry {
     this.createdAt,
     this.bodyHtml,
     this.gratitude,
+    this.bodyText,
+    this.bodyFormat,
+    this.bodyFormatting = const [],
+    this.updatedAt,
   });
+
+  /// Whether this is the full entry (`GET /journal_entries/:id`, or a save's
+  /// answer) rather than a list item: only the full one may be edited.
+  bool get isFull => bodyText != null || bodyHtml != null;
+
+  /// Saving a different text over it drops web formatting.
+  bool get isRich => bodyFormat == 'rich';
+
+  /// The text the editor starts from: the whole body. An older server
+  /// without `body_text` sends the whole text as `body_plain` in the full
+  /// entry.
+  String get editableBody => bodyText ?? bodyPlain ?? '';
 
   factory JournalEntry.fromJson(Map<String, dynamic> json) => JournalEntry(
         id: readId(json['id']),
@@ -50,6 +77,12 @@ class JournalEntry {
         createdAt: parseDateTime(json['created_at']),
         bodyHtml: json['body_html'] as String?,
         gratitude: json['gratitude'] as String?,
+        bodyText: json['body_text'] as String?,
+        bodyFormat: json['body_format'] as String?,
+        bodyFormatting: ((json['body_formatting'] as List?) ?? const [])
+            .map((e) => '$e')
+            .toList(),
+        updatedAt: parseDateTime(json['updated_at']),
       );
 }
 
@@ -84,11 +117,27 @@ class JournalBundle {
   }
 }
 
+/// How the server compares a body sent back with the stored one
+/// (`body_text`): line endings, spaces at line ends, non-breaking spaces and
+/// blank space around the text do not count.
+String normalizedBody(String text) => text
+    .replaceAll('\r\n', '\n')
+    .replaceAll('\r', '\n')
+    .replaceAll('\u00A0', ' ')
+    .split('\n')
+    .map((line) => line.trimRight())
+    .join('\n')
+    .trim();
+
 /// Create/update body — `tags` is comma-joined for the wire.
+///
+/// The body travels as [bodyText], plain text (`body_text`): the server
+/// keeps its line breaks and paragraphs, and escapes it, so `<3` stays
+/// text. It is never sent as `body`, which the server reads as HTML.
 class JournalInput {
   final DateTime date;
   final String? title;
-  final String? body;
+  final String? bodyText;
   final String? mood;
   final String? weather;
   final int? energyLevel;
@@ -98,7 +147,7 @@ class JournalInput {
   const JournalInput({
     required this.date,
     this.title,
-    this.body,
+    this.bodyText,
     this.mood,
     this.weather,
     this.energyLevel,
@@ -106,14 +155,49 @@ class JournalInput {
     this.tags = const [],
   });
 
+  static String? _text(String? value) {
+    final text = value?.trim() ?? '';
+    return text.isEmpty ? null : text;
+  }
+
+  String get _tags => tags.join(',');
+
+  /// `POST /journal_entries`.
   Map<String, dynamic> toJson() => {
         'date': isoDate(date),
-        'title': title,
-        'body': body,
+        'title': _text(title),
+        'body_text': _text(bodyText),
         'mood': mood,
-        'weather': weather,
+        'weather': _text(weather),
         'energy_level': energyLevel,
-        'gratitude': gratitude,
-        'tags': tags.join(','),
+        'gratitude': _text(gratitude),
+        'tags': _tags,
       };
+
+  /// Whether the body differs from [before]'s, the way the server compares.
+  bool bodyChangedFrom(JournalEntry before) =>
+      normalizedBody(bodyText ?? '') != normalizedBody(before.editableBody);
+
+  /// `PATCH /journal_entries/:id`: only what differs from [before]. The body
+  /// goes only when its text changed, so a web entry whose title, mood or
+  /// tags were edited keeps its formatting untouched. [discardFormatting]
+  /// confirms that a changed body may replace a rich one.
+  Map<String, dynamic> changesFrom(
+    JournalEntry before, {
+    bool discardFormatting = false,
+  }) {
+    final changedBody = bodyChangedFrom(before);
+    return {
+      if (isoDate(date) != isoDate(before.date)) 'date': isoDate(date),
+      if (_text(title) != _text(before.title)) 'title': _text(title),
+      if (changedBody) 'body_text': _text(bodyText),
+      if (changedBody && discardFormatting) 'discard_formatting': true,
+      if (mood != before.mood) 'mood': mood,
+      if (_text(weather) != _text(before.weather)) 'weather': _text(weather),
+      if (energyLevel != before.energyLevel) 'energy_level': energyLevel,
+      if (_text(gratitude) != _text(before.gratitude))
+        'gratitude': _text(gratitude),
+      if (_tags != before.tags.join(',')) 'tags': _tags,
+    };
+  }
 }
