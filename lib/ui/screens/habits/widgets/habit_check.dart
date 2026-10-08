@@ -3,7 +3,7 @@ import '../../../../theme/app_colors.dart';
 
 /// 48dp check ring (target_count == 1). Tap fills the habit color with the §5
 /// check-off pop: press scale 0.9 → color fill sweep + check draw + a single
-/// 0.9→1.05→1.0 easeOutBack overshoot. Uncheck is a plain 200ms fade.
+/// 0.9→1.05→1.0 overshoot (easeOutCubic). Uncheck is a plain 200ms fade.
 class HabitCheck extends StatefulWidget {
   final bool completed;
   final Color color;
@@ -33,10 +33,14 @@ class _HabitCheckState extends State<HabitCheck>
     duration: const Duration(milliseconds: 300),
     value: 1,
   );
+  // The sequence is the overshoot (0.9 → 1.05 → 1.0), so it must be driven
+  // by a curve that stays within 0..1: easeOutBack overshoots past 1, which
+  // TweenSequence rejects — an assertion in debug, a thrown StateError (a
+  // grey error box for a few frames) in release, on every check.
   late final Animation<double> _popScale = TweenSequence<double>([
     TweenSequenceItem(tween: Tween(begin: 0.9, end: 1.05), weight: 60),
     TweenSequenceItem(tween: Tween(begin: 1.05, end: 1.0), weight: 40),
-  ]).animate(CurvedAnimation(parent: _pop, curve: Curves.easeOutBack));
+  ]).animate(CurvedAnimation(parent: _pop, curve: Curves.easeOutCubic));
 
   bool _pressed = false;
 

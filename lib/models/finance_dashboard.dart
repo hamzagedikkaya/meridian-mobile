@@ -1,5 +1,6 @@
 import 'account.dart';
 import 'date_utils.dart';
+import 'json_read.dart';
 import 'transaction.dart';
 
 /// Income/expense/net for a period. Reused for both `month` and `year`
@@ -16,12 +17,12 @@ class MonthTotals {
   });
 
   factory MonthTotals.fromJson(Map<String, dynamic> json) {
-    final income = (json['income_cents'] as num?)?.toInt() ?? 0;
-    final expense = (json['expense_cents'] as num?)?.toInt() ?? 0;
+    final income = readInt(json['income_cents']);
+    final expense = readInt(json['expense_cents']);
     return MonthTotals(
       incomeCents: income,
       expenseCents: expense,
-      netCents: (json['net_cents'] as num?)?.toInt() ?? (income - expense),
+      netCents: readIntOrNull(json['net_cents']) ?? (income - expense),
     );
   }
 }
@@ -42,10 +43,10 @@ class SixMonthSeries {
             .map((e) => '$e')
             .toList(),
         incomeCents: ((json['income_cents'] as List?) ?? const [])
-            .map((e) => (e as num).toInt())
+            .map((e) => readInt(e))
             .toList(),
         expenseCents: ((json['expense_cents'] as List?) ?? const [])
-            .map((e) => (e as num).toInt())
+            .map((e) => readInt(e))
             .toList(),
       );
 }
@@ -64,10 +65,10 @@ class PieBreakdown {
   });
 
   factory PieBreakdown.fromJson(Map<String, dynamic> json) => PieBreakdown(
-        id: json['id'] as int,
+        id: readId(json['id']),
         name: (json['name'] as String?) ?? '',
-        amountCents: (json['amount_cents'] as num?)?.toInt() ?? 0,
-        isRoot: (json['is_root'] as bool?) ?? false,
+        amountCents: readInt(json['amount_cents']),
+        isRoot: readBool(json['is_root']),
       );
 }
 
@@ -78,62 +79,104 @@ class PieSlice {
   final int amountCents;
   final List<PieBreakdown> breakdown;
 
+  /// The month's expenses without a category (every quick-capture expense
+  /// among them), so the slices add up to the month's spending. Its id is
+  /// 0, never a category's.
+  final bool uncategorized;
+
   const PieSlice({
     required this.id,
     required this.name,
     required this.color,
     required this.amountCents,
     required this.breakdown,
+    this.uncategorized = false,
   });
 
-  factory PieSlice.fromJson(Map<String, dynamic> json) => PieSlice(
-        id: json['id'] as int,
-        name: (json['name'] as String?) ?? '',
-        color: (json['color'] as String?) ?? '#C9A45C',
-        amountCents: (json['amount_cents'] as num?)?.toInt() ?? 0,
-        breakdown: ((json['breakdown'] as List?) ?? const [])
-            .map((e) => PieBreakdown.fromJson(e as Map<String, dynamic>))
-            .toList(),
-      );
+  factory PieSlice.fromJson(Map<String, dynamic> json) {
+    final id = readIntOrNull(json['id']) ?? 0;
+    return PieSlice(
+      id: id,
+      name: (json['name'] as String?) ?? '',
+      color: (json['color'] as String?) ?? '#C9A45C',
+      amountCents: readInt(json['amount_cents']),
+      breakdown: ((json['breakdown'] as List?) ?? const [])
+          .map((e) => PieBreakdown.fromJson(e as Map<String, dynamic>))
+          .toList(),
+      uncategorized: readBoolOrNull(json['uncategorized']) ?? id == 0,
+    );
+  }
 }
 
+/// A budget with its month-to-date spend (the budget object of
+/// GET /budgets, its create/update answers and the dashboard's `budgets`).
+/// Amounts are in the user's currency.
 class BudgetStatus {
+  /// The budget's id; 0 from a server that predates it.
+  final int id;
   final int categoryId;
   final String categoryName;
+
+  /// The colour to draw: the budget's own, else its category's.
   final String color;
+
+  /// The budget's own colour, null when it follows its category.
+  final String? customColor;
   final int limitCents;
   final int spentCents;
   final int remainingCents;
+
+  /// How far spending is over the limit; 0 when it is not.
+  final int overByCents;
   final double percentUsed;
+
+  /// [percentUsed] capped at 100: the width of the bar.
+  final double barPercent;
   final double pacePercent;
   final int projectedCents;
   final String state;
 
   const BudgetStatus({
+    this.id = 0,
     required this.categoryId,
     required this.categoryName,
     required this.color,
+    this.customColor,
     required this.limitCents,
     required this.spentCents,
     required this.remainingCents,
+    this.overByCents = 0,
     required this.percentUsed,
+    double? barPercent,
     required this.pacePercent,
     required this.projectedCents,
     required this.state,
-  });
+  }) : barPercent = barPercent ?? (percentUsed > 100 ? 100 : percentUsed);
 
   factory BudgetStatus.fromJson(Map<String, dynamic> json) {
     final category = (json['category'] as Map<String, dynamic>?) ?? const {};
+    final limit = readInt(json['limit_cents']);
+    final spent = readInt(json['spent_cents']);
+    final percent = readDouble(json['percent_used']);
     return BudgetStatus(
-      categoryId: (category['id'] as num?)?.toInt() ?? 0,
+      id: readIntOrNull(json['id']) ?? 0,
+      categoryId: readIntOrNull(json['finance_category_id']) ??
+          readInt(category['id']),
       categoryName: (category['name'] as String?) ?? '',
       color: (json['color'] as String?) ?? '#C9A45C',
-      limitCents: (json['limit_cents'] as num?)?.toInt() ?? 0,
-      spentCents: (json['spent_cents'] as num?)?.toInt() ?? 0,
-      remainingCents: (json['remaining_cents'] as num?)?.toInt() ?? 0,
-      percentUsed: (json['percent_used'] as num?)?.toDouble() ?? 0,
-      pacePercent: (json['pace_percent'] as num?)?.toDouble() ?? 0,
-      projectedCents: (json['projected_cents'] as num?)?.toInt() ?? 0,
+      customColor: switch (json['custom_color']) {
+        final String c when c.isNotEmpty => c,
+        _ => null,
+      },
+      limitCents: limit,
+      spentCents: spent,
+      remainingCents: readInt(json['remaining_cents']),
+      overByCents: readIntOrNull(json['over_by_cents']) ??
+          (spent > limit ? spent - limit : 0),
+      percentUsed: percent,
+      barPercent: readDoubleOrNull(json['bar_percent']),
+      pacePercent: readDouble(json['pace_percent']),
+      projectedCents: readInt(json['projected_cents']),
       state: (json['state'] as String?) ?? 'under',
     );
   }
@@ -158,9 +201,9 @@ class SubscriptionItem {
 
   factory SubscriptionItem.fromJson(Map<String, dynamic> json) =>
       SubscriptionItem(
-        id: json['id'] as int,
+        id: readId(json['id']),
         name: (json['name'] as String?) ?? '',
-        amountCents: (json['amount_cents'] as num?)?.toInt() ?? 0,
+        amountCents: readInt(json['amount_cents']),
         frequency: (json['frequency'] as String?) ?? 'monthly',
         nextChargeOn: parseDateTime(json['next_charge_on']),
         account: AccountRef.fromJson(json['account'] as Map<String, dynamic>),
@@ -193,7 +236,7 @@ class FinanceDashboard {
   factory FinanceDashboard.fromJson(Map<String, dynamic> json) =>
       FinanceDashboard(
         currency: (json['currency'] as String?) ?? 'TRY',
-        subunitToUnit: (json['subunit_to_unit'] as num?)?.toInt() ?? 100,
+        subunitToUnit: readInt(json['subunit_to_unit'], fallback: 100),
         month: MonthTotals.fromJson(
             (json['month'] as Map<String, dynamic>?) ?? const {}),
         year: MonthTotals.fromJson(

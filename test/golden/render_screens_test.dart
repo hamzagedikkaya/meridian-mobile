@@ -530,7 +530,12 @@ void main() {
         await tester.pumpWidget(_host(
           const TodayScreen(),
           [
-            homeProvider.overrideWith((ref) => Fetched(_home(), _at)),
+            homeProvider.overrideWithBuild((ref, _) => Fetched(_home(), _at)),
+            // What reading the Habits list tells Today (`/home` does not
+            // say how often a habit repeats): all five are daily ones.
+            habitCadenceProvider.overrideWithBuild(
+              (ref, _) => const {1: true, 2: true, 3: true, 4: true, 5: true},
+            ),
             currentUserProvider.overrideWithValue(_user),
           ],
         ));
@@ -559,6 +564,8 @@ void main() {
             // ignore: deprecated_member_use
             transactionsProvider.overrideWith(() => _StubTxNotifier(_txFeed())),
             accountsProvider.overrideWith((ref) => Fetched(_accounts(), _at)),
+            categoriesProvider
+                .overrideWith((ref) => Fetched(const <TxCategory>[], _at)),
           ],
         ));
         await tester.pumpAndSettle();
@@ -569,7 +576,11 @@ void main() {
         _phone(tester);
         await tester.pumpWidget(_host(
           const HabitsScreen(),
-          [habitsProvider.overrideWith((ref) async => Fetched(_habits(), _at))],
+          [
+            habitsProvider.overrideWithBuild(
+              (ref, _) async => Fetched(_habits(), _at),
+            ),
+          ],
         ));
         await tester.pumpAndSettle();
         await _shoot(tester, 'habits');
@@ -592,7 +603,7 @@ void main() {
           [journalProvider.overrideWith((ref, range) => Fetched(_journal(), _at))],
         ));
         await tester.pumpAndSettle();
-        // Let the 650ms stagger-retire timer fire so no timer outlives the tree.
+        // Past the longest staggered entrance (6 × 50 ms delay + 300 ms).
         await tester.pump(const Duration(milliseconds: 700));
         await _shoot(tester, 'journal');
       });

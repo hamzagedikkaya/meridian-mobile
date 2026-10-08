@@ -1,3 +1,6 @@
+import 'date_utils.dart';
+import 'json_read.dart';
+
 class User {
   final int id;
   final String displayName;
@@ -8,6 +11,17 @@ class User {
   final String locale;
   final String themePreference;
 
+  /// The account's time zone as Rails names it (`"Istanbul"`): the zone the
+  /// server computes "today", day boundaries and every datetime in.
+  final String? timezone;
+
+  /// The same zone as an IANA id (`"Europe/Istanbul"`).
+  final String? timezoneIana;
+
+  /// The zone's UTC offset in effect when the server answered (`+03:00`).
+  /// Null from a server that predates G1.
+  final Duration? utcOffset;
+
   const User({
     required this.id,
     required this.displayName,
@@ -17,16 +31,25 @@ class User {
     required this.subunitToUnit,
     required this.locale,
     required this.themePreference,
+    this.timezone,
+    this.timezoneIana,
+    this.utcOffset,
   });
 
+  /// The zone's name to show: the IANA id, else the Rails name, else UTC.
+  String get zoneName => timezoneIana ?? timezone ?? 'UTC';
+
   factory User.fromJson(Map<String, dynamic> json) => User(
-        id: json['id'] as int,
+        id: readId(json['id']),
         displayName: (json['display_name'] ?? json['name']) as String,
         initials: (json['initials'] as String?) ?? '',
         email: json['email'] as String,
         currency: (json['currency'] as String?) ?? 'TRY',
-        subunitToUnit: (json['subunit_to_unit'] as int?) ?? 100,
+        subunitToUnit: readInt(json['subunit_to_unit'], fallback: 100),
         locale: (json['locale'] as String?) ?? 'tr',
         themePreference: (json['theme_preference'] as String?) ?? 'system',
+        timezone: json['timezone'] as String?,
+        timezoneIana: json['timezone_iana'] as String?,
+        utcOffset: parseUtcOffset(json['utc_offset']),
       );
 }

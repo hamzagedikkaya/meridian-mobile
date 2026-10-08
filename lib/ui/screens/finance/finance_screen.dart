@@ -1,30 +1,45 @@
 import 'package:flutter/material.dart';
-import 'package:flutter_animate/flutter_animate.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../../core/api.dart';
 import '../../../core/formats.dart';
 import '../../../core/haptics.dart';
+import '../../../data/current_day.dart';
+import '../../../data/data_scope.dart';
+import '../../../data/deferred_deletes.dart';
 import '../../../data/providers.dart';
+import '../../../data/sync.dart';
 import '../../../l10n/app_l10n.dart';
 import '../../../models/account.dart';
 import '../../../models/finance_dashboard.dart';
+import '../../../models/transaction.dart';
 import '../../../theme/app_colors.dart';
 import '../../../theme/app_typography.dart';
 import '../../widgets/app_snackbar.dart';
 import '../../widgets/charts.dart';
+import '../../widgets/color_swatches.dart';
 import '../../widgets/empty_state.dart';
+import '../../widgets/entrance.dart';
 import '../../widgets/money_text.dart';
 import '../../widgets/nokturn_card.dart';
 import '../../widgets/nokturn_row.dart';
 import '../../widgets/offline_banner.dart';
 import '../../widgets/paced_progress_bar.dart';
+import '../../widgets/primary_button.dart';
 import '../../widgets/section_header.dart';
 import '../../widgets/segmented_pill.dart';
 import '../../widgets/skeletons.dart';
+import '../../widgets/sync_hint.dart';
+import '../shell/app_tabs.dart';
 import 'account_card.dart';
+import 'account_form.dart';
+import 'budget_sheet.dart';
 import 'finance_utils.dart';
+import 'subscription_form.dart';
+import 'subscriptions_screen.dart';
 import 'transaction_form_screen.dart';
+import 'tx_detail_sheet.dart';
 import 'tx_row.dart';
 
 class FinanceScreen extends ConsumerStatefulWidget {
@@ -34,10 +49,19 @@ class FinanceScreen extends ConsumerStatefulWidget {
   ConsumerState<FinanceScreen> createState() => _FinanceScreenState();
 }
 
-class _FinanceScreenState extends ConsumerState<FinanceScreen> {
+class _FinanceScreenState extends ConsumerState<FinanceScreen>
+    with TabRootScroll<FinanceScreen> {
+  @override
+  AppTab get tab => AppTab.finance;
+
   String _scope = 'month';
   final _accountsCtrl = PageController(viewportFraction: 0.88);
   int _accountPage = 0;
+
+  /// The first-run button is opening the cash account.
+  bool _openingCash = false;
+
+  /// Sections play their entrance only with the first data (see [Entrance]).
   bool _entered = false;
 
   @override
@@ -48,14 +72,11 @@ class _FinanceScreenState extends ConsumerState<FinanceScreen> {
 
   Future<void> _refresh() async {
     Haptics.celebrate();
-    ref.invalidate(financeDashboardProvider);
-    ref.invalidate(accountsProvider);
-    try {
-      await Future.wait([
-        ref.read(financeDashboardProvider.future),
-        ref.read(accountsProvider.future),
-      ]);
-    } catch (_) {/* keep last-good */}
+    refreshTab(ref, AppTab.finance);
+    await settleRefresh([
+      ref.read(financeDashboardProvider.future),
+      ref.read(accountsProvider.future),
+    ]);
   }
 
   @override
@@ -65,36 +86,49 @@ class _FinanceScreenState extends ConsumerState<FinanceScreen> {
     final dashAsync = ref.watch(financeDashboardProvider);
     final accountsAsync = ref.watch(accountsProvider);
     final dash = dashAsync.value?.data;
-    final accounts = accountsAsync.value?.data;
+    final hidden = ref.watch(deferredDeletesProvider);
+    final allAccounts = accountsAsync.value?.data == null
+        ? null
+        : withoutDeleted(
+            accountsAsync.value!.data,
+            hidden,
+            DataScope.accounts,
+            (a) => a.id,
+          );
+    final active = allAccounts?.where((a) => !a.archived).toList();
 
-    final firstLoading = dash == null && dashAsync.isLoading;
-    final nothingCached = dash == null &&
-        accounts == null &&
-        (dashAsync.hasError || accountsAsync.hasError);
-    final offline = (dashAsync.hasError && dash != null) ||
-        (accountsAsync.hasError && accounts != null);
+    // The dashboard is the screen: once it has failed with nothing cached
+    // (retries done), say so — never an endless skeleton, whatever the
+    // accounts did.
+    final dashFailed = dashAsync.hasFailed;
+    final accountsFailed = accountsAsync.hasFailed;
+    final offline = dashAsync.refreshFailed || accountsAsync.refreshFailed;
+    final refetching = dashAsync.isRefetching || accountsAsync.isRefetching;
 
-    return Scaffold(
+    return primaryScroll(Scaffold(
       appBar: AppBar(
         title: Text(l.titleFinance),
         actions: [
-          Padding(
-            padding: const EdgeInsets.only(right: 16),
-            child: SegmentedPill<String>(
-              options: [
-                ('month', l.financeScopeMonth),
-                ('year', l.financeScopeYear),
-              ],
-              selected: _scope,
-              onChanged: (v) => setState(() => _scope = v),
-            ),
+          SegmentedPill<String>(
+            options: [
+              ('month', l.financeScopeMonth),
+              ('year', l.financeScopeYear),
+            ],
+            selected: _scope,
+            onChanged: (v) => setState(() => _scope = v),
           ),
+          _menu(context),
         ],
       ),
-      floatingActionButton: FloatingActionButton(
-        onPressed: () => _openAdd(context),
-        child: const Icon(Icons.add, size: 28),
-      ),
+      // With no account yet, the first-run card is the way in.
+      floatingActionButton: active == null || active.isEmpty
+          ? null
+          : FloatingActionButton.extended(
+              heroTag: null,
+              onPressed: () => _openAdd(context),
+              icon: const Icon(Icons.add),
+              label: Text(l.financeAddTransactionFab),
+            ),
       body: Column(
         children: [
           if (offline)
@@ -103,33 +137,96 @@ class _FinanceScreenState extends ConsumerState<FinanceScreen> {
               onRetry: _refresh,
             ),
           Expanded(
-            child: RefreshIndicator.adaptive(
-              color: c.gold,
-              onRefresh: _refresh,
-              child: nothingCached
-                  ? _errorState()
-                  : firstLoading
-                      ? const _FinanceSkeleton()
-                      : (dash == null)
-                          ? const _FinanceSkeleton()
-                          : _content(context, dash, accounts ?? const []),
+            child: SyncHint.over(
+              active: refetching,
+              child: RefreshIndicator.adaptive(
+                color: c.gold,
+                onRefresh: _refresh,
+                child: dashFailed
+                    ? _errorState()
+                    : dash == null
+                        ? const _FinanceSkeleton()
+                        : _content(
+                            context,
+                            dash,
+                            allAccounts,
+                            hidden,
+                            accountsFailed: accountsFailed,
+                          ),
+              ),
             ),
           ),
         ],
       ),
+    ));
+  }
+
+  Widget _menu(BuildContext context) {
+    final l = context.l10n;
+    return PopupMenuButton<String>(
+      tooltip: l.actionMoreOptions,
+      onSelected: (path) => context.push(path),
+      itemBuilder: (_) => [
+        PopupMenuItem(
+          value: '/finance/categories',
+          child: Text(l.financeMenuCategories),
+        ),
+        PopupMenuItem(
+          value: '/finance/subscriptions',
+          child: Text(l.financeMenuSubscriptions),
+        ),
+        PopupMenuItem(
+          value: '/finance/accounts/archived',
+          child: Text(l.financeMenuArchivedAccounts),
+        ),
+      ],
     );
   }
 
   Future<void> _openAdd(BuildContext context) async {
     final saved = await openTransactionForm(context);
-    if (saved == true && context.mounted) {
+    if (saved != null && context.mounted) {
       showAppSnack(context, context.l10n.txSaved);
+    }
+  }
+
+  Future<void> _addAccount() async {
+    await openAccountForm(context);
+  }
+
+  /// The first-run shortcut: a cash account in the user's currency, in one
+  /// tap. The card then moves on to the first transaction.
+  Future<void> _openCashAccount() async {
+    final l = context.l10n;
+    setState(() => _openingCash = true);
+    try {
+      final account = await ref.read(repositoryProvider).createAccount(
+            AccountInput(
+              name: l.financeCashAccountName,
+              accountType: 'cash',
+              color: recordSwatches.first,
+            ),
+          );
+      if (!mounted) return;
+      Haptics.success();
+      showAppSnack(context, l.accountCreated(account.name));
+    } catch (e) {
+      if (mounted) {
+        showAppSnack(
+          context,
+          failureMessage(e, l, fallback: l.accountSaveFailed),
+          isError: true,
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _openingCash = false);
     }
   }
 
   Widget _errorState() {
     final l = context.l10n;
     return ListView(
+      physics: const AlwaysScrollableScrollPhysics(),
       children: [
         const SizedBox(height: 120),
         EmptyState(
@@ -144,17 +241,41 @@ class _FinanceScreenState extends ConsumerState<FinanceScreen> {
   }
 
   Widget _content(
-    BuildContext context, FinanceDashboard dash, List<Account> accounts) {
-    final active = accounts.where((a) => !a.archived).toList();
-    final sections = <Widget>[
-      _hero(context, dash),
-      _accountsCarousel(context, active),
-      _sixMonthCard(context, dash),
-      _categoriesCard(context, dash),
-      if (dash.budgets.isNotEmpty) _budgetsCard(context, dash),
-      if (dash.upcomingSubscriptions.isNotEmpty) _subscriptionsCard(context, dash),
-      _recentCard(context, dash),
-    ];
+    BuildContext context,
+    FinanceDashboard dash,
+    List<Account>? accounts,
+    Set<DeletedRecord> hidden, {
+    required bool accountsFailed,
+  }) {
+    final active = accounts?.where((a) => !a.archived).toList();
+    final recent = withoutDeleted(
+      dash.recentTransactions,
+      hidden,
+      DataScope.transactions,
+      (tx) => tx.id,
+    );
+    // Keyed by section, so a card that appears or goes (budgets,
+    // subscriptions) after a refresh does not shift the others' state.
+    final List<(String, Widget)> sections;
+    if (accounts != null && accounts.isEmpty) {
+      // First run: no account at all. One calm card, one step.
+      sections = [('first-run', _firstRunCard(context))];
+    } else {
+      sections = [
+        ('hero', _hero(context, dash)),
+        (
+          'accounts',
+          _accountsSection(context, active, accounts, failed: accountsFailed),
+        ),
+        if (active != null && active.isNotEmpty && recent.isEmpty)
+          ('first-transaction', _firstTransactionCard(context)),
+        ('six-month', _sixMonthCard(context, dash)),
+        ('categories', _categoriesCard(context, dash)),
+        ('budgets', _budgetsCard(context, dash, hidden)),
+        ('subscriptions', _subscriptionsCard(context, dash, hidden)),
+        ('recent', _recentCard(context, recent)),
+      ];
+    }
 
     final stagger = !_entered;
     if (stagger) {
@@ -162,18 +283,82 @@ class _FinanceScreenState extends ConsumerState<FinanceScreen> {
     }
 
     return ListView.separated(
+      primary: true,
       padding: const EdgeInsets.fromLTRB(20, 8, 20, 96),
       physics: const AlwaysScrollableScrollPhysics(),
       itemCount: sections.length,
-      separatorBuilder: (_, _) => const SizedBox(height: 32),
-      itemBuilder: (context, i) {
-        final child = sections[i];
-        if (!stagger || i >= 6) return child;
-        return child
-            .animate()
-            .fadeIn(duration: 300.ms, delay: (50 * i).ms)
-            .slideY(begin: 0.06, duration: 300.ms, delay: (50 * i).ms);
+      // Lets a section keep its element when one above appears or goes.
+      findItemIndexCallback: (key) {
+        final index = sections.indexWhere((s) => ValueKey(s.$1) == key);
+        return index < 0 ? null : index;
       },
+      separatorBuilder: (_, _) => const SizedBox(height: 32),
+      itemBuilder: (context, i) => Entrance.staggered(
+        key: ValueKey(sections[i].$1),
+        play: stagger,
+        index: i,
+        child: sections[i].$2,
+      ),
+    );
+  }
+
+  // --- first run -------------------------------------------------------------
+
+  Widget _firstRunCard(BuildContext context) {
+    final c = context.nok;
+    final text = Theme.of(context).textTheme;
+    final l = context.l10n;
+    return NokturnCard(
+      padding: const EdgeInsets.all(24),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Icon(Icons.account_balance_wallet_outlined, size: 40, color: c.gold),
+          const SizedBox(height: 16),
+          Text(l.financeFirstRunTitle, style: text.headlineMedium),
+          const SizedBox(height: 8),
+          Text(
+            l.financeFirstRunBody,
+            style: text.bodyMedium!.copyWith(color: c.inkMid),
+          ),
+          const SizedBox(height: 24),
+          PrimaryButton(
+            label: l.financeFirstRunCash,
+            loading: _openingCash,
+            onPressed: _openCashAccount,
+          ),
+          const SizedBox(height: 8),
+          TextButton(
+            onPressed: _openingCash ? null : _addAccount,
+            style: TextButton.styleFrom(minimumSize: const Size.fromHeight(48)),
+            child: Text(l.financeFirstRunOther),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _firstTransactionCard(BuildContext context) {
+    final c = context.nok;
+    final text = Theme.of(context).textTheme;
+    final l = context.l10n;
+    return NokturnCard(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Text(l.financeFirstTxTitle, style: text.titleMedium),
+          const SizedBox(height: 6),
+          Text(
+            l.financeFirstTxBody,
+            style: text.bodyMedium!.copyWith(color: c.inkMid),
+          ),
+          const SizedBox(height: 16),
+          PrimaryButton(
+            label: l.financeFirstTxAction,
+            onPressed: () => _openAdd(context),
+          ),
+        ],
+      ),
     );
   }
 
@@ -256,19 +441,79 @@ class _FinanceScreenState extends ConsumerState<FinanceScreen> {
 
   // --- accounts --------------------------------------------------------------
 
-  Widget _accountsCarousel(BuildContext context, List<Account> accounts) {
+  Widget _accountsSection(
+    BuildContext context,
+    List<Account>? active,
+    List<Account>? all, {
+    required bool failed,
+  }) {
+    final l = context.l10n;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        SectionHeader(
+          l.financeAccounts,
+          trailing: IconButton(
+            onPressed: _addAccount,
+            tooltip: l.accountNew,
+            icon: const Icon(Icons.add),
+          ),
+        ),
+        _accountsCarousel(context, active, all, failed: failed),
+      ],
+    );
+  }
+
+  Widget _accountsCarousel(
+    BuildContext context,
+    List<Account>? accounts,
+    List<Account>? all, {
+    required bool failed,
+  }) {
     final c = context.nok;
     final l = context.l10n;
+    // Not loaded (yet): never claim there are no accounts — a bone the
+    // carousel's size while loading, the reason when it failed.
+    if (accounts == null) {
+      if (failed) {
+        return NokturnCard(
+          child: EmptyState(
+            icon: Icons.cloud_off,
+            title: l.errServerUnreachable,
+            actionLabel: l.actionRetry,
+            onAction: () => refreshTab(ref, AppTab.finance),
+          ),
+        );
+      }
+      return NokSkeleton(
+        enabled: true,
+        child: Container(
+          height: 158,
+          decoration: BoxDecoration(
+            color: c.skeletonBone,
+            borderRadius: BorderRadius.circular(16),
+          ),
+        ),
+      );
+    }
     if (accounts.isEmpty) {
+      // Every account is archived.
       return NokturnCard(
         child: EmptyState(
           icon: Icons.account_balance_wallet_outlined,
-          title: l.financeAddFirstAccount,
-          subtitle: l.financeAddAccountSoon,
+          title: l.financeNoActiveAccounts,
+          subtitle: l.financeNoActiveAccountsBody,
+          actionLabel: l.accountNew,
+          onAction: _addAccount,
+          secondaryLabel: l.financeMenuArchivedAccounts,
+          onSecondary: () => context.push('/finance/accounts/archived'),
         ),
       );
     }
     final pageCount = accounts.length + 1;
+    // A refresh can shorten the list (an account archived on the web) under
+    // the page the carousel was on; the PageView settles on its last page.
+    final activePage = _accountPage.clamp(0, pageCount - 1);
     return Column(
       children: [
         SizedBox(
@@ -287,10 +532,7 @@ class _FinanceScreenState extends ConsumerState<FinanceScreen> {
                       onTap: () =>
                           context.push('/finance/account/${accounts[i].id}'),
                     )
-                  : AccountAddCard(
-                      onTap: () =>
-                          showAppSnack(context, l.financeAddAccountSoon),
-                    );
+                  : AccountAddCard(onTap: _addAccount);
               // Off-center cards shrink slightly so the active page reads as
               // the focal card in the snap carousel.
               return AnimatedBuilder(
@@ -300,7 +542,7 @@ class _FinanceScreenState extends ConsumerState<FinanceScreen> {
                   child: child,
                 ),
                 builder: (context, inner) {
-                  var page = _accountPage.toDouble();
+                  var page = activePage.toDouble();
                   // Guard: reading .page asserts unless exactly one viewport is
                   // attached (a rebuild can transiently attach two).
                   if (_accountsCtrl.hasClients &&
@@ -323,12 +565,12 @@ class _FinanceScreenState extends ConsumerState<FinanceScreen> {
               AnimatedContainer(
                 duration: const Duration(milliseconds: 250),
                 curve: Curves.easeOutCubic,
-                width: i == _accountPage ? 18 : 6,
+                width: i == activePage ? 18 : 6,
                 height: 6,
                 margin: const EdgeInsets.symmetric(horizontal: 3),
                 decoration: BoxDecoration(
                   borderRadius: BorderRadius.circular(3),
-                  color: i == _accountPage ? c.gold : c.inkFaint,
+                  color: i == activePage ? c.gold : c.inkFaint,
                 ),
               ),
           ],
@@ -378,6 +620,27 @@ class _FinanceScreenState extends ConsumerState<FinanceScreen> {
 
   // --- categories donut ------------------------------------------------------
 
+  /// İşlemler, filtered to this month's expenses of [categoryId] — or, with
+  /// [uncategorized], to the ones without a category.
+  void _drillInto({int? categoryId, bool uncategorized = false}) {
+    final month = monthOf(ref.read(currentDayProvider));
+    context.push(transactionsLocation(TxFilters(
+      kind: 'expense',
+      categoryId: categoryId,
+      uncategorized: uncategorized,
+      from: month.from,
+      to: month.to,
+    )));
+  }
+
+  void _openSlice(FinanceDashboard dash, PieSlice slice) {
+    if (slice.uncategorized) {
+      _drillInto(uncategorized: true);
+    } else {
+      _showBreakdown(context, dash, slice);
+    }
+  }
+
   Widget _categoriesCard(BuildContext context, FinanceDashboard dash) {
     final c = context.nok;
     final text = Theme.of(context).textTheme;
@@ -399,9 +662,57 @@ class _FinanceScreenState extends ConsumerState<FinanceScreen> {
       );
     }
 
+    // Every expense of the month is in a slice — the uncategorized ones
+    // too — so the slices add up to the month's spending.
     final total = pie.fold<int>(0, (a, s) => a + s.amountCents);
-    final sorted = [...pie]..sort((a, b) => b.amountCents.compareTo(a.amountCents));
-    final legend = sorted.take(5).toList();
+    final ranked = [
+      for (final s in pie)
+        if (!s.uncategorized) s,
+    ]..sort((a, b) => b.amountCents.compareTo(a.amountCents));
+    final top = ranked.take(5).toList();
+    final otherCents = ranked.skip(5).fold<int>(0, (a, s) => a + s.amountCents);
+    final uncategorized = pie.where((s) => s.uncategorized).firstOrNull;
+
+    Widget legendRow({
+      required Color color,
+      required String name,
+      required int cents,
+      VoidCallback? onTap,
+      Widget? extra,
+    }) {
+      return InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(8),
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(minHeight: 40),
+          child: Row(
+            children: [
+              ChartLegendDot(color),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(name, style: text.bodyMedium),
+                    ?extra,
+                  ],
+                ),
+              ),
+              const SizedBox(width: 8),
+              Text(
+                formatMoney(cents, dash.currency, dash.subunitToUnit),
+                style: text.bodyMedium!.copyWith(fontFeatures: tabularFigures),
+              ),
+              const SizedBox(width: 8),
+              Text(
+                l.percent(total == 0 ? 0 : cents / total * 100),
+                style: text.labelSmall!.copyWith(color: c.inkMid),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
 
     return NokturnCard(
       child: Column(
@@ -418,7 +729,7 @@ class _FinanceScreenState extends ConsumerState<FinanceScreen> {
                     color: hexColor(s.color),
                   ),
               ],
-              onSliceTap: (i) => _showBreakdown(context, dash, pie[i]),
+              onSliceTap: (i) => _openSlice(dash, pie[i]),
               centerTotalCents: total,
               centerCurrency: dash.currency,
               centerSubunitToUnit: dash.subunitToUnit,
@@ -426,25 +737,28 @@ class _FinanceScreenState extends ConsumerState<FinanceScreen> {
             ),
           ),
           const SizedBox(height: 16),
-          for (final s in legend)
-            Padding(
-              padding: const EdgeInsets.symmetric(vertical: 6),
-              child: Row(
-                children: [
-                  ChartLegendDot(hexColor(s.color)),
-                  const SizedBox(width: 10),
-                  Expanded(child: Text(s.name, style: text.bodyMedium)),
-                  Text(
-                    formatMoney(s.amountCents, dash.currency, dash.subunitToUnit),
-                    style: text.bodyMedium!.copyWith(fontFeatures: tabularFigures),
-                  ),
-                  const SizedBox(width: 8),
-                  Text(
-                    l.percent(
-                        total == 0 ? 0 : s.amountCents / total * 100),
-                    style: text.labelSmall!.copyWith(color: c.inkMid),
-                  ),
-                ],
+          for (final s in top)
+            legendRow(
+              color: hexColor(s.color),
+              name: s.name,
+              cents: s.amountCents,
+              onTap: () => _openSlice(dash, s),
+            ),
+          if (otherCents > 0)
+            legendRow(
+              color: c.inkFaint,
+              name: l.financeOtherCategories,
+              cents: otherCents,
+            ),
+          if (uncategorized != null)
+            legendRow(
+              color: hexColor(uncategorized.color, fallback: c.inkLow),
+              name: l.financeUncategorized,
+              cents: uncategorized.amountCents,
+              onTap: () => _drillInto(uncategorized: true),
+              extra: Text(
+                l.financeCategorize,
+                style: text.labelMedium!.copyWith(color: c.gold),
               ),
             ),
         ],
@@ -453,7 +767,7 @@ class _FinanceScreenState extends ConsumerState<FinanceScreen> {
   }
 
   void _showBreakdown(
-    BuildContext context, FinanceDashboard dash, PieSlice slice) {
+      BuildContext context, FinanceDashboard dash, PieSlice slice) {
     final text = Theme.of(context).textTheme;
     final rows = slice.breakdown.isEmpty
         ? [PieBreakdown(id: slice.id, name: slice.name, amountCents: slice.amountCents, isRoot: true)]
@@ -462,13 +776,13 @@ class _FinanceScreenState extends ConsumerState<FinanceScreen> {
       context: context,
       isScrollControlled: true,
       barrierColor: const Color(0xFF171310).withValues(alpha: 0.6),
-      builder: (context) => SafeArea(
+      builder: (sheet) => SafeArea(
         child: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Padding(
-              padding: const EdgeInsets.fromLTRB(20, 8, 20, 12),
+              padding: const EdgeInsets.fromLTRB(20, 0, 20, 12),
               child: Text(slice.name, style: text.titleLarge),
             ),
             Flexible(
@@ -488,6 +802,11 @@ class _FinanceScreenState extends ConsumerState<FinanceScreen> {
                         subunitToUnit: dash.subunitToUnit,
                         negative: true,
                       ),
+                      // A row opens that category's spending this month.
+                      onTap: () {
+                        Navigator.of(sheet).pop();
+                        _drillInto(categoryId: b.id);
+                      },
                     ),
                 ],
               ),
@@ -501,25 +820,62 @@ class _FinanceScreenState extends ConsumerState<FinanceScreen> {
 
   // --- budgets ---------------------------------------------------------------
 
-  Widget _budgetsCard(BuildContext context, FinanceDashboard dash) {
+  Widget _budgetsCard(
+    BuildContext context,
+    FinanceDashboard dash,
+    Set<DeletedRecord> hidden,
+  ) {
     final c = context.nok;
     final text = Theme.of(context).textTheme;
     final l = context.l10n;
+    final budgets = withoutDeleted(
+      dash.budgets,
+      hidden,
+      DataScope.budgets,
+      (b) => b.id,
+    );
     Color stateColor(String s) => switch (s) {
           'over' => c.error,
           'warning' => c.warning,
           _ => c.income,
         };
 
+    final header = Row(
+      children: [
+        Expanded(child: Text(l.financeBudgets, style: text.titleMedium)),
+        TextButton.icon(
+          onPressed: () => showBudgetSheet(context),
+          icon: const Icon(Icons.add, size: 18),
+          label: Text(l.actionAdd),
+        ),
+      ],
+    );
+
+    if (budgets.isEmpty) {
+      return NokturnCard(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            header,
+            const SizedBox(height: 4),
+            Text(
+              l.financeBudgetsEmpty,
+              style: text.bodyMedium!.copyWith(color: c.inkMid),
+            ),
+          ],
+        ),
+      );
+    }
+
     return NokturnCard(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(l.financeBudgets, style: text.titleMedium),
-          const SizedBox(height: 16),
-          for (var i = 0; i < dash.budgets.length; i++) ...[
-            if (i > 0) const SizedBox(height: 16),
-            _budgetRow(context, dash, dash.budgets[i], stateColor),
+          header,
+          const SizedBox(height: 8),
+          for (var i = 0; i < budgets.length; i++) ...[
+            if (i > 0) const SizedBox(height: 8),
+            _budgetRow(context, dash, budgets[i], stateColor),
           ],
         ],
       ),
@@ -532,120 +888,168 @@ class _FinanceScreenState extends ConsumerState<FinanceScreen> {
     final text = Theme.of(context).textTheme;
     final l = context.l10n;
     final over = b.state == 'over';
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Row(
+    String money(int cents) =>
+        formatMoney(cents, dash.currency, dash.subunitToUnit);
+    return InkWell(
+      // A tap changes the limit or removes the budget.
+      onTap: b.id == 0 ? null : () => showBudgetSheet(context, existing: b),
+      borderRadius: BorderRadius.circular(12),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: 8),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Expanded(child: Text(b.categoryName, style: text.titleSmall)),
-            if (over)
-              Container(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-                decoration: BoxDecoration(
-                  color: c.errorContainer,
-                  borderRadius: BorderRadius.circular(999),
+            Text(b.categoryName, style: text.titleSmall),
+            const SizedBox(height: 8),
+            PacedProgressBar(
+              value: (b.barPercent / 100).clamp(0.0, 1.0),
+              color: stateColor(b.state),
+              paceTick: (b.pacePercent / 100).clamp(0.0, 1.0),
+            ),
+            const SizedBox(height: 6),
+            // Spent against the limit, then what is left — or by how much it
+            // is over, in the error colour on the amount only.
+            Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    l.financeBudgetSpentOf(
+                        money(b.spentCents), money(b.limitCents)),
+                    style: text.bodySmall!.copyWith(
+                      color: c.inkMid,
+                      fontFeatures: tabularFigures,
+                    ),
+                  ),
                 ),
-                child: Text(l.financeExceeded,
-                    style: text.labelSmall!.copyWith(color: c.error)),
+                const SizedBox(width: 8),
+                Flexible(
+                  child: Text(
+                    over
+                        ? l.financeOverBy(money(b.overByCents))
+                        : l.financeRemaining(money(b.remainingCents)),
+                    textAlign: TextAlign.end,
+                    style: text.bodySmall!.copyWith(
+                      color: over ? c.error : c.inkMid,
+                      fontFeatures: tabularFigures,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            if (!over && b.projectedCents > b.limitCents)
+              Padding(
+                padding: const EdgeInsets.only(top: 2),
+                child: FittedBox(
+                  fit: BoxFit.scaleDown,
+                  alignment: Alignment.centerLeft,
+                  child: Text(
+                    l.financeMonthEndEstimate(money(b.projectedCents)),
+                    style: text.bodySmall!.copyWith(
+                      color: c.warning,
+                      fontFeatures: tabularFigures,
+                    ),
+                  ),
+                ),
               ),
           ],
         ),
-        const SizedBox(height: 8),
-        PacedProgressBar(
-          value: (b.percentUsed / 100).clamp(0.0, 1.0),
-          color: stateColor(b.state),
-          paceTick: (b.pacePercent / 100).clamp(0.0, 1.0),
-        ),
-        const SizedBox(height: 6),
-        // One meta line, amount interpolated by the language (Turkish puts
-        // "kalan" first, English puts "left" last), scaled down so long or
-        // negative balances never overflow.
-        FittedBox(
-          fit: BoxFit.scaleDown,
-          alignment: Alignment.centerLeft,
-          child: Text(
-            l.financeRemaining(formatMoney(
-              b.remainingCents,
-              dash.currency,
-              dash.subunitToUnit,
-            )),
-            style: text.bodySmall!.copyWith(
-              color: over ? c.error : c.inkMid,
-              fontFeatures: tabularFigures,
-            ),
-          ),
-        ),
-        if (b.projectedCents > b.limitCents)
-          Padding(
-            padding: const EdgeInsets.only(top: 2),
-            child: FittedBox(
-              fit: BoxFit.scaleDown,
-              alignment: Alignment.centerLeft,
-              child: Text(
-                l.financeMonthEndEstimate(formatMoney(
-                  b.projectedCents,
-                  dash.currency,
-                  dash.subunitToUnit,
-                )),
-                style: text.bodySmall!.copyWith(
-                  color: c.warning,
-                  fontFeatures: tabularFigures,
-                ),
-              ),
-            ),
-          ),
-      ],
+      ),
     );
   }
 
   // --- subscriptions ---------------------------------------------------------
 
-  Widget _subscriptionsCard(BuildContext context, FinanceDashboard dash) {
+  Widget _subscriptionsCard(
+    BuildContext context,
+    FinanceDashboard dash,
+    Set<DeletedRecord> hidden,
+  ) {
     final c = context.nok;
+    final text = Theme.of(context).textTheme;
     final l = context.l10n;
-    final subs = dash.upcomingSubscriptions.take(5).toList();
+    final today = ref.watch(currentDayProvider);
+    final subs = withoutDeleted(
+      dash.upcomingSubscriptions.take(5),
+      hidden,
+      DataScope.subscriptions,
+      (s) => s.id,
+    );
+    String when(SubscriptionItem s) {
+      final next = s.nextChargeOn;
+      if (next == null) return l.subscriptionFrequency(s.frequency);
+      // A date that has passed stays until the payment is recorded.
+      if (dayDelta(next, now: today) < 0) {
+        return '${l.subscriptionOverdue} · ${formatDate(next)}';
+      }
+      return l.relativeDays(next);
+    }
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        SectionHeader(l.financeUpcomingSubscriptions),
-        NokturnCard(
-          padding: EdgeInsets.zero,
-          child: Column(
-            children: [
-              for (var i = 0; i < subs.length; i++) ...[
-                if (i > 0)
-                  Divider(height: 1, indent: 72, color: c.divider),
-                NokturnRow(
-                  leading: LeadingCircle(
-                    color: hexColor(subs[i].account.color, fallback: c.inkLow),
-                    icon: Icons.autorenew,
-                  ),
-                  title: subs[i].name,
-                  meta: subs[i].nextChargeOn == null
-                      ? l.subscriptionFrequency(subs[i].frequency)
-                      : l.relativeDays(subs[i].nextChargeOn!),
-                  trailing: MoneyText(
-                    subs[i].amountCents,
-                    currency: subs[i].account.currency,
-                    subunitToUnit: subs[i].account.subunitToUnit,
-                    negative: true,
-                  ),
+        SectionHeader(
+          l.financeUpcomingSubscriptions,
+          onSeeAll: () => context.push('/finance/subscriptions'),
+        ),
+        if (subs.isEmpty)
+          NokturnCard(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  l.financeNoUpcomingPayments,
+                  style: text.bodyMedium!.copyWith(color: c.inkMid),
+                ),
+                const SizedBox(height: 4),
+                TextButton.icon(
+                  onPressed: () => openSubscriptionForm(context),
+                  icon: const Icon(Icons.add, size: 18),
+                  label: Text(l.financeAddSubscription),
                 ),
               ],
-            ],
+            ),
+          )
+        else
+          NokturnCard(
+            padding: EdgeInsets.zero,
+            child: Column(
+              children: [
+                for (var i = 0; i < subs.length; i++) ...[
+                  if (i > 0)
+                    Divider(height: 1, indent: 72, color: c.divider),
+                  NokturnRow(
+                    leading: LeadingCircle(
+                      color: hexColor(subs[i].account.color, fallback: c.inkLow),
+                      icon: Icons.autorenew,
+                    ),
+                    title: subs[i].name,
+                    meta: when(subs[i]),
+                    trailing: MoneyText(
+                      subs[i].amountCents,
+                      currency: subs[i].account.currency,
+                      subunitToUnit: subs[i].account.subunitToUnit,
+                      negative: true,
+                    ),
+                    onTap: () => showSubscriptionSheet(
+                      context,
+                      id: subs[i].id,
+                      name: subs[i].name,
+                    ),
+                  ),
+                ],
+              ],
+            ),
           ),
-        ),
       ],
     );
   }
 
   // --- recent ----------------------------------------------------------------
 
-  Widget _recentCard(BuildContext context, FinanceDashboard dash) {
+  Widget _recentCard(BuildContext context, List<Transaction> rows) {
     final c = context.nok;
     final l = context.l10n;
-    final recent = dash.recentTransactions.take(8).toList();
+    final recent = rows.take(8).toList();
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -670,7 +1074,7 @@ class _FinanceScreenState extends ConsumerState<FinanceScreen> {
                   if (i > 0) Divider(height: 1, indent: 72, color: c.divider),
                   TxRow(
                     tx: recent[i],
-                    onTap: () => context.push('/finance/transactions'),
+                    onTap: () => showTransactionSheet(context, ref, recent[i]),
                   ),
                 ],
               ],
@@ -700,7 +1104,8 @@ class _FinanceSkeleton extends StatelessWidget {
       enabled: true,
       child: ListView(
         padding: const EdgeInsets.fromLTRB(20, 8, 20, 96),
-        physics: const NeverScrollableScrollPhysics(),
+        // Pull-to-refresh works here too.
+        physics: const AlwaysScrollableScrollPhysics(),
         children: [
           bone(120, r: 16),
           const SizedBox(height: 32),

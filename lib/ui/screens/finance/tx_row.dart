@@ -8,34 +8,61 @@ import '../../widgets/nokturn_row.dart';
 import 'finance_utils.dart';
 
 /// Transaction row in Noktürn list style (design §4.4 İşlemler).
-/// Category-color leading circle (transfer → swap_horiz on inkLow),
-/// title = description ?? category name, meta = "category · account",
-/// trailing = signed amount per the account's own subunit.
+///
+/// The title is the description, else the category ("Kategorisiz" for an
+/// income or expense without one), else for a transfer its route
+/// ("Cüzdan → Birikim"); the meta line adds what the title does not say,
+/// without repeating it. The amount is signed by kind: + income, − expense,
+/// and a transfer is neutral — except in one account's own history
+/// ([perspectiveAccountId]), where money out is − and money in is +.
 class TxRow extends StatelessWidget {
   final Transaction tx;
   final VoidCallback? onTap;
 
-  const TxRow({super.key, required this.tx, this.onTap});
+  /// The account whose history this row is in, if any.
+  final int? perspectiveAccountId;
+
+  const TxRow({
+    super.key,
+    required this.tx,
+    this.onTap,
+    this.perspectiveAccountId,
+  });
+
+  /// [tx]'s title and meta line, as the row shows them (the detail sheet
+  /// uses the same).
+  static ({String title, String meta}) describe(AppL10n l, Transaction tx) {
+    final isTransfer = tx.kind == 'transfer';
+    final description = tx.description?.trim() ?? '';
+    final described = description.isNotEmpty;
+    final route = tx.relatedAccount == null
+        ? null
+        : '${tx.account.name} → ${tx.relatedAccount!.name}';
+    if (isTransfer) {
+      return (
+        title: described ? description : (route ?? l.financeTransfer),
+        meta: [
+          l.financeTransfer,
+          if (described && route != null) route,
+        ].join(' · '),
+      );
+    }
+    final category = tx.category?.name ?? l.financeUncategorized;
+    return (
+      title: described ? description : category,
+      meta: [if (described) category, tx.account.name].join(' · '),
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
     final c = context.nok;
     final l = context.l10n;
     final isTransfer = tx.kind == 'transfer';
-    final catColor =
-        isTransfer ? c.inkLow : hexColor(tx.category?.color, fallback: c.inkLow);
-    final title = (tx.description?.isNotEmpty ?? false)
-        ? tx.description!
-        : (tx.category?.name ??
-            (isTransfer ? l.financeTransfer : l.financeTransaction));
-
-    final metaParts = <String>[
-      if (tx.category != null) tx.category!.name,
-      if (isTransfer && tx.relatedAccount != null)
-        '${tx.account.name} → ${tx.relatedAccount!.name}'
-      else
-        tx.account.name,
-    ];
+    final catColor = isTransfer || tx.category == null
+        ? c.inkLow
+        : hexColor(tx.category?.color, fallback: c.inkLow);
+    final text = describe(l, tx);
 
     return NokturnRow(
       onTap: onTap,
@@ -43,12 +70,10 @@ class TxRow extends StatelessWidget {
         color: catColor,
         icon: isTransfer
             ? Icons.swap_horiz
-            : (tx.kind == 'income'
-                ? Icons.south_west
-                : Icons.north_east),
+            : (tx.kind == 'income' ? Icons.south_west : Icons.north_east),
       ),
-      title: title,
-      meta: metaParts.join(' · '),
+      title: text.title,
+      meta: text.meta,
       trailing: _amount(context),
     );
   }
@@ -56,6 +81,7 @@ class TxRow extends StatelessWidget {
   Widget _amount(BuildContext context) {
     final currency = tx.account.currency;
     final subunit = tx.account.subunitToUnit;
+    final perspective = perspectiveAccountId;
     switch (tx.kind) {
       case 'income':
         return MoneyText(
@@ -66,6 +92,24 @@ class TxRow extends StatelessWidget {
           positiveGreen: true,
         );
       case 'transfer':
+        if (perspective != null && tx.relatedAccount?.id == perspective) {
+          // Money in, from another account.
+          return MoneyText(
+            tx.amountCents,
+            currency: currency,
+            subunitToUnit: subunit,
+            signed: true,
+            positiveGreen: true,
+          );
+        }
+        if (perspective != null && tx.account.id == perspective) {
+          return MoneyText(
+            tx.amountCents,
+            currency: currency,
+            subunitToUnit: subunit,
+            negative: true,
+          );
+        }
         return MoneyText(
           tx.amountCents,
           currency: currency,

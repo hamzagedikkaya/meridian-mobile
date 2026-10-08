@@ -6,7 +6,9 @@ import '../../../core/formats.dart';
 import '../../../core/locale_mode.dart';
 import '../../../core/session.dart';
 import '../../../core/theme_mode.dart';
+import '../../../data/current_day.dart';
 import '../../../l10n/app_l10n.dart';
+import '../../../models/date_utils.dart';
 import '../../../models/user.dart';
 import '../../../theme/app_colors.dart';
 import '../../widgets/confirm_dialog.dart';
@@ -54,6 +56,8 @@ class ProfileScreen extends ConsumerWidget {
               title: l.profileCurrency,
               trailing: _ValueText(_currencyLabel(user?.currency)),
             ),
+            _divider(c),
+            _TimeZoneRow(user: user),
           ]),
           const SizedBox(height: 32),
           SectionHeader(l.profileSectionServer),
@@ -269,6 +273,46 @@ class _SettingRow extends StatelessWidget {
   }
 }
 
+/// The account's time zone — the one every day and time in the app follows
+/// (see `data/current_day.dart`) — and, when this phone is in another one,
+/// a line saying so.
+class _TimeZoneRow extends ConsumerWidget {
+  final User? user;
+  const _TimeZoneRow({required this.user});
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final c = context.nok;
+    final text = Theme.of(context).textTheme;
+    final l = context.l10n;
+    final offset = user?.utcOffset;
+    final value = user == null
+        ? '—'
+        : offset == null
+            ? user!.zoneName
+            : l.profileTimeZoneValue(user!.zoneName, formatUtcOffset(offset));
+    final mismatch = ref.watch(zoneMismatchProvider);
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        _SettingRow(
+          icon: Icons.schedule,
+          title: l.profileTimeZone,
+          trailing: _ValueText(value),
+        ),
+        if (mismatch != null)
+          Padding(
+            padding: const EdgeInsets.fromLTRB(58, 0, 20, 14),
+            child: Text(
+              l.profileTimeZoneDeviceDiffers(formatUtcOffset(mismatch.device)),
+              style: text.bodySmall!.copyWith(color: c.warning),
+            ),
+          ),
+      ],
+    );
+  }
+}
+
 class _ValueText extends StatelessWidget {
   final String value;
   const _ValueText(this.value);
@@ -431,6 +475,9 @@ class _ApiStatusRow extends ConsumerWidget {
       icon: Icons.cloud_outlined,
       title: l.profileApiStatus,
       trailing: trailing,
+      // The ping runs once per visit; a tap checks again (e.g. once the Mac
+      // is awake), keeping the last answer up meanwhile.
+      onTap: () => ref.invalidate(apiHealthProvider),
     );
   }
 }

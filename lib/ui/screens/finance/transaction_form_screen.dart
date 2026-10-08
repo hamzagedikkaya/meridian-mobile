@@ -1,10 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:intl/intl.dart';
 
 import '../../../core/api.dart';
 import '../../../core/formats.dart';
 import '../../../core/haptics.dart';
+import '../../../core/session.dart';
+import '../../../data/current_day.dart';
 import '../../../data/providers.dart';
 import '../../../l10n/app_l10n.dart';
 import '../../../models/account.dart';
@@ -12,20 +13,26 @@ import '../../../models/transaction.dart';
 import '../../../theme/app_colors.dart';
 import '../../../theme/app_typography.dart';
 import '../../widgets/amount_keypad.dart';
+import '../../widgets/form_scaffold.dart';
 import '../../widgets/picker_sheet.dart';
-import '../../widgets/primary_button.dart';
 import '../../widgets/slide_up_route.dart';
+import 'account_form.dart';
+import 'category_picker.dart';
 import 'finance_utils.dart';
 
 /// Pushes the full-screen İşlem Ekle/Düzenle modal on the root navigator via
-/// the §5 400/300ms slide-up modal route. Resolves to `true` after a
-/// successful create/update.
-Future<bool?> openTransactionForm(
+/// the §5 400/300ms slide-up modal route. Resolves to the transaction as the
+/// server saved it, or null when the form was closed without saving.
+///
+/// [initialAccountId] starts a new transaction on that account (an
+/// account's own screen); otherwise it starts on the account the last one
+/// was saved on, or the only one there is.
+Future<Transaction?> openTransactionForm(
   BuildContext context, {
   Transaction? existing,
   int? initialAccountId,
 }) {
-  return Navigator.of(context, rootNavigator: true).push<bool>(
+  return Navigator.of(context, rootNavigator: true).push<Transaction>(
     slideUpModalRoute(
       (_) => TransactionFormScreen(
         existing: existing,
@@ -34,6 +41,9 @@ Future<bool?> openTransactionForm(
     ),
   );
 }
+
+/// A sentinel picker value: open the account form.
+const _newAccount = -1;
 
 class TransactionFormScreen extends ConsumerStatefulWidget {
   final Transaction? existing;
@@ -52,15 +62,25 @@ class TransactionFormScreen extends ConsumerStatefulWidget {
 
 class _TransactionFormScreenState extends ConsumerState<TransactionFormScreen> {
   late String _kind;
-  String _amount = '';
+  AmountDraft _amount = const AmountDraft();
   Account? _account;
   Account? _relatedAccount;
+
+  /// Null is "Kategorisiz": an income or expense may have no category.
   TxCategory? _category;
   late DateTime _date;
   final _descCtrl = TextEditingController();
+  final _noteCtrl = TextEditingController();
   bool _saving = false;
-  String? _error;
   bool _seeded = false;
+
+  /// The last digit was refused: the amount would not fit the server.
+  bool _atLimit = false;
+
+  /// Where a refusal points, by field: amount, account, target, category,
+  /// date; anything else goes under the form ([_error]).
+  Map<String, String> _fieldErrors = const {};
+  String? _error;
 
   bool get _isEdit => widget.existing != null;
 
@@ -69,33 +89,54 @@ class _TransactionFormScreenState extends ConsumerState<TransactionFormScreen> {
     super.initState();
     final ex = widget.existing;
     _kind = ex?.kind ?? 'expense';
-    _date = ex?.date ?? DateTime.now();
+    // The account's today — the day the server files "today" under — not
+    // necessarily this phone's date (see data/current_day.dart).
+    _date = ex?.date ?? ref.read(currentDayProvider);
     _category = ex?.category;
-    if (ex?.description != null) _descCtrl.text = ex!.description!;
+    _descCtrl.text = ex?.description ?? '';
+    _noteCtrl.text = ex?.note ?? '';
   }
 
   @override
   void dispose() {
     _descCtrl.dispose();
+    _noteCtrl.dispose();
     super.dispose();
   }
 
+  /// The accounts a transaction can be put on: the active ones.
   List<Account> get _accounts =>
       ref.read(accountsProvider).value?.data
           .where((a) => !a.archived)
           .toList() ??
       const [];
 
-  List<TxCategory> get _categories =>
-      ref.read(categoriesProvider).value?.data ?? const [];
-
   int get _subunit => _account?.subunitToUnit ?? 100;
   String get _currency => _account?.currency ?? 'TRY';
-  bool get _showDecimal => _subunit != 1;
+  int get _cents => _amount.minorUnits(_subunit);
 
-  /// Seed the full [Account] objects once the accounts list is available
-  /// (edit mode maps AccountRef → Account for subunit/currency).
-  void _seedFromExisting() {
+  /// The account the last transaction was saved on, as stored on this
+  /// device; null when none is (or the store is not there, as in tests).
+  int? _lastAccountId() {
+    try {
+      return ref.read(sharedPrefsProvider).getInt(PrefKeys.lastAccountId);
+    } catch (_) {
+      return null;
+    }
+  }
+
+  void _rememberAccount(int id) {
+    try {
+      ref.read(sharedPrefsProvider).setInt(PrefKeys.lastAccountId, id);
+    } catch (_) {
+      // No store (tests): nothing to remember with.
+    }
+  }
+
+  /// Fills the account fields in once the accounts are known: an edit's
+  /// own (archived ones too), else the one asked for, the last used, or the
+  /// only one.
+  void _seed() {
     if (_seeded) return;
     // Wait for the first accounts load; an all-archived list is still a value.
     final all = ref.read(accountsProvider).value?.data;
@@ -109,23 +150,30 @@ class _TransactionFormScreenState extends ConsumerState<TransactionFormScreen> {
       return null;
     }
 
-    _account = byId(ex?.account.id) ?? byId(widget.initialAccountId);
-    // Editing a tx whose account is archived (absent from the picker list):
-    // synthesize an Account from the embedded ref so the field is not blank
-    // and subunit/currency seed correctly (GAU subunit 1).
-    if (_account == null && ex != null) {
-      _account = _accountFromRef(ex.account);
-    }
-    _relatedAccount = byId(ex?.relatedAccount?.id) ??
-        (ex?.relatedAccount != null
-            ? _accountFromRef(ex!.relatedAccount!)
-            : null);
+    final active = [for (final a in all) if (!a.archived) a];
     if (ex != null) {
-      _amount = _centsToInput(ex.amountCents, _account?.subunitToUnit ?? 100);
+      _account = byId(ex.account.id) ?? _accountFromRef(ex.account);
+      _relatedAccount = byId(ex.relatedAccount?.id) ??
+          (ex.relatedAccount != null
+              ? _accountFromRef(ex.relatedAccount!)
+              : null);
+      _amount = AmountDraft.fromMinorUnits(ex.amountCents, _subunit);
+    } else {
+      Account? usable(int? id) {
+        final account = byId(id);
+        return account == null || account.archived ? null : account;
+      }
+
+      _account = usable(widget.initialAccountId) ??
+          usable(_lastAccountId()) ??
+          (active.length == 1 ? active.single : null);
     }
     _seeded = true;
   }
 
+  /// An account the list does not have (deleted on the web meanwhile), as
+  /// far as the transaction names it: the field is not blank, and the
+  /// amount is read in its currency (GAU has no decimals).
   static Account _accountFromRef(AccountRef a) => Account(
         id: a.id,
         name: a.name,
@@ -138,121 +186,161 @@ class _TransactionFormScreenState extends ConsumerState<TransactionFormScreen> {
         archived: true,
       );
 
-  static String _centsToInput(int cents, int subunit) {
-    if (subunit == 1) return cents.toString();
-    final major = cents / subunit;
-    var s = major.toStringAsFixed(2);
-    if (s.endsWith('.00')) s = s.substring(0, s.length - 3);
-    return s.replaceAll('.', ',');
-  }
-
-  int get _cents => amountStringToCents(_amount, _subunit);
-
   // --- keypad handlers -------------------------------------------------------
 
   void _onDigit(String d) {
-    final parts = _amount.split(',');
-    if (parts.length == 2 && parts[1].length >= 2) return; // max 2 decimals
-    if (parts[0].replaceAll('.', '').length >= 12 && parts.length == 1) return;
-    setState(() => _amount = _amount + d);
+    final limit = _amount.wouldPassLimit(d, _subunit);
+    setState(() {
+      _atLimit = limit;
+      _amount = _amount.withDigit(d, _subunit);
+      _fieldErrors = const {};
+    });
   }
 
-  void _onDot() {
-    if (!_showDecimal || _amount.contains(',')) return;
-    setState(() => _amount = _amount.isEmpty ? '0,' : '$_amount,');
-  }
+  void _onDot() =>
+      setState(() => _amount = _amount.withDecimalMark(_subunit));
 
-  void _onBackspace() {
-    if (_amount.isEmpty) return;
-    setState(() => _amount = _amount.substring(0, _amount.length - 1));
-  }
-
-  /// The typed amount, grouped for the active locale. Internally the decimal
-  /// marker is always ',' (see [amountStringToCents]); only the display uses
-  /// the locale's separator, so English shows "1,234.56" for the same input.
-  String get _displayAmount {
-    final symbol = currencySymbol(_currency);
-    final format = NumberFormat('#,##0');
-    final decimalSep = format.symbols.DECIMAL_SEP;
-    if (_amount.isEmpty) return '0 $symbol';
-    final parts = _amount.split(',');
-    final intPart = parts[0].isEmpty ? '0' : parts[0];
-    final grouped = format.format(int.tryParse(intPart) ?? 0);
-    final frac = parts.length == 2
-        ? '$decimalSep${parts[1]}'
-        : (_amount.endsWith(',') ? decimalSep : '');
-    return '$grouped$frac $symbol';
-  }
+  void _onBackspace() => setState(() {
+        _atLimit = false;
+        _amount = _amount.backspace();
+      });
 
   // --- pickers ---------------------------------------------------------------
 
-  Future<void> _pickAccount({required bool related}) async {
+  /// A new account from the account form, picked for [related] or the
+  /// source; false when the form was closed.
+  Future<Account?> _createAccount() async {
+    final created = await openAccountForm(context);
+    if (created == null || !mounted) return null;
+    return created;
+  }
+
+  void _useAccount(Account picked) {
+    setState(() {
+      final subunitChanged = picked.subunitToUnit != _subunit;
+      _account = picked;
+      if (subunitChanged) _amount = _amount.forCurrency(picked.subunitToUnit);
+      // A transfer stays within one currency.
+      final target = _relatedAccount;
+      if (target != null &&
+          (target.id == picked.id || !_sameCurrency(target, picked))) {
+        _relatedAccount = null;
+      }
+      _fieldErrors = const {};
+    });
+  }
+
+  static bool _sameCurrency(Account a, Account b) =>
+      a.currency.toUpperCase() == b.currency.toUpperCase();
+
+  Future<void> _pickAccount() async {
     final l = context.l10n;
-    final options = [
-      for (final a in _accounts)
-        if (!related || a.id != _account?.id)
+    final accounts = _accounts;
+    if (accounts.isEmpty) {
+      // Nothing to pick from: make one.
+      final created = await _createAccount();
+      if (created != null) _useAccount(created);
+      return;
+    }
+    final id = await showPickerSheet<int>(
+      context,
+      title: l.txFormAccount,
+      selected: _account?.id,
+      options: [
+        for (final a in accounts)
           PickerOption<int>(
             value: a.id,
             label: a.name,
             color: hexColor(a.color),
-            trailing:
-                formatMoney(a.balanceCents, a.currency, a.subunitToUnit),
+            trailing: formatMoney(a.balanceCents, a.currency, a.subunitToUnit),
           ),
+        PickerOption<int>(
+          value: _newAccount,
+          label: l.accountNew,
+          icon: Icons.add,
+        ),
+      ],
+    );
+    if (id == null || !mounted) return;
+    if (id == _newAccount) {
+      final created = await _createAccount();
+      if (created != null) _useAccount(created);
+      return;
+    }
+    _useAccount(accounts.firstWhere((a) => a.id == id));
+  }
+
+  Future<void> _pickTarget() async {
+    final l = context.l10n;
+    final source = _account;
+    if (source == null) {
+      setState(() => _fieldErrors = {'account': l.txFormSelectAccount});
+      return;
+    }
+    // Only another account in the same currency: the server credits the
+    // target with the source's minor units as they are.
+    final targets = [
+      for (final a in _accounts)
+        if (a.id != source.id && _sameCurrency(a, source)) a,
     ];
-    if (options.isEmpty) return;
     final id = await showPickerSheet<int>(
       context,
-      title: related ? l.txFormTargetAccount : l.txFormAccount,
-      options: options,
-      selected: related ? _relatedAccount?.id : _account?.id,
+      title: l.txFormTargetAccount,
+      selected: _relatedAccount?.id,
+      note: targets.isEmpty
+          ? '${l.txFormNoTransferTarget}. ${l.txFormTransferSameCurrency}'
+          : l.txFormTransferSameCurrency,
+      options: [
+        for (final a in targets)
+          PickerOption<int>(
+            value: a.id,
+            label: a.name,
+            color: hexColor(a.color),
+            trailing: formatMoney(a.balanceCents, a.currency, a.subunitToUnit),
+          ),
+        PickerOption<int>(
+          value: _newAccount,
+          label: l.accountNew,
+          icon: Icons.add,
+        ),
+      ],
     );
-    if (id == null) return;
-    final picked = _accounts.firstWhere((a) => a.id == id);
-    setState(() {
-      if (related) {
-        _relatedAccount = picked;
-      } else {
-        _account = picked;
-        if (!_showDecimal) _amount = _amount.split(',').first;
+    if (id == null || !mounted) return;
+    Account? picked;
+    if (id == _newAccount) {
+      picked = await _createAccount();
+      if (picked == null) return;
+      if (!_sameCurrency(picked, source) || picked.id == source.id) {
+        setState(() => _fieldErrors = {'target': l.txFormTransferSameCurrency});
+        return;
       }
+    } else {
+      picked = targets.firstWhere((a) => a.id == id);
+    }
+    setState(() {
+      _relatedAccount = picked;
+      _fieldErrors = const {};
     });
   }
 
   Future<void> _pickCategory() async {
     final l = context.l10n;
-    final roots = _categories
-        .where((c) => c.kind == _kind && c.parentId == null)
-        .toList()
-      ..sort((a, b) => a.position.compareTo(b.position));
-    final options = <PickerOption<int>>[];
-    for (final root in roots) {
-      options.add(PickerOption<int>(
-        value: root.id,
-        label: root.name,
-        color: hexColor(root.color),
-      ));
-      final children = _categories
-          .where((c) => c.parentId == root.id)
-          .toList()
-        ..sort((a, b) => a.position.compareTo(b.position));
-      for (final child in children) {
-        options.add(PickerOption<int>(
-          value: child.id,
-          label: '   ${child.name}',
-          color: hexColor(child.color),
-        ));
-      }
-    }
-    if (options.isEmpty) return;
-    final id = await showPickerSheet<int>(
+    final choice = await showCategoryPicker(
       context,
       title: l.txFormCategory,
-      options: options,
-      selected: _category?.id,
+      kind: _kind,
+      selected: _category == null
+          ? const NoCategory()
+          : OneCategory(_category!),
     );
-    if (id == null) return;
-    setState(() =>
-        _category = _categories.firstWhere((c) => c.id == id));
+    if (choice == null || !mounted) return;
+    setState(() {
+      _category = switch (choice) {
+        OneCategory(:final category) => category,
+        _ => null,
+      };
+      _fieldErrors = const {};
+    });
   }
 
   Future<void> _pickDate() async {
@@ -272,232 +360,262 @@ class _TransactionFormScreenState extends ConsumerState<TransactionFormScreen> {
 
   // --- submit ----------------------------------------------------------------
 
-  String? _validate(AppL10n l) {
-    if (_cents <= 0) return l.txFormEnterAmount;
-    if (_account == null) return l.txFormSelectAccount;
-    if (_kind == 'transfer') {
-      if (_relatedAccount == null) return l.txFormSelectTargetAccount;
-      if (_relatedAccount!.id == _account!.id) {
-        return l.txFormAccountsMustDiffer;
-      }
-    } else if (_category == null) {
-      return l.txFormSelectCategory;
+  /// What is wrong before the server is asked, by field.
+  Map<String, String> _validate(AppL10n l) {
+    final account = _account;
+    final target = _relatedAccount;
+    return {
+      if (_cents <= 0) 'amount': l.txFormEnterAmount,
+      if (account == null)
+        'account': _accounts.isEmpty ? l.txFormNeedAccount : l.txFormSelectAccount,
+      if (_kind == 'transfer' && target == null)
+        'target': l.txFormSelectTargetAccount,
+      if (_kind == 'transfer' &&
+          account != null &&
+          target != null &&
+          target.id == account.id)
+        'target': l.txFormAccountsMustDiffer,
+      if (_kind == 'transfer' &&
+          account != null &&
+          target != null &&
+          target.id != account.id &&
+          !_sameCurrency(account, target))
+        'target': l.txFormTransferSameCurrency,
+    };
+  }
+
+  String? _text(TextEditingController ctrl) {
+    final value = ctrl.text.trim();
+    return value.isEmpty ? null : value;
+  }
+
+  TransactionInput? _input() {
+    final account = _account;
+    if (account == null) return null;
+    final transfer = _kind == 'transfer';
+    return TransactionInput(
+      kind: _kind,
+      amountCents: _cents,
+      date: _date,
+      description: _text(_descCtrl),
+      note: _text(_noteCtrl),
+      accountId: account.id,
+      financeCategoryId: transfer ? null : _category?.id,
+      relatedAccountId: transfer ? _relatedAccount?.id : null,
+    );
+  }
+
+  bool get _dirty {
+    final existing = widget.existing;
+    if (existing == null) {
+      return !_amount.isEmpty ||
+          _descCtrl.text.trim().isNotEmpty ||
+          _noteCtrl.text.trim().isNotEmpty;
     }
-    return null;
+    final input = _input();
+    return input != null && input.changesFrom(existing).isNotEmpty;
   }
 
   Future<void> _submit() async {
     final l = context.l10n;
-    final err = _validate(l);
-    if (err != null) {
-      setState(() => _error = err);
+    final problems = _validate(l);
+    if (problems.isNotEmpty) {
+      Haptics.danger();
+      setState(() {
+        _fieldErrors = problems;
+        _error = null;
+      });
+      return;
+    }
+    final input = _input()!;
+    final existing = widget.existing;
+    if (existing != null && input.changesFrom(existing).isEmpty) {
+      // Nothing changed: nothing to save.
+      Navigator.of(context).pop();
       return;
     }
     setState(() {
       _saving = true;
       _error = null;
+      _fieldErrors = const {};
     });
-    final input = TransactionInput(
-      kind: _kind,
-      amountCents: _cents,
-      date: _date,
-      description:
-          _descCtrl.text.trim().isEmpty ? null : _descCtrl.text.trim(),
-      accountId: _account!.id,
-      financeCategoryId: _kind == 'transfer' ? null : _category?.id,
-      relatedAccountId: _kind == 'transfer' ? _relatedAccount?.id : null,
-    );
-    // Capture the container before the await so provider access never touches
-    // a disposed `ref` after the form pops.
-    final container = ProviderScope.containerOf(context, listen: false);
     try {
+      // The repository reports the write: feeds, balances, the dashboard,
+      // budgets, Today and financial goals refresh from that — even when
+      // this form is closed before the server answers.
       final repo = ref.read(repositoryProvider);
-      if (_isEdit) {
-        await repo.updateTransaction(widget.existing!.id, input);
-      } else {
-        await repo.createTransaction(input);
-      }
+      final saved = existing != null
+          ? await repo.updateTransaction(existing, input)
+          : await repo.createTransaction(input);
       if (!mounted) return;
-      container.invalidate(financeDashboardProvider);
-      container.invalidate(accountsProvider);
-      container.invalidate(transactionsProvider);
+      if (existing == null) _rememberAccount(input.accountId);
       Haptics.success();
-      Navigator.of(context).pop(true);
-    } on ApiException catch (e) {
+      Navigator.of(context).pop(saved);
+    } catch (e) {
+      if (!mounted) return;
+      Haptics.danger();
+      final refusal = e is ApiException ? e : null;
+      String? field(String key) => refusal?.fieldMessage(l, key);
+      final placed = <String, String>{
+        'amount': ?(field('amount_cents') ?? field('amount')),
+        'account': ?(field('account') ?? field('account_id')),
+        'target': ?field('related_account_id'),
+        'category':
+            ?(field('finance_category') ?? field('finance_category_id')),
+        'date': ?field('date'),
+      };
       setState(() {
         _saving = false;
-        _error = e.localized(l);
-      });
-    } catch (_) {
-      setState(() {
-        _saving = false;
-        _error = l.txSaveFailed;
+        _fieldErrors = placed;
+        _error = placed.isNotEmpty
+            ? null
+            : failureMessage(e, l, fallback: l.txSaveFailed);
       });
     }
   }
 
   @override
   Widget build(BuildContext context) {
-    // Rebuild once accounts/categories arrive so seeding + pickers have data.
+    // Rebuild once accounts arrive so seeding and the pickers have data; the
+    // categories are fetched now so the picker opens with them.
     ref.watch(accountsProvider);
     ref.watch(categoriesProvider);
-    _seedFromExisting();
+    _seed();
     final c = context.nok;
     final text = Theme.of(context).textTheme;
     final l = context.l10n;
+    final transfer = _kind == 'transfer';
+    final noAccounts =
+        ref.read(accountsProvider).value != null && _accounts.isEmpty;
 
-    return Scaffold(
-      appBar: AppBar(
-        leading: IconButton(
-          icon: const Icon(Icons.close),
-          onPressed: () => Navigator.of(context).pop(false),
-        ),
-        title: Text(_isEdit ? l.txFormEditTitle : l.txFormNewTitle),
-      ),
-      bottomNavigationBar: SafeArea(
-        minimum: const EdgeInsets.fromLTRB(20, 8, 20, 12),
-        child: PrimaryButton(
-          label: _isEdit ? l.actionUpdate : l.actionSave,
-          loading: _saving,
-          onPressed: _submit,
-        ),
-      ),
-      body: SingleChildScrollView(
-        padding: const EdgeInsets.fromLTRB(20, 8, 20, 20),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            Center(
-              child: _KindPill(
-                kind: _kind,
-                onChanged: (k) => setState(() {
-                  _kind = k;
-                  if (k == 'transfer') {
-                    _category = null;
-                  } else if (_category != null && _category!.kind != k) {
-                    _category = null;
-                  }
-                }),
-              ),
-            ),
-            const SizedBox(height: 24),
-            FittedBox(
-              fit: BoxFit.scaleDown,
-              child: Text(
-                _displayAmount,
-                style: text.displayLarge!.copyWith(
-                  fontFeatures: tabularFigures,
-                  color: _amount.isEmpty ? c.inkLow : c.inkHi,
-                ),
-              ),
-            ),
-            const SizedBox(height: 8),
-            AmountKeypad(
-              onDigit: _onDigit,
-              onDot: _onDot,
-              onBackspace: _onBackspace,
-              onClear: () => setState(() => _amount = ''),
-              showDecimal: _showDecimal,
-            ),
-            const SizedBox(height: 16),
-            _row(
-              icon: Icons.account_balance_wallet_outlined,
-              label: l.txFormAccount,
-              value: _account?.name,
-              color: _account == null ? null : hexColor(_account!.color),
-              onTap: () => _pickAccount(related: false),
-            ),
-            const SizedBox(height: 8),
-            if (_kind == 'transfer')
-              _row(
-                icon: Icons.swap_horiz,
-                label: l.txFormTargetAccount,
-                value: _relatedAccount?.name,
-                color: _relatedAccount == null
-                    ? null
-                    : hexColor(_relatedAccount!.color),
-                onTap: () => _pickAccount(related: true),
-              )
-            else
-              _row(
-                icon: Icons.category_outlined,
-                label: l.txFormCategory,
-                value: _category?.name,
-                color: _category == null ? null : hexColor(_category!.color),
-                onTap: _pickCategory,
-              ),
-            const SizedBox(height: 8),
-            _row(
-              icon: Icons.calendar_today_outlined,
-              label: l.txFormDate,
-              value: l.relativeDay(_date),
-              onTap: _pickDate,
-            ),
-            const SizedBox(height: 12),
-            TextField(
-              controller: _descCtrl,
-              textCapitalization: TextCapitalization.sentences,
-              decoration: InputDecoration(labelText: l.txFormDescription),
-            ),
-            if (_error != null) ...[
-              const SizedBox(height: 12),
-              Text(
-                _error!,
-                style: text.bodySmall!.copyWith(color: c.error),
-              ),
-            ],
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _row({
-    required IconData icon,
-    required String label,
-    String? value,
-    Color? color,
-    required VoidCallback onTap,
-  }) {
-    final c = context.nok;
-    final text = Theme.of(context).textTheme;
-    return Material(
-      color: c.surface2,
-      borderRadius: BorderRadius.circular(12),
-      child: InkWell(
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(12),
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-          child: Row(
-            children: [
-              if (color != null)
-                Container(
-                  width: 12,
-                  height: 12,
-                  margin: const EdgeInsets.only(right: 12),
-                  decoration:
-                      BoxDecoration(color: color, shape: BoxShape.circle),
-                )
-              else
-                Padding(
-                  padding: const EdgeInsets.only(right: 12),
-                  child: Icon(icon, size: 20, color: c.inkMid),
-                ),
-              Text(label, style: text.bodyMedium!.copyWith(color: c.inkMid)),
-              const Spacer(),
-              Text(
-                value ?? context.l10n.actionSelect,
-                style: text.titleSmall!.copyWith(
-                  color: value == null ? c.inkLow : c.inkHi,
-                ),
-              ),
-              const SizedBox(width: 4),
-              Icon(Icons.chevron_right, size: 20, color: c.inkLow),
-            ],
+    return FormScaffold(
+      title: _isEdit ? l.txFormEditTitle : l.txFormNewTitle,
+      actionLabel: _isEdit ? l.actionUpdate : l.actionSave,
+      busy: _saving,
+      dirty: _dirty,
+      onAction: _submit,
+      children: [
+        Center(
+          child: _KindPill(
+            kind: _kind,
+            onChanged: (k) => setState(() {
+              _kind = k;
+              if (k == 'transfer') {
+                _category = null;
+              } else if (_category != null && _category!.kind != k) {
+                _category = null;
+              }
+              _fieldErrors = const {};
+            }),
           ),
         ),
-      ),
+        const SizedBox(height: 24),
+        Semantics(
+          liveRegion: true,
+          label: l.txFormAmount,
+          child: FittedBox(
+            fit: BoxFit.scaleDown,
+            child: Text(
+              _amount.display(_currency),
+              style: text.displayLarge!.copyWith(
+                fontFeatures: tabularFigures,
+                color: _amount.isEmpty ? c.inkLow : c.inkHi,
+              ),
+            ),
+          ),
+        ),
+        if (_atLimit || _fieldErrors['amount'] != null)
+          Padding(
+            padding: const EdgeInsets.only(top: 4),
+            child: Text(
+              _fieldErrors['amount'] ??
+                  l.amountTooLarge(formatMoney(
+                      AmountDraft.maxMinorUnits, _currency, _subunit)),
+              textAlign: TextAlign.center,
+              style: text.bodySmall!.copyWith(
+                color: _fieldErrors['amount'] != null ? c.error : c.warning,
+              ),
+            ),
+          ),
+        const SizedBox(height: 8),
+        AmountKeypad(
+          onDigit: _onDigit,
+          onDot: _onDot,
+          onBackspace: _onBackspace,
+          onClear: () => setState(() {
+            _atLimit = false;
+            _amount = const AmountDraft();
+          }),
+          showDecimal: decimalsFor(_subunit) > 0,
+        ),
+        const SizedBox(height: 16),
+        FormPickerRow(
+          icon: Icons.account_balance_wallet_outlined,
+          label: l.txFormAccount,
+          value: _account?.name ?? (noAccounts ? l.txFormNeedAccount : null),
+          color: _account == null ? null : hexColor(_account!.color),
+          onTap: _pickAccount,
+          errorText: _fieldErrors['account'],
+        ),
+        const SizedBox(height: 8),
+        if (transfer)
+          FormPickerRow(
+            icon: Icons.swap_horiz,
+            label: l.txFormTargetAccount,
+            value: _relatedAccount?.name,
+            color: _relatedAccount == null
+                ? null
+                : hexColor(_relatedAccount!.color),
+            onTap: _pickTarget,
+            errorText: _fieldErrors['target'],
+          )
+        else
+          FormPickerRow(
+            icon: Icons.category_outlined,
+            label: l.txFormCategory,
+            value: _category?.name ?? l.financeUncategorized,
+            color: _category == null ? null : hexColor(_category!.color),
+            onTap: _pickCategory,
+            errorText: _fieldErrors['category'],
+          ),
+        const SizedBox(height: 8),
+        FormPickerRow(
+          icon: Icons.calendar_today_outlined,
+          label: l.txFormDate,
+          value: l.relativeDay(_date),
+          onTap: _pickDate,
+          errorText: _fieldErrors['date'],
+        ),
+        const SizedBox(height: 12),
+        TextField(
+          controller: _descCtrl,
+          textCapitalization: TextCapitalization.sentences,
+          textInputAction: TextInputAction.next,
+          onChanged: (_) => setState(() {}),
+          decoration: InputDecoration(labelText: l.txFormDescription),
+        ),
+        const SizedBox(height: 12),
+        TextField(
+          controller: _noteCtrl,
+          textCapitalization: TextCapitalization.sentences,
+          minLines: 1,
+          maxLines: 4,
+          onChanged: (_) => setState(() {}),
+          decoration: InputDecoration(
+            labelText: '${l.txFormNote} (${l.labelOptional})',
+          ),
+        ),
+        if (_error != null) ...[
+          const SizedBox(height: 12),
+          Semantics(
+            liveRegion: true,
+            child: Text(
+              _error!,
+              style: text.bodySmall!.copyWith(color: c.error),
+            ),
+          ),
+        ],
+      ],
     );
   }
 }
@@ -528,26 +646,34 @@ class _KindPill extends StatelessWidget {
         mainAxisSize: MainAxisSize.min,
         children: [
           for (final (value, label) in options)
-            GestureDetector(
-              onTap: () {
-                if (value != kind) {
-                  Haptics.tick();
-                  onChanged(value);
-                }
-              },
-              child: AnimatedContainer(
-                duration: const Duration(milliseconds: 200),
-                curve: Curves.easeOutCubic,
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 18, vertical: 8),
-                decoration: BoxDecoration(
-                  color: value == kind ? c.goldContainer : Colors.transparent,
-                  borderRadius: BorderRadius.circular(999),
-                ),
-                child: Text(
-                  label,
-                  style: text.labelLarge!.copyWith(
-                    color: value == kind ? c.onGoldContainer : c.inkMid,
+            Semantics(
+              button: true,
+              selected: value == kind,
+              label: label,
+              excludeSemantics: true,
+              child: GestureDetector(
+                onTap: () {
+                  if (value != kind) {
+                    Haptics.tick();
+                    onChanged(value);
+                  }
+                },
+                child: AnimatedContainer(
+                  duration: const Duration(milliseconds: 200),
+                  curve: Curves.easeOutCubic,
+                  constraints: const BoxConstraints(minHeight: 40),
+                  alignment: Alignment.center,
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 18, vertical: 8),
+                  decoration: BoxDecoration(
+                    color: value == kind ? c.goldContainer : Colors.transparent,
+                    borderRadius: BorderRadius.circular(999),
+                  ),
+                  child: Text(
+                    label,
+                    style: text.labelLarge!.copyWith(
+                      color: value == kind ? c.onGoldContainer : c.inkMid,
+                    ),
                   ),
                 ),
               ),

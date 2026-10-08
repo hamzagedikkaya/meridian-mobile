@@ -1,5 +1,6 @@
 import 'account.dart';
 import 'date_utils.dart';
+import 'json_read.dart';
 
 /// A finance category (shared shape between /finance_categories and the
 /// `category` embedded in a transaction — the real payload includes kind +
@@ -22,12 +23,12 @@ class TxCategory {
   });
 
   factory TxCategory.fromJson(Map<String, dynamic> json) => TxCategory(
-        id: json['id'] as int,
+        id: readId(json['id']),
         name: (json['name'] as String?) ?? '',
         kind: (json['kind'] as String?) ?? 'expense',
         color: (json['color'] as String?) ?? '#B8860B',
-        parentId: (json['parent_id'] as num?)?.toInt(),
-        position: (json['position'] as num?)?.toInt() ?? 0,
+        parentId: readIntOrNull(json['parent_id']),
+        position: readInt(json['position']),
       );
 }
 
@@ -55,9 +56,9 @@ class Transaction {
   });
 
   factory Transaction.fromJson(Map<String, dynamic> json) => Transaction(
-        id: json['id'] as int,
+        id: readId(json['id']),
         kind: (json['kind'] as String?) ?? 'expense',
-        amountCents: (json['amount_cents'] as num?)?.toInt() ?? 0,
+        amountCents: readInt(json['amount_cents']),
         date: DateTime.parse(json['date'] as String),
         description: json['description'] as String?,
         note: json['note'] as String?,
@@ -89,13 +90,11 @@ class TransactionMeta {
   });
 
   factory TransactionMeta.fromJson(Map<String, dynamic> json) => TransactionMeta(
-        totalCount: (json['total_count'] as num?)?.toInt() ?? 0,
-        page: (json['page'] as num?)?.toInt() ?? 1,
-        pageLimit: (json['page_limit'] as num?)?.toInt() ?? 50,
-        filteredIncomeCents:
-            (json['filtered_income_cents'] as num?)?.toInt() ?? 0,
-        filteredExpenseCents:
-            (json['filtered_expense_cents'] as num?)?.toInt() ?? 0,
+        totalCount: readInt(json['total_count']),
+        page: readInt(json['page'], fallback: 1),
+        pageLimit: readInt(json['page_limit'], fallback: 50),
+        filteredIncomeCents: readInt(json['filtered_income_cents']),
+        filteredExpenseCents: readInt(json['filtered_expense_cents']),
       );
 }
 
@@ -117,6 +116,9 @@ class TransactionsPage {
 
 /// Create/update body — client sends `amount_cents` already multiplied by the
 /// account's subunit.
+///
+/// A null [financeCategoryId] is an uncategorized income or expense
+/// ("Kategorisiz"); a transfer has none and names [relatedAccountId].
 class TransactionInput {
   final String kind;
   final int amountCents;
@@ -138,14 +140,37 @@ class TransactionInput {
     this.relatedAccountId,
   });
 
+  /// The body of a create. The optional fields are left out when empty,
+  /// which the server reads as none (an uncategorized row, no note).
   Map<String, dynamic> toJson() => {
         'kind': kind,
         'amount_cents': amountCents,
         'date': isoDate(date),
-        'description': description,
-        'note': note,
         'account_id': accountId,
-        'finance_category_id': financeCategoryId,
-        'related_account_id': relatedAccountId,
+        if (description != null) 'description': description,
+        if (note != null) 'note': note,
+        if (financeCategoryId != null) 'finance_category_id': financeCategoryId,
+        if (relatedAccountId != null) 'related_account_id': relatedAccountId,
       };
+
+  /// The body of an edit of [before]: only the keys that changed, a cleared
+  /// field as null. So an edit never touches what the form did not change —
+  /// a note written on the web survives an edit of the amount.
+  Map<String, dynamic> changesFrom(Transaction before) {
+    String? blankAsNull(String? s) => (s == null || s.isEmpty) ? null : s;
+    final day = isoDate(date);
+    return {
+      if (kind != before.kind) 'kind': kind,
+      if (amountCents != before.amountCents) 'amount_cents': amountCents,
+      if (day != isoDate(before.date)) 'date': day,
+      if (description != blankAsNull(before.description))
+        'description': description,
+      if (note != blankAsNull(before.note)) 'note': note,
+      if (accountId != before.account.id) 'account_id': accountId,
+      if (financeCategoryId != before.category?.id)
+        'finance_category_id': financeCategoryId,
+      if (relatedAccountId != before.relatedAccount?.id)
+        'related_account_id': relatedAccountId,
+    };
+  }
 }

@@ -17,6 +17,9 @@ class FilterChipBar extends StatelessWidget {
   final VoidCallback onCategoryTap;
   final VoidCallback onDateTap;
 
+  /// Clears every filter; shown as the first chip while any is set.
+  final VoidCallback? onClear;
+
   const FilterChipBar({
     super.key,
     required this.kind,
@@ -27,6 +30,7 @@ class FilterChipBar extends StatelessWidget {
     required this.onAccountTap,
     required this.onCategoryTap,
     required this.onDateTap,
+    this.onClear,
   });
 
   @override
@@ -41,6 +45,12 @@ class FilterChipBar extends StatelessWidget {
         padding: const EdgeInsets.symmetric(horizontal: 20),
         child: Row(
           children: [
+            if (onClear != null)
+              _chip(context,
+                  label: l.txFilterClear,
+                  active: false,
+                  icon: Icons.close,
+                  onTap: onClear!),
             _chip(context, label: l.labelAll, active: kind == null,
                 onTap: () => onKind(null)),
             _chip(context, label: l.financeIncome, active: kind == 'income',
@@ -84,43 +94,56 @@ class FilterChipBar extends StatelessWidget {
     required bool active,
     required VoidCallback onTap,
     bool dropdown = false,
+    IconData? icon,
   }) {
     final c = context.nok;
     final text = Theme.of(context).textTheme;
+    final chip = PressableScale(
+      onTap: () {
+        Haptics.tick();
+        onTap();
+      },
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+        decoration: BoxDecoration(
+          color: active ? c.goldContainer : c.surface2,
+          borderRadius: BorderRadius.circular(999),
+          border: Border.all(color: active ? c.goldContainer : c.hairline),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            if (icon != null) ...[
+              Icon(icon, size: 16, color: c.inkMid),
+              const SizedBox(width: 4),
+            ],
+            Text(
+              label,
+              style: text.labelLarge!.copyWith(
+                color: active ? c.onGoldContainer : c.inkMid,
+              ),
+            ),
+            if (dropdown) ...[
+              const SizedBox(width: 4),
+              Icon(
+                Icons.keyboard_arrow_down,
+                size: 16,
+                color: active ? c.onGoldContainer : c.inkMid,
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
     return Padding(
       padding: const EdgeInsets.only(right: 8),
-      child: PressableScale(
-        onTap: () {
-          Haptics.tick();
-          onTap();
-        },
-        child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-          decoration: BoxDecoration(
-            color: active ? c.goldContainer : c.surface2,
-            borderRadius: BorderRadius.circular(999),
-            border: Border.all(color: active ? c.goldContainer : c.hairline),
-          ),
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Text(
-                label,
-                style: text.labelLarge!.copyWith(
-                  color: active ? c.onGoldContainer : c.inkMid,
-                ),
-              ),
-              if (dropdown) ...[
-                const SizedBox(width: 4),
-                Icon(
-                  Icons.keyboard_arrow_down,
-                  size: 16,
-                  color: active ? c.onGoldContainer : c.inkMid,
-                ),
-              ],
-            ],
-          ),
-        ),
+      // One node per chip for screen readers, saying whether it is on.
+      child: Semantics(
+        button: true,
+        selected: active,
+        label: label,
+        excludeSemantics: true,
+        child: chip,
       ),
     );
   }

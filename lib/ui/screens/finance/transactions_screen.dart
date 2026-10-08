@@ -1,26 +1,39 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/semantics.dart' show CustomSemanticsAction;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/formats.dart';
-import '../../../core/haptics.dart';
+import '../../../core/session.dart';
+import '../../../data/current_day.dart';
+import '../../../data/data_scope.dart';
+import '../../../data/deferred_deletes.dart';
 import '../../../data/providers.dart';
 import '../../../l10n/app_l10n.dart';
+import '../../../models/account.dart';
+import '../../../models/date_utils.dart';
 import '../../../models/transaction.dart';
 import '../../../theme/app_colors.dart';
 import '../../widgets/app_snackbar.dart';
-import '../../widgets/confirm_dialog.dart';
 import '../../widgets/empty_state.dart';
-import '../../widgets/money_text.dart';
 import '../../widgets/offline_banner.dart';
 import '../../widgets/picker_sheet.dart';
 import '../../widgets/skeletons.dart';
+import '../../widgets/sync_hint.dart';
+import 'category_picker.dart';
 import 'filter_chip_bar.dart';
 import 'finance_utils.dart';
 import 'transaction_form_screen.dart';
+import 'tx_detail_sheet.dart';
 import 'tx_row.dart';
 
+/// Every transaction, newest first, grouped by day, with filters.
+///
+/// [initial] are the filters it opens with: Finance drills into it — a
+/// category this month, the month's uncategorized spending.
 class TransactionsScreen extends ConsumerStatefulWidget {
-  const TransactionsScreen({super.key});
+  final TxFilters initial;
+
+  const TransactionsScreen({super.key, this.initial = const TxFilters()});
 
   @override
   ConsumerState<TransactionsScreen> createState() => _TransactionsScreenState();
@@ -28,14 +41,18 @@ class TransactionsScreen extends ConsumerStatefulWidget {
 
 class _TransactionsScreenState extends ConsumerState<TransactionsScreen> {
   final _scroll = ScrollController();
-  String? _kind;
-  int? _accountId;
-  String? _accountLabel;
-  int? _categoryId;
-  String? _categoryLabel;
-  DateTime? _from;
-  DateTime? _to;
-  String? _dateLabel;
+  late String? _kind = widget.initial.kind;
+  late int? _accountId = widget.initial.accountId;
+  late int? _categoryId = widget.initial.categoryId;
+  late bool _uncategorized = widget.initial.uncategorized;
+  late DateTime? _from = widget.initial.from;
+  late DateTime? _to = widget.initial.to;
+
+  /// The last feed on screen and the filters it was for. While a newly
+  /// picked filter loads, the previous results stay up, dimmed, instead of a
+  /// skeleton.
+  TransactionsFeed? _lastFeed;
+  TxFilters? _shownFilters;
 
   @override
   void initState() {
@@ -52,10 +69,14 @@ class _TransactionsScreenState extends ConsumerState<TransactionsScreen> {
 
   /// The feed key derived from the current filter state. setState rebuilds the
   /// screen, which re-watches the provider with a fresh key — no racy setFilters.
+  /// An account filter lists the transfers into the account too, as its own
+  /// screen does, so its history adds up.
   TxFilters get _filters => TxFilters(
         kind: _kind,
         accountId: _accountId,
-        categoryId: _categoryId,
+        categoryId: _uncategorized ? null : _categoryId,
+        uncategorized: _uncategorized,
+        includeIncomingTransfers: _accountId != null,
         from: _from,
         to: _to,
       );
@@ -71,27 +92,24 @@ class _TransactionsScreenState extends ConsumerState<TransactionsScreen> {
       _kind != null ||
       _accountId != null ||
       _categoryId != null ||
+      _uncategorized ||
       _from != null;
 
   void _clearFilters() {
     setState(() {
       _kind = null;
       _accountId = null;
-      _accountLabel = null;
       _categoryId = null;
-      _categoryLabel = null;
+      _uncategorized = false;
       _from = null;
       _to = null;
-      _dateLabel = null;
     });
   }
 
   // --- filter pickers --------------------------------------------------------
 
-  Future<void> _pickAccount() async {
+  Future<void> _pickAccount(List<Account> accounts) async {
     final l = context.l10n;
-    final accounts =
-        ref.read(accountsProvider).value?.data ?? const [];
     final id = await showPickerSheet<int>(
       context,
       title: l.txFilterAccount,
@@ -103,56 +121,105 @@ class _TransactionsScreenState extends ConsumerState<TransactionsScreen> {
             value: a.id,
             label: a.name,
             color: hexColor(a.color),
+            subtitle: a.archived ? l.accountArchivedBadge : null,
           ),
       ],
     );
     if (id == null) return;
-    setState(() {
-      if (id == -1) {
-        _accountId = null;
-        _accountLabel = null;
-      } else {
-        _accountId = id;
-        _accountLabel = accounts.firstWhere((a) => a.id == id).name;
-      }
-    });
+    setState(() => _accountId = id == -1 ? null : id);
   }
 
   Future<void> _pickCategory() async {
     final l = context.l10n;
-    final cats = ref.read(categoriesProvider).value?.data ?? const [];
-    final id = await showPickerSheet<int>(
+    final choice = await showCategoryPicker(
       context,
       title: l.txFilterCategory,
-      selected: _categoryId ?? -1,
-      options: [
-        PickerOption<int>(value: -1, label: l.txFilterAllCategories),
-        for (final cat in cats)
-          PickerOption<int>(
-            value: cat.id,
-            label: cat.parentId == null ? cat.name : '   ${cat.name}',
-            color: hexColor(cat.color),
-          ),
-      ],
+      selected: _uncategorized
+          ? const NoCategory()
+          : (_categoryId == null
+              ? const AnyCategory()
+              : OneCategory(_categoryById(_categoryId!) ??
+                  TxCategory(
+                    id: _categoryId!,
+                    name: '',
+                    kind: 'expense',
+                    color: '',
+                    position: 0,
+                  ))),
+      allowAny: true,
+      allowCreate: false,
     );
-    if (id == null) return;
+    if (choice == null) return;
     setState(() {
-      if (id == -1) {
-        _categoryId = null;
-        _categoryLabel = null;
-      } else {
-        _categoryId = id;
-        _categoryLabel = cats.firstWhere((cat) => cat.id == id).name;
+      switch (choice) {
+        case AnyCategory():
+          _categoryId = null;
+          _uncategorized = false;
+        case NoCategory():
+          _categoryId = null;
+          _uncategorized = true;
+        case OneCategory(:final category):
+          _categoryId = category.id;
+          _uncategorized = false;
       }
     });
   }
 
+  TxCategory? _categoryById(int id) {
+    for (final category
+        in ref.read(categoriesProvider).value?.data ?? const <TxCategory>[]) {
+      if (category.id == id) return category;
+    }
+    return null;
+  }
+
+  /// The date presets, by key: this month, the last 30 days, this year.
+  ({DateTime from, DateTime to})? _preset(String key, DateTime today) =>
+      switch (key) {
+        'month' => (
+            from: DateTime(today.year, today.month, 1),
+            to: DateTime(today.year, today.month + 1, 0),
+          ),
+        '30d' => (from: today.subtract(const Duration(days: 30)), to: today),
+        'year' => (
+            from: DateTime(today.year, 1, 1),
+            to: DateTime(today.year, 12, 31),
+          ),
+        _ => null,
+      };
+
+  /// Which preset the current range is, if any.
+  String? _presetKey(DateTime today) {
+    final from = _from;
+    final to = _to;
+    if (from == null || to == null) return null;
+    for (final key in const ['month', '30d', 'year']) {
+      final range = _preset(key, today)!;
+      if (dateOnly(range.from) == dateOnly(from) &&
+          dateOnly(range.to) == dateOnly(to)) {
+        return key;
+      }
+    }
+    return 'custom';
+  }
+
+  String? _dateLabel(AppL10n l, DateTime today) => switch (_presetKey(today)) {
+        null => null,
+        'month' => l.txFilterThisMonth,
+        '30d' => l.txFilterLast30Days,
+        'year' => l.txFilterThisYear,
+        _ => '${formatDate(_from!)} – ${formatDate(_to!)}',
+      };
+
   Future<void> _pickDate() async {
     final l = context.l10n;
-    final now = DateTime.now();
+    // The account's today, as the server counts months (see
+    // data/current_day.dart).
+    final today = ref.read(currentDayProvider);
     final key = await showPickerSheet<String>(
       context,
       title: l.txFilterDateRange,
+      selected: _presetKey(today) ?? 'all',
       options: [
         PickerOption(value: 'all', label: l.labelAll, icon: Icons.all_inclusive),
         PickerOption(
@@ -165,179 +232,165 @@ class _TransactionsScreenState extends ConsumerState<TransactionsScreen> {
             value: 'year',
             label: l.txFilterThisYear,
             icon: Icons.calendar_month),
+        PickerOption(
+            value: 'custom',
+            label: l.txFilterCustomRange,
+            icon: Icons.date_range),
       ],
     );
-    if (key == null) return;
+    if (key == null || !mounted) return;
+    if (key == 'custom') {
+      final range = await showDateRangePicker(
+        context: context,
+        firstDate: DateTime(2015),
+        lastDate: DateTime(2100),
+        initialDateRange: _from != null && _to != null
+            ? DateTimeRange(start: _from!, end: _to!)
+            : null,
+      );
+      if (range == null) return;
+      setState(() {
+        _from = dateOnly(range.start);
+        _to = dateOnly(range.end);
+      });
+      return;
+    }
+    final range = _preset(key, today);
     setState(() {
-      switch (key) {
-        case 'month':
-          _from = DateTime(now.year, now.month, 1);
-          _to = DateTime(now.year, now.month + 1, 0);
-          _dateLabel = l.txFilterThisMonth;
-        case '30d':
-          _from = now.subtract(const Duration(days: 30));
-          _to = now;
-          _dateLabel = l.txFilterLast30Days;
-        case 'year':
-          _from = DateTime(now.year, 1, 1);
-          _to = DateTime(now.year, 12, 31);
-          _dateLabel = l.txFilterThisYear;
-        default:
-          _from = null;
-          _to = null;
-          _dateLabel = null;
-      }
+      _from = range?.from;
+      _to = range?.to;
     });
   }
 
-  // --- row actions -----------------------------------------------------------
-
-  Future<bool> _confirmDelete(Transaction tx) async {
+  Future<void> _add() async {
     final l = context.l10n;
-    final ok = await showConfirmDialog(
-      context,
-      title: l.txDeleteTitle,
-      message: tx.description ?? tx.category?.name,
-      confirmLabel: l.actionDelete,
-      destructive: true,
-    );
-    if (!ok) return false;
-    Haptics.danger();
-    try {
-      await ref.read(repositoryProvider).deleteTransaction(tx.id);
-      if (mounted) {
-        // Optimistic drop keeps the scroll position (no full feed reload).
-        ref.read(transactionsProvider(_filters).notifier).removeLocally(tx.id);
-        ref.invalidate(financeDashboardProvider);
-        ref.invalidate(accountsProvider);
-        showAppSnack(context, l.txDeleted);
-      }
-    } catch (_) {
-      if (mounted) showAppSnack(context, l.txDeleteFailed, isError: true);
-    }
-    return false; // removeLocally already dropped the row
-  }
-
-  void _showDetail(Transaction tx) {
-    final c = context.nok;
-    final text = Theme.of(context).textTheme;
-    final l = context.l10n;
-    // Build the meta line from present parts only — a null-category non-transfer
-    // row must not leave a stray leading " · " separator.
-    final metaParts = <String>[
-      if (tx.category != null)
-        tx.category!.name
-      else if (tx.kind == 'transfer')
-        l.financeTransfer,
-      tx.account.name,
-      formatDate(tx.date, withYear: true),
-    ];
-    showModalBottomSheet<void>(
-      context: context,
-      barrierColor: const Color(0xFF171310).withValues(alpha: 0.6),
-      builder: (sheetCtx) => SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(20, 8, 20, 20),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                tx.description ?? tx.category?.name ?? l.financeTransaction,
-                style: text.titleLarge,
-              ),
-              const SizedBox(height: 4),
-              Text(
-                metaParts.join(' · '),
-                style: text.bodySmall!.copyWith(color: c.inkMid),
-              ),
-              const SizedBox(height: 16),
-              MoneyText(
-                tx.amountCents,
-                currency: tx.account.currency,
-                subunitToUnit: tx.account.subunitToUnit,
-                variant: MoneyVariant.title,
-                signed: tx.kind == 'income',
-                positiveGreen: tx.kind == 'income',
-                negative: tx.kind == 'expense',
-              ),
-              const SizedBox(height: 24),
-              Row(
-                children: [
-                  Expanded(
-                    child: OutlinedButton.icon(
-                      onPressed: () async {
-                        Navigator.of(sheetCtx).pop();
-                        final saved =
-                            await openTransactionForm(context, existing: tx);
-                        if (saved == true && mounted) {
-                          showAppSnack(context, l.txUpdated);
-                        }
-                      },
-                      icon: const Icon(Icons.edit_outlined, size: 18),
-                      label: Text(l.actionEdit),
-                    ),
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: OutlinedButton.icon(
-                      onPressed: () {
-                        Navigator.of(sheetCtx).pop();
-                        _confirmDelete(tx);
-                      },
-                      style: OutlinedButton.styleFrom(foregroundColor: c.error),
-                      icon: const Icon(Icons.delete_outline, size: 18),
-                      label: Text(l.actionDelete),
-                    ),
-                  ),
-                ],
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
+    final saved =
+        await openTransactionForm(context, initialAccountId: _accountId);
+    if (saved == null || !mounted) return;
+    // In place at once; the write's refetch brings the rest.
+    ref.read(transactionsProvider(_filters).notifier).replaceLocally(saved);
+    showAppSnack(context, l.txSaved);
   }
 
   // --- build -----------------------------------------------------------------
 
   @override
   Widget build(BuildContext context) {
-    final feedAsync = ref.watch(transactionsProvider(_filters));
-    final feed = feedAsync.value;
-    final offline = feedAsync.hasError && feed != null;
+    final l = context.l10n;
+    // The day headers ("Bugün", "Dün") are relative to today.
+    final today = ref.watch(currentDayProvider);
+    // Loaded (and kept current) for the account and category filters.
+    final accounts = ref.watch(accountsProvider).value?.data ?? const [];
+    final categories = ref.watch(categoriesProvider).value?.data ?? const [];
+    final filters = _filters;
+    if (_shownFilters != null && filters != _shownFilters) {
+      // A new filter starts at the top of its results.
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted && _scroll.hasClients) _scroll.jumpTo(0);
+      });
+    }
+    _shownFilters = filters;
+    final feedAsync = ref.watch(transactionsProvider(filters));
+    final current = feedAsync.value;
+    if (current != null) _lastFeed = current;
+    final previous = feedAsync.isFirstLoad ? _lastFeed : null;
+    final feed = current ?? previous;
+    final offline = feedAsync.refreshFailed;
+    final hidden = ref.watch(deferredDeletesProvider);
+
+    Account? account;
+    for (final a in accounts) {
+      if (a.id == _accountId) account = a;
+    }
+    String? categoryLabel;
+    if (_uncategorized) {
+      categoryLabel = l.financeUncategorized;
+    } else if (_categoryId != null) {
+      categoryLabel = l.txFilterCategory;
+      for (final category in categories) {
+        if (category.id == _categoryId) categoryLabel = category.name;
+      }
+    }
 
     return Scaffold(
-      appBar: AppBar(title: Text(context.l10n.titleTransactions)),
+      appBar: AppBar(title: Text(l.titleTransactions)),
+      floatingActionButton: FloatingActionButton.extended(
+        heroTag: null,
+        onPressed: _add,
+        icon: const Icon(Icons.add),
+        label: Text(l.financeAddTransactionFab),
+      ),
       body: Column(
         children: [
           if (offline)
             OfflineBanner(
-              lastUpdated: feed.at,
+              // A failed refresh implies a feed on screen.
+              lastUpdated: current!.at,
               onRetry: () =>
                   ref.read(transactionsProvider(_filters).notifier).refresh(),
             ),
           FilterChipBar(
             kind: _kind,
             onKind: (k) => setState(() => _kind = k),
-            accountLabel: _accountLabel,
-            categoryLabel: _categoryLabel,
-            dateLabel: _dateLabel,
-            onAccountTap: _pickAccount,
+            accountLabel: _accountId == null
+                ? null
+                : (account?.name ?? l.txFilterAccount),
+            categoryLabel: categoryLabel,
+            dateLabel: _dateLabel(l, today),
+            onAccountTap: () => _pickAccount(accounts),
             onCategoryTap: _pickCategory,
             onDateTap: _pickDate,
+            onClear: _hasFilters ? _clearFilters : null,
           ),
-          if (feed != null) _summary(context, feed.meta),
-          Expanded(child: _list(context, feedAsync, feed)),
+          if (feed != null)
+            Opacity(
+              opacity: previous == null ? 1 : 0.5,
+              child: _summary(context, feed, hidden, account),
+            ),
+          Expanded(
+            child: SyncHint.over(
+              active: feedAsync.isRefetching || previous != null,
+              // Same wrappers either way, so the list is not remounted when
+              // the new results land.
+              child: IgnorePointer(
+                ignoring: previous != null,
+                child: Opacity(
+                  opacity: previous == null ? 1 : 0.5,
+                  child: _list(context, feedAsync, feed, hidden),
+                ),
+              ),
+            ),
+          ),
         ],
       ),
     );
   }
 
-  Widget _summary(BuildContext context, TransactionMeta meta) {
+  /// The filtered income and expense, in the currency the amounts are in:
+  /// the filtered account's, else the user's (the server adds the stored
+  /// minor units of every account as they are). Rows deleted a moment ago
+  /// are taken out at once, before the refetch says so.
+  Widget _summary(
+    BuildContext context,
+    TransactionsFeed feed,
+    Set<DeletedRecord> hidden,
+    Account? account,
+  ) {
     final c = context.nok;
     final text = Theme.of(context).textTheme;
     final l = context.l10n;
+    final user = ref.watch(currentUserProvider);
+    final currency = account?.currency ?? user?.currency ?? 'TRY';
+    final subunit = account?.subunitToUnit ?? user?.subunitToUnit ?? 100;
+    var income = feed.meta.filteredIncomeCents;
+    var expense = feed.meta.filteredExpenseCents;
+    for (final tx in feed.items) {
+      if (!hidden.contains((scope: DataScope.transactions, id: tx.id))) {
+        continue;
+      }
+      if (tx.kind == 'income') income -= tx.amountCents;
+      if (tx.kind == 'expense') expense -= tx.amountCents;
+    }
     return Padding(
       padding: const EdgeInsets.fromLTRB(20, 0, 20, 8),
       child: Row(
@@ -345,8 +398,8 @@ class _TransactionsScreenState extends ConsumerState<TransactionsScreen> {
           Flexible(
             child: Text(
               l.txSummary(
-                formatMoney(meta.filteredIncomeCents, 'TRY', 100),
-                formatMoney(meta.filteredExpenseCents, 'TRY', 100),
+                formatMoney(income, currency, subunit),
+                formatMoney(expense, currency, subunit),
               ),
               style: text.bodySmall!.copyWith(color: c.inkMid),
               maxLines: 1,
@@ -358,95 +411,133 @@ class _TransactionsScreenState extends ConsumerState<TransactionsScreen> {
     );
   }
 
-  Widget _list(BuildContext context,
-      AsyncValue<TransactionsFeed> feedAsync, TransactionsFeed? feed) {
+  Future<void> _refresh() =>
+      ref.read(transactionsProvider(_filters).notifier).refresh();
+
+  Widget _list(
+    BuildContext context,
+    AsyncValue<TransactionsFeed> feedAsync,
+    TransactionsFeed? feed,
+    Set<DeletedRecord> hidden,
+  ) {
     final c = context.nok;
     final l = context.l10n;
     if (feed == null) {
-      if (feedAsync.isLoading) return const _TxSkeleton();
-      return ListView(
-        children: [
-          const SizedBox(height: 120),
-          EmptyState(
-            icon: Icons.cloud_off,
-            title: l.errServerUnreachable,
-            subtitle: l.errCheckWifi,
-            actionLabel: l.actionRetry,
-            onAction: () =>
-                ref.read(transactionsProvider(_filters).notifier).refresh(),
-          ),
-        ],
-      );
-    }
-
-    if (feed.items.isEmpty) {
-      return ListView(
-        children: [
-          const SizedBox(height: 100),
-          EmptyState(
-            icon: Icons.receipt_long_outlined,
-            title: _hasFilters
-                ? l.txNoneForFilter
-                : l.financeNoTransactionsYet,
-            secondaryLabel: _hasFilters ? l.txFilterClear : null,
-            onSecondary: _hasFilters ? _clearFilters : null,
-          ),
-        ],
-      );
-    }
-
-    final groups = _groupByDay(feed.items);
-    final slivers = <Widget>[];
-    for (final g in groups) {
-      slivers.add(SliverPersistentHeader(
-        pinned: true,
-        delegate: _DayHeaderDelegate(g.label, c),
-      ));
-      slivers.add(SliverList(
-        delegate: SliverChildBuilderDelegate(
-          (context, i) {
-            final tx = g.items[i];
-            return Dismissible(
-              key: ValueKey('tx-${tx.id}'),
-              direction: DismissDirection.endToStart,
-              confirmDismiss: (_) => _confirmDelete(tx),
-              background: Container(
-                color: c.error,
-                alignment: Alignment.centerRight,
-                padding: const EdgeInsets.only(right: 24),
-                child: Icon(Icons.delete_outline, color: c.inkHi),
-              ),
-              child: TxRow(tx: tx, onTap: () => _showDetail(tx)),
-            );
-          },
-          childCount: g.items.length,
+      if (feedAsync.isFirstLoad) return const _TxSkeleton();
+      return RefreshIndicator.adaptive(
+        color: c.gold,
+        onRefresh: _refresh,
+        child: ListView(
+          physics: const AlwaysScrollableScrollPhysics(),
+          children: [
+            const SizedBox(height: 120),
+            EmptyState(
+              icon: Icons.cloud_off,
+              title: l.errServerUnreachable,
+              subtitle: l.errCheckWifi,
+              actionLabel: l.actionRetry,
+              onAction: _refresh,
+            ),
+          ],
         ),
-      ));
+      );
     }
-    slivers.add(SliverToBoxAdapter(
-      child: SizedBox(
-        height: 80,
-        child: Center(
-          child: feed.hasMore
-              ? const SizedBox(
-                  width: 20,
-                  height: 20,
-                  child: CircularProgressIndicator(strokeWidth: 2),
-                )
-              : Text(l.txAllLoaded,
-                  style: Theme.of(context)
-                      .textTheme
-                      .labelSmall!
-                      .copyWith(color: c.inkLow)),
+
+    final items = withoutDeleted(
+      feed.items,
+      hidden,
+      DataScope.transactions,
+      (tx) => tx.id,
+    );
+    if (items.isEmpty) {
+      return RefreshIndicator.adaptive(
+        color: c.gold,
+        onRefresh: _refresh,
+        child: ListView(
+          physics: const AlwaysScrollableScrollPhysics(),
+          children: [
+            const SizedBox(height: 100),
+            EmptyState(
+              icon: Icons.receipt_long_outlined,
+              title: _hasFilters
+                  ? l.txNoneForFilter
+                  : l.financeNoTransactionsYet,
+              actionLabel: _hasFilters ? null : l.financeFirstTxAction,
+              onAction: _hasFilters ? null : _add,
+              secondaryLabel: _hasFilters ? l.txFilterClear : null,
+              onSecondary: _hasFilters ? _clearFilters : null,
+            ),
+          ],
+        ),
+      );
+    }
+
+    final groups = _groupByDay(items);
+    final perspective = _accountId;
+    final slivers = <Widget>[
+      // One group per day: its header pins while the day is on screen and
+      // is pushed away by the next day's, instead of piling up under the
+      // filters.
+      for (final g in groups)
+        SliverMainAxisGroup(
+          key: ValueKey('day-${g.key.toIso8601String()}'),
+          slivers: [
+            PinnedHeaderSliver(child: _DayHeader(g.label)),
+            SliverList.builder(
+              itemCount: g.items.length,
+              itemBuilder: (context, i) {
+                final tx = g.items[i];
+                return _SwipeToDelete(
+                  key: ValueKey('tx-${tx.id}'),
+                  onDelete: () => deleteTransactionWithUndo(context, ref, tx),
+                  child: TxRow(
+                    tx: tx,
+                    perspectiveAccountId: perspective,
+                    onTap: () => showTransactionSheet(
+                      context,
+                      ref,
+                      tx,
+                      perspectiveAccountId: perspective,
+                      // In place at once — also deep in a long list, past
+                      // what the edit's refetch reloads.
+                      onSaved: (saved) => ref
+                          .read(transactionsProvider(_filters).notifier)
+                          .replaceLocally(saved),
+                    ),
+                  ),
+                );
+              },
+            ),
+          ],
+        ),
+      SliverToBoxAdapter(
+        child: SizedBox(
+          height: 96,
+          child: Center(
+            child: feed.hasMore
+                ? const SizedBox(
+                    width: 20,
+                    height: 20,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  )
+                : Text(l.txAllLoaded,
+                    style: Theme.of(context)
+                        .textTheme
+                        .labelSmall!
+                        .copyWith(color: c.inkLow)),
+          ),
         ),
       ),
-    ));
+    ];
 
     return RefreshIndicator.adaptive(
       color: c.gold,
-      onRefresh: () =>
-          ref.read(transactionsProvider(_filters).notifier).refresh(),
-      child: CustomScrollView(controller: _scroll, slivers: slivers),
+      onRefresh: _refresh,
+      child: CustomScrollView(
+        controller: _scroll,
+        physics: const AlwaysScrollableScrollPhysics(),
+        slivers: slivers,
+      ),
     );
   }
 
@@ -472,34 +563,77 @@ class _DayGroup {
   _DayGroup(this.key, this.label, this.items);
 }
 
-class _DayHeaderDelegate extends SliverPersistentHeaderDelegate {
+/// A day's heading; at least 36 dp, taller with large text.
+class _DayHeader extends StatelessWidget {
   final String label;
-  final NokturnColors colors;
-  _DayHeaderDelegate(this.label, this.colors);
+  const _DayHeader(this.label);
 
   @override
-  double get minExtent => 36;
-  @override
-  double get maxExtent => 36;
-
-  @override
-  Widget build(BuildContext context, double shrinkOffset, bool overlaps) {
+  Widget build(BuildContext context) {
+    final c = context.nok;
     final text = Theme.of(context).textTheme;
-    return Container(
-      height: 36,
-      color: colors.bg,
-      alignment: Alignment.centerLeft,
-      padding: const EdgeInsets.symmetric(horizontal: 20),
-      child: Text(
-        label,
-        style: text.labelMedium!.copyWith(color: colors.inkMid),
+    return Semantics(
+      header: true,
+      child: Container(
+        constraints: const BoxConstraints(minHeight: 36),
+        color: c.bg,
+        alignment: Alignment.centerLeft,
+        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
+        child: Text(
+          label,
+          style: text.labelMedium!.copyWith(color: c.inkMid),
+        ),
       ),
     );
   }
+}
+
+/// A transaction row that a swipe to the left deletes — with "Geri al",
+/// no dialog. The swipe shows what it will do; screen readers get the same
+/// as an action, and a tap opens the row's sheet, which has "Sil" too.
+class _SwipeToDelete extends StatelessWidget {
+  final VoidCallback onDelete;
+  final Widget child;
+
+  const _SwipeToDelete({
+    required super.key,
+    required this.onDelete,
+    required this.child,
+  });
 
   @override
-  bool shouldRebuild(_DayHeaderDelegate old) =>
-      old.label != label || old.colors != colors;
+  Widget build(BuildContext context) {
+    final c = context.nok;
+    final text = Theme.of(context).textTheme;
+    final l = context.l10n;
+    return Semantics(
+      customSemanticsActions: {
+        CustomSemanticsAction(label: l.actionDelete): onDelete,
+      },
+      child: Dismissible(
+        key: key!,
+        direction: DismissDirection.endToStart,
+        onDismissed: (_) => onDelete(),
+        background: Container(
+          color: c.error,
+          alignment: Alignment.centerRight,
+          padding: const EdgeInsets.only(right: 24),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                l.actionDelete,
+                style: text.labelLarge!.copyWith(color: c.bg),
+              ),
+              const SizedBox(width: 8),
+              Icon(Icons.delete_outline, color: c.bg),
+            ],
+          ),
+        ),
+        child: child,
+      ),
+    );
+  }
 }
 
 class _TxSkeleton extends StatelessWidget {

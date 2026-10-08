@@ -7,6 +7,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:meridian_mobile/core/locale_mode.dart';
 import 'package:meridian_mobile/core/session.dart';
+import 'package:meridian_mobile/data/current_day.dart';
 import 'package:meridian_mobile/models/user.dart';
 import 'package:meridian_mobile/l10n/app_l10n.dart';
 import 'package:meridian_mobile/theme/app_theme.dart';
@@ -107,7 +108,8 @@ void main() {
     // Fallback name + placeholder currency, no email row.
     expect(find.text('Kullanıcı'), findsOneWidget);
     expect(find.text('demo@meridian.local'), findsNothing);
-    expect(find.text('—'), findsOneWidget); // currency placeholder
+    // Currency and time zone placeholders.
+    expect(find.text('—'), findsNWidgets(2));
 
     // Screen chrome still present.
     expect(find.text('Profil'), findsOneWidget);
@@ -153,6 +155,55 @@ void main() {
     await tester.tap(find.text('Türkçe'));
     await tester.pumpAndSettle();
     expect(find.text('Profil'), findsOneWidget);
+  });
+
+  group('the account\'s time zone', () {
+    const istanbul = User(
+      id: 9,
+      displayName: 'Demo User',
+      initials: 'DU',
+      email: 'demo@meridian.local',
+      currency: 'TRY',
+      subunitToUnit: 100,
+      locale: 'tr',
+      themePreference: 'dark',
+      timezone: 'Istanbul',
+      timezoneIana: 'Europe/Istanbul',
+      utcOffset: Duration(hours: 3),
+    );
+
+    Future<void> pump(WidgetTester tester, Duration device) async {
+      await tester.binding.setSurfaceSize(const Size(500, 1400));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+      await tester.pumpWidget(ProviderScope(
+        overrides: [
+          sharedPrefsProvider.overrideWithValue(_prefs),
+          currentUserProvider.overrideWithValue(istanbul),
+          deviceUtcOffsetProvider.overrideWithValue(device),
+          apiHealthProvider.overrideWith(
+            (ref) async => (ok: true, latencyMs: 12, version: '1.0.0'),
+          ),
+        ],
+        child: _app(),
+      ));
+      await tester.pumpAndSettle();
+    }
+
+    testWidgets('is shown with its offset', (tester) async {
+      await pump(tester, const Duration(hours: 3));
+      expect(find.text('Saat dilimi'), findsOneWidget);
+      expect(find.text('Europe/Istanbul (UTC+03:00)'), findsOneWidget);
+      expect(find.textContaining('Bu cihaz'), findsNothing);
+    });
+
+    testWidgets('says so when this phone is in another zone', (tester) async {
+      await pump(tester, const Duration(hours: -4));
+      expect(
+        find.text('Bu cihaz UTC-04:00 kullanıyor. Günler ve saatler hesabının '
+            'saat dilimine göre gösterilir.'),
+        findsOneWidget,
+      );
+    });
   });
 }
 

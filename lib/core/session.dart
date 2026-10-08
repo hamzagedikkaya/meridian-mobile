@@ -13,6 +13,13 @@ class PrefKeys {
   static const locale = 'locale';
   static const themeMode = 'theme_mode';
 
+  /// The time-zone pair whose notice on Today was dismissed (see
+  /// `zoneMismatchProvider`): account and device offsets in minutes.
+  static const zoneNoticeDismissed = 'zone_notice_dismissed';
+
+  /// The account the last transaction was saved on: a new one starts there.
+  static const lastAccountId = 'last_account_id';
+
   /// Device-level settings that survive a sign-out.
   static const keptOnSignOut = [serverUrl, locale, themeMode];
 }
@@ -199,18 +206,33 @@ class SessionController extends Notifier<SessionState> {
     _probeMe();
   }
 
-  Future<void> _probeMe() async {
+  Future<void> _probeMe({
+    Duration timeout = const Duration(milliseconds: 2500),
+  }) async {
     try {
       final res = await ref.read(dioProvider).get(
             '/me',
-            options: Options(receiveTimeout: const Duration(milliseconds: 2500)),
+            options: Options(receiveTimeout: timeout),
           );
       final user =
           User.fromJson((res.data as Map)['user'] as Map<String, dynamic>);
-      if (state is SessionLoggedIn) state = SessionLoggedIn(user: user);
-    } on DioException {
-      // Offline keeps the optimistic session; a 401 is ejected by the interceptor.
+      if (ref.mounted && state is SessionLoggedIn) {
+        state = SessionLoggedIn(user: user);
+      }
+    } catch (_) {
+      // Offline keeps the optimistic session (the next resume or Today
+      // refresh asks again); a 401 is ejected by the interceptor; an
+      // unreadable payload leaves the last good user in place.
     }
+  }
+
+  /// Re-reads the signed-in user (`GET /me`): name, initials, currency,
+  /// language and theme may have changed on the web, or the probe at launch
+  /// may have failed. Called when the app comes back to the foreground and on
+  /// Today's pull-to-refresh. Never throws.
+  Future<void> refreshMe() async {
+    if (state is! SessionLoggedIn) return;
+    await _probeMe(timeout: const Duration(seconds: 10));
   }
 
   Future<void> login(String email, String password) async {

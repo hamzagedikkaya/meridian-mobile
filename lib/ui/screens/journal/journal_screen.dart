@@ -1,18 +1,21 @@
 import 'package:flutter/material.dart';
-import 'package:flutter_animate/flutter_animate.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../../core/haptics.dart';
 import '../../../data/providers.dart';
+import '../../../data/sync.dart';
 import '../../../models/journal.dart';
 import '../../../theme/app_colors.dart';
 import '../../../ui/widgets/empty_state.dart';
+import '../../../ui/widgets/entrance.dart';
 import '../../../ui/widgets/nokturn_card.dart';
 import '../../../ui/widgets/offline_banner.dart';
 import '../../../ui/widgets/segmented_pill.dart';
 import '../../../ui/widgets/skeletons.dart';
+import '../../../ui/widgets/sync_hint.dart';
 import '../../../l10n/app_l10n.dart';
+import '../shell/app_tabs.dart';
 import 'journal_editor.dart';
 import 'widgets/journal_card.dart';
 import 'widgets/mood.dart';
@@ -29,16 +32,27 @@ class JournalScreen extends ConsumerStatefulWidget {
   ConsumerState<JournalScreen> createState() => _JournalScreenState();
 }
 
-class _JournalScreenState extends ConsumerState<JournalScreen> {
+class _JournalScreenState extends ConsumerState<JournalScreen>
+    with TabRootScroll<JournalScreen> {
+  @override
+  AppTab get tab => AppTab.journal;
+
   String _range = '30d';
   String? _moodFilter;
-  bool _staggerDone = false;
+
+  /// Cards play their entrance with the first data of a range (see
+  /// [Entrance]); refreshes then update them in place.
+  bool _stagger = true;
   bool _staggerScheduled = false;
+
+  /// The last range that had data. While a newly picked range loads, it
+  /// stays on screen, dimmed, instead of a skeleton.
+  JournalBundle? _lastShown;
 
   Future<void> _refresh() async {
     Haptics.celebrate();
-    ref.invalidate(journalProvider(_range));
-    await ref.read(journalProvider(_range).future);
+    refreshTab(ref, AppTab.journal);
+    await settleRefresh([ref.read(journalProvider(_range).future)]);
   }
 
   void _setRange(String range) {
@@ -46,7 +60,7 @@ class _JournalScreenState extends ConsumerState<JournalScreen> {
     setState(() {
       _range = range;
       _moodFilter = null;
-      _staggerDone = false;
+      _stagger = true;
       _staggerScheduled = false;
     });
   }
@@ -61,48 +75,68 @@ class _JournalScreenState extends ConsumerState<JournalScreen> {
     final async = ref.watch(journalProvider(_range));
     final fetched = async.value;
     final bundle = fetched?.data;
-    final firstLoading = async.isLoading && bundle == null;
-    final showOffline = async.hasError && bundle != null;
-    final showErrorState = async.hasError && bundle == null;
+    if (bundle != null) _lastShown = bundle;
+    // A newly picked range is loading: keep the previous one up, dimmed.
+    final previous = async.isFirstLoad ? _lastShown : null;
+    final shown = bundle ?? previous;
+    final firstLoading = async.isFirstLoad && shown == null;
+    final showOffline = async.refreshFailed;
+    final showErrorState = async.hasFailed;
 
-    return Scaffold(
+    return primaryScroll(Scaffold(
       appBar: AppBar(title: Text(context.l10n.titleJournal)),
       floatingActionButton: FloatingActionButton(
         onPressed: () => openJournalEditor(context),
         child: const Icon(Icons.add),
       ),
-      body: RefreshIndicator.adaptive(
-        color: context.nok.gold,
-        onRefresh: _refresh,
-        child: showErrorState
-            ? _errorView(context)
-            : CustomScrollView(
-                slivers: [
-                  if (showOffline)
-                    SliverToBoxAdapter(
-                      child: OfflineBanner(
-                        lastUpdated: fetched!.at,
-                        onRetry: _refresh,
-                      ),
-                    ),
-                  SliverToBoxAdapter(child: _header(context, bundle)),
-                  if (firstLoading)
-                    SliverToBoxAdapter(child: _skeleton(context))
-                  else if (bundle == null || bundle.entriesCount == 0)
-                    SliverFillRemaining(
-                      hasScrollBody: false,
-                      child: _emptyView(context),
-                    )
-                  else
-                    ..._entrySlivers(context, bundle),
-                  const SliverToBoxAdapter(child: SizedBox(height: 96)),
-                ],
+      body: SyncHint.over(
+        active: async.isRefetching || previous != null,
+        child: RefreshIndicator.adaptive(
+          color: context.nok.gold,
+          onRefresh: _refresh,
+          child: CustomScrollView(
+            primary: true,
+            physics: const AlwaysScrollableScrollPhysics(),
+            slivers: [
+              if (showOffline)
+                SliverToBoxAdapter(
+                  child: OfflineBanner(
+                    lastUpdated: fetched!.at,
+                    onRetry: _refresh,
+                  ),
+                ),
+              // The range pill stays reachable in every state, the error
+              // one included, so another range can always be picked.
+              SliverToBoxAdapter(
+                child: _header(context, shown, dimmed: previous != null),
               ),
+              if (showErrorState)
+                SliverFillRemaining(
+                  hasScrollBody: false,
+                  child: _errorView(context),
+                )
+              else if (firstLoading)
+                SliverToBoxAdapter(child: _skeleton(context))
+              else if (shown == null || shown.entriesCount == 0)
+                SliverFillRemaining(
+                  hasScrollBody: false,
+                  child: _emptyView(context),
+                )
+              else
+                ..._entrySlivers(context, shown, dimmed: previous != null),
+              const SliverToBoxAdapter(child: SizedBox(height: 96)),
+            ],
+          ),
+        ),
       ),
-    );
+    ));
   }
 
-  Widget _header(BuildContext context, JournalBundle? bundle) {
+  Widget _header(
+    BuildContext context,
+    JournalBundle? bundle, {
+    required bool dimmed,
+  }) {
     final c = context.nok;
     final text = Theme.of(context).textTheme;
     final l = context.l10n;
@@ -122,15 +156,20 @@ class _JournalScreenState extends ConsumerState<JournalScreen> {
             ),
           ),
           const SizedBox(height: 12),
-          Row(
-            children: [
-              Text(l.journalEntriesCount(count),
-                  style: text.bodySmall!.copyWith(color: c.inkMid)),
-              if (streak > 0) ...[
-                const SizedBox(width: 8),
-                _FlamePill(streak),
+          // The previous range's numbers, dimmed like its cards, until the
+          // newly picked range arrives.
+          Opacity(
+            opacity: dimmed ? 0.5 : 1,
+            child: Row(
+              children: [
+                Text(l.journalEntriesCount(count),
+                    style: text.bodySmall!.copyWith(color: c.inkMid)),
+                if (streak > 0) ...[
+                  const SizedBox(width: 8),
+                  _FlamePill(streak),
+                ],
               ],
-            ],
+            ),
           ),
           const SizedBox(height: 16),
         ],
@@ -138,22 +177,26 @@ class _JournalScreenState extends ConsumerState<JournalScreen> {
     );
   }
 
-  List<Widget> _entrySlivers(BuildContext context, JournalBundle bundle) {
+  List<Widget> _entrySlivers(
+    BuildContext context,
+    JournalBundle bundle, {
+    required bool dimmed,
+  }) {
     final entries = _moodFilter == null
         ? bundle.entries
         : bundle.entries.where((e) => e.mood == _moodFilter).toList();
 
-    final stagger = !_staggerDone;
+    final stagger = _stagger && !dimmed;
     if (stagger && !_staggerScheduled) {
       _staggerScheduled = true;
-      // Retire the stagger only after the last card's entrance finishes
-      // (5*50ms delay + 300ms), so rebuilds don't snap it mid-animation.
-      Future.delayed(const Duration(milliseconds: 650), () {
-        if (mounted && !_staggerDone) setState(() => _staggerDone = true);
+      // No setState: the cards already mounted keep playing (Entrance ignores
+      // later values); only cards mounted from now on skip the entrance.
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _stagger = false;
       });
     }
 
-    return [
+    final slivers = [
       SliverToBoxAdapter(
         child: Padding(
           padding: const EdgeInsets.fromLTRB(20, 0, 20, 12),
@@ -181,24 +224,32 @@ class _JournalScreenState extends ConsumerState<JournalScreen> {
       else
         SliverList.builder(
           itemCount: entries.length,
+          // A new entry at the top must not remount every card below it.
+          findChildIndexCallback: (key) {
+            final index =
+                entries.indexWhere((e) => ValueKey('entry-${e.id}') == key);
+            return index < 0 ? null : index;
+          },
           itemBuilder: (context, index) {
             final entry = entries[index];
-            Widget item = Padding(
-              padding: const EdgeInsets.fromLTRB(20, 0, 20, 12),
-              child: JournalCard(
-                entry: entry,
-                onTap: () => context.push('/journal/${entry.id}'),
+            return Entrance.staggered(
+              key: ValueKey('entry-${entry.id}'),
+              play: stagger,
+              index: index,
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(20, 0, 20, 12),
+                child: JournalCard(
+                  entry: entry,
+                  onTap: () => context.push('/journal/${entry.id}'),
+                ),
               ),
             );
-            if (stagger && index < 6) {
-              item = item
-                  .animate(delay: (50 * index).ms)
-                  .fadeIn(duration: 300.ms)
-                  .slideY(begin: 0.06, duration: 300.ms);
-            }
-            return item;
           },
         ),
+    ];
+    if (!dimmed) return slivers;
+    return [
+      for (final sliver in slivers) SliverOpacity(opacity: 0.5, sliver: sliver),
     ];
   }
 
@@ -244,19 +295,12 @@ class _JournalScreenState extends ConsumerState<JournalScreen> {
 
   Widget _errorView(BuildContext context) {
     final l = context.l10n;
-    return ListView(
-      children: [
-        SizedBox(
-          height: MediaQuery.sizeOf(context).height * 0.7,
-          child: EmptyState(
-            icon: Icons.cloud_off,
-            title: l.errServerUnreachable,
-            subtitle: l.errCheckWifi,
-            actionLabel: l.actionRetry,
-            onAction: _refresh,
-          ),
-        ),
-      ],
+    return EmptyState(
+      icon: Icons.cloud_off,
+      title: l.errServerUnreachable,
+      subtitle: l.errCheckWifi,
+      actionLabel: l.actionRetry,
+      onAction: _refresh,
     );
   }
 }

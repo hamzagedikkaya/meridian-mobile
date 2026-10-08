@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/date_symbol_data_local.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import 'core/api.dart';
 import 'core/locale_mode.dart';
 import 'core/session.dart';
 import 'core/theme_mode.dart';
@@ -19,6 +20,9 @@ Future<void> main() async {
 
   runApp(
     ProviderScope(
+      // Fail in seconds, not after Riverpod's ~40-90 s of silent retries.
+      // The read models apply it inside each fetch (see `retried`).
+      retry: readRetry,
       overrides: [sharedPrefsProvider.overrideWithValue(prefs)],
       child: const MeridianApp(),
     ),

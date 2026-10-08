@@ -10,15 +10,23 @@ import 'widgets/habit_visuals.dart';
 
 /// One card per habit — 72dp core row + 14-day chain (daily) or a period pill
 /// (weekly/monthly). Design §4.5.
+///
+/// The trailing control logs today: a daily habit with a target above one
+/// counts within the day (`− n/target +`); every other habit is done or not
+/// for the day (the ring) — a weekly or monthly habit counts *days* toward
+/// its period, which the pill under it shows.
 class HabitCard extends StatelessWidget {
   final Habit habit;
-  final void Function(int delta) onToggle;
+
+  /// Today's count the tap asks for, worked out from what the card shows:
+  /// the ring's target or 0, the counter one step up or down.
+  final void Function(int count) onLog;
   final VoidCallback onOpen;
 
   const HabitCard({
     super.key,
     required this.habit,
-    required this.onToggle,
+    required this.onLog,
     required this.onOpen,
   });
 
@@ -74,7 +82,7 @@ class HabitCard extends StatelessWidget {
                   ),
                 ),
                 const SizedBox(width: 12),
-                _trailing(color),
+                _trailing(context, color),
               ],
             ),
           ),
@@ -87,19 +95,31 @@ class HabitCard extends StatelessWidget {
     );
   }
 
-  Widget _trailing(Color color) {
-    if (habit.targetCount <= 1) {
-      return HabitCheck(
-        completed: habit.today.completed,
-        color: color,
-        onTap: () => onToggle(habit.today.completed ? -1 : 1),
+  Widget _trailing(BuildContext context, Color color) {
+    final label = context.l10n.habitLogSemantics(
+      habit.name,
+      count: habit.today.count,
+      target: habit.countsWithinDay ? habit.targetCount : 1,
+      done: habit.today.completed,
+    );
+    if (!habit.countsWithinDay) {
+      return Semantics(
+        label: label,
+        button: true,
+        checked: habit.today.completed,
+        child: HabitCheck(
+          completed: habit.today.completed,
+          color: color,
+          onTap: () => onLog(habit.checkCount),
+        ),
       );
     }
     return CounterPill(
       count: habit.today.count,
       target: habit.targetCount,
       color: color,
-      onDelta: onToggle,
+      semanticLabel: label,
+      onDelta: (delta) => onLog(habit.today.count + delta),
     );
   }
 

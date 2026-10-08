@@ -4,12 +4,14 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:intl/date_symbol_data_local.dart';
 
+import 'package:meridian_mobile/core/session.dart';
 import 'package:meridian_mobile/data/providers.dart';
 import 'package:meridian_mobile/models/account.dart';
 import 'package:meridian_mobile/models/finance_dashboard.dart';
 import 'package:meridian_mobile/models/transaction.dart';
 import 'package:meridian_mobile/l10n/app_l10n.dart';
 import 'package:meridian_mobile/theme/app_theme.dart';
+import 'package:meridian_mobile/ui/screens/finance/transaction_form_screen.dart';
 import 'package:meridian_mobile/ui/screens/finance/transactions_screen.dart';
 import 'package:meridian_mobile/ui/screens/finance/finance_screen.dart';
 
@@ -342,7 +344,10 @@ void main() {
           find.text('Bütçeler'), list, const Offset(0, -300));
       await tester.pumpAndSettle();
       expect(find.text('Bütçeler'), findsOneWidget);
-      expect(find.text('aşıldı'), findsOneWidget); // over-budget (limit 0) pill
+      // Over budget (limit 0): by how much, never an "exceeded" label.
+      expect(find.text('50,00 ₺ fazla'), findsOneWidget);
+      // Spent against the limit.
+      expect(find.text('900,00 ₺ / 2.000,00 ₺'), findsOneWidget);
 
       await tester.dragUntilVisible(
           find.text('Restoran — Lokanta'), list, const Offset(0, -300));
@@ -370,7 +375,8 @@ void main() {
       expect(find.text('BU YIL NET'), findsOneWidget);
     });
 
-    testWidgets('empty state: no accounts, no spend', (tester) async {
+    testWidgets('first run: no account at all — one calm card, one step',
+        (tester) async {
       _phone(tester);
       await tester.pumpWidget(_host(
         const FinanceScreen(),
@@ -384,17 +390,35 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(tester.takeException(), isNull);
-      expect(find.text('İlk hesabını ekle'), findsOneWidget);
-      expect(find.text('Bu ay harcama yok'), findsOneWidget);
+      expect(find.text('İlk hesabını oluştur'), findsOneWidget);
+      expect(find.text('Nakit hesabıyla başla'), findsOneWidget);
+      expect(find.text('Başka bir hesap ekle'), findsOneWidget);
+      // Nothing else competes with it: no empty charts, no transaction FAB
+      // (it would need an account first).
+      expect(find.text('Bu ay harcama yok'), findsNothing);
+      expect(find.byType(FloatingActionButton), findsNothing);
+    });
 
-      // The empty "Son işlemler" card sits at the bottom of the list.
-      await tester.dragUntilVisible(
-          find.text('Henüz işlem yok'),
-          find.byType(ListView),
-          const Offset(0, -300));
+    testWidgets('an account but no transaction yet: the next step is the '
+        'first transaction', (tester) async {
+      _phone(tester);
+      await tester.pumpWidget(_host(
+        const FinanceScreen(),
+        [
+          financeDashboardProvider
+              .overrideWith((ref) => Fetched(_emptyDashboard(), _at)),
+          accountsProvider.overrideWith(
+              (ref) => Fetched(_accounts().take(1).toList(), _at)),
+        ],
+      ));
       await tester.pumpAndSettle();
-      expect(find.text('Henüz işlem yok'), findsOneWidget);
+
       expect(tester.takeException(), isNull);
+      expect(find.text('İlk işlemini ekle'), findsOneWidget);
+      expect(find.text('İşlem ekle'), findsOneWidget);
+      expect(find.byType(FloatingActionButton), findsOneWidget);
+      // The accounts carousel says how to add another.
+      expect(find.byTooltip('Yeni hesap'), findsOneWidget);
     });
   });
 
@@ -407,6 +431,9 @@ void main() {
           transactionsProvider
               .overrideWith2((filters) => _StubTxNotifier(_feed(empty: false))),
           accountsProvider.overrideWith((ref) => Fetched(_accounts(), _at)),
+          // The screen keeps the category list loaded for its filter.
+          categoriesProvider
+              .overrideWith((ref) => Fetched(const <TxCategory>[], _at)),
         ],
       ));
       await tester.pumpAndSettle();
@@ -428,12 +455,92 @@ void main() {
           transactionsProvider
               .overrideWith2((filters) => _StubTxNotifier(_feed(empty: true))),
           accountsProvider.overrideWith((ref) => Fetched(_accounts(), _at)),
+          categoriesProvider
+              .overrideWith((ref) => Fetched(const <TxCategory>[], _at)),
         ],
       ));
       await tester.pumpAndSettle();
 
       expect(tester.takeException(), isNull);
       expect(find.text('Henüz işlem yok'), findsOneWidget);
+    });
+  });
+
+  group('İşlem formu: closing it without saving', () {
+    /// Opens the form the way Finans, İşlemler and Hesap detayı do, and
+    /// collects what it resolves to.
+    Future<List<Transaction?>> openForm(
+      WidgetTester tester, {
+      Transaction? existing,
+    }) async {
+      // A large phone: the test font draws every glyph a full em wide, so
+      // the kind pill needs more room than it does in Inter.
+      tester.view.physicalSize = const Size(1290, 2796);
+      tester.view.devicePixelRatio = 3.0;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      final results = <Transaction?>[];
+      await tester.pumpWidget(_host(
+        Builder(
+          builder: (context) => Scaffold(
+            body: Center(
+              child: TextButton(
+                onPressed: () async {
+                  results.add(
+                    await openTransactionForm(context, existing: existing),
+                  );
+                },
+                child: const Text('open'),
+              ),
+            ),
+          ),
+        ),
+        [
+          currentUserProvider.overrideWithValue(null),
+          accountsProvider.overrideWith((ref) => Fetched(_accounts(), _at)),
+          categoriesProvider
+              .overrideWith((ref) => Fetched(const <TxCategory>[], _at)),
+        ],
+      ));
+      await tester.tap(find.text('open'));
+      await tester.pumpAndSettle();
+      expect(tester.takeException(), isNull);
+      expect(find.byType(TransactionFormScreen), findsOneWidget);
+      return results;
+    }
+
+    testWidgets('the close button closes a new form: no result, no error',
+        (tester) async {
+      final results = await openForm(tester);
+      await tester.tap(find.byIcon(Icons.close));
+      await tester.pumpAndSettle();
+      expect(tester.takeException(), isNull);
+      expect(find.byType(TransactionFormScreen), findsNothing);
+      expect(results, [null], reason: 'closed without saving');
+    });
+
+    testWidgets('the close button closes an edit form, and the system back '
+        'works afterwards as before', (tester) async {
+      final results = await openForm(
+        tester,
+        existing: _feed(empty: false).items.first,
+      );
+      expect(find.text('İşlemi Düzenle'), findsOneWidget);
+      await tester.tap(find.byIcon(Icons.close));
+      await tester.pumpAndSettle();
+      expect(tester.takeException(), isNull);
+      expect(find.byType(TransactionFormScreen), findsNothing);
+      expect(results, [null]);
+
+      // The navigator is not left stuck: the form opens and the back button
+      // closes it again.
+      await tester.tap(find.text('open'));
+      await tester.pumpAndSettle();
+      expect(find.byType(TransactionFormScreen), findsOneWidget);
+      expect(await tester.binding.handlePopRoute(), isTrue);
+      await tester.pumpAndSettle();
+      expect(find.byType(TransactionFormScreen), findsNothing);
+      expect(results, [null, null]);
     });
   });
 }

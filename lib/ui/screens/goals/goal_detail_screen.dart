@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../core/api.dart';
 import '../../../core/formats.dart';
 import '../../../core/haptics.dart';
 import '../../../l10n/app_l10n.dart';
@@ -8,18 +9,17 @@ import '../../../models/goal.dart';
 import '../../../theme/app_colors.dart';
 import '../../../theme/app_typography.dart';
 import '../../../data/providers.dart';
+import '../../../data/sync.dart';
+import '../../widgets/app_snackbar.dart';
 import '../../widgets/confirm_dialog.dart';
 import '../../widgets/empty_state.dart';
 import '../../widgets/money_text.dart';
 import '../../widgets/nokturn_card.dart';
+import '../../widgets/offline_banner.dart';
 import '../../widgets/primary_button.dart';
 import '../../widgets/progress_ring.dart';
+import '../../widgets/sync_hint.dart';
 import 'goal_ui.dart';
-
-final _goalDetailProvider =
-    FutureProvider.autoDispose.family<Goal, int>((ref, id) async {
-  return ref.watch(repositoryProvider).fetchGoal(id);
-});
 
 class GoalDetailScreen extends ConsumerStatefulWidget {
   final int goalId;
@@ -30,28 +30,27 @@ class GoalDetailScreen extends ConsumerStatefulWidget {
   ConsumerState<GoalDetailScreen> createState() => _GoalDetailScreenState();
 }
 
+/// Goal writes are reported by the repository; this goal, the Goals grid and
+/// Today's goal bars refresh from that — also when the screen is left before
+/// the server answers.
 class _GoalDetailScreenState extends ConsumerState<GoalDetailScreen> {
   bool _busy = false;
   bool _recalcLoading = false;
-
-  void _invalidate() {
-    ref.invalidate(_goalDetailProvider(widget.goalId));
-    ref.invalidate(goalsProvider);
-  }
 
   Future<void> _mutate(Future<Goal> Function() action) async {
     if (_busy) return;
     setState(() => _busy = true);
     try {
       final updated = await action();
-      _invalidate();
       if (updated.progressPercent >= 100) Haptics.celebrate();
-    } catch (_) {
+    } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context)
-          ..hideCurrentSnackBar()
-          ..showSnackBar(
-              SnackBar(content: Text(context.l10n.goalsActionFailed)));
+        final l = context.l10n;
+        showAppSnack(
+          context,
+          failureMessage(e, l, fallback: l.goalsActionFailed),
+          isError: true,
+        );
       }
     } finally {
       if (mounted) setState(() => _busy = false);
@@ -66,10 +65,17 @@ class _GoalDetailScreenState extends ConsumerState<GoalDetailScreen> {
         ref.read(repositoryProvider).goalRecalculate(widget.goalId),
         Future.delayed(const Duration(milliseconds: 300)),
       ]);
-      _invalidate();
       if ((results.first as Goal).progressPercent >= 100) Haptics.celebrate();
-    } catch (_) {
-      // Keep the last-good value; the provider stays populated.
+    } catch (e) {
+      // The last good value stays on screen; say the refresh did not happen.
+      if (mounted) {
+        final l = context.l10n;
+        showAppSnack(
+          context,
+          failureMessage(e, l, fallback: l.goalsActionFailed),
+          isError: true,
+        );
+      }
     } finally {
       if (mounted) setState(() => _recalcLoading = false);
     }
@@ -87,13 +93,14 @@ class _GoalDetailScreenState extends ConsumerState<GoalDetailScreen> {
     if (!ok || !mounted) return;
     try {
       await ref.read(repositoryProvider).abandonGoal(widget.goalId);
-      _invalidate();
       if (mounted) Navigator.of(context).pop();
-    } catch (_) {
+    } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context)
-          ..hideCurrentSnackBar()
-          ..showSnackBar(SnackBar(content: Text(l.goalsActionFailed)));
+        showAppSnack(
+          context,
+          failureMessage(e, l, fallback: l.goalsActionFailed),
+          isError: true,
+        );
       }
     }
   }
@@ -102,24 +109,51 @@ class _GoalDetailScreenState extends ConsumerState<GoalDetailScreen> {
   Widget build(BuildContext context) {
     final text = Theme.of(context).textTheme;
     final l = context.l10n;
-    final async = ref.watch(_goalDetailProvider(widget.goalId));
-    final goal = async.value;
+    final async = ref.watch(goalDetailProvider(widget.goalId));
+    final goal = async.value?.data;
+
+    void retry() =>
+        ref.read(dataSyncProvider).refresh([goalDetailProvider(widget.goalId)]);
+
+    final Widget body;
+    if (async.isGone) {
+      // Deleted on the web or another device: a retry could only answer 404
+      // again, so this says what happened instead of blaming the connection.
+      body = EmptyState(
+        icon: Icons.delete_outline,
+        title: l.goalsGone,
+        subtitle: l.errRecordGoneBody,
+        actionLabel: l.actionBack,
+        onAction: () => Navigator.of(context).maybePop(),
+      );
+    } else if (goal != null) {
+      body = Column(
+        children: [
+          // A refresh failed: the goal shown may be out of date.
+          if (async.refreshFailed)
+            OfflineBanner(
+              lastUpdated: async.value!.at,
+              onRetry: retry,
+            ),
+          Expanded(child: _content(goal)),
+        ],
+      );
+    } else if (async.hasFailed) {
+      body = EmptyState(
+        icon: Icons.cloud_off,
+        title: l.goalsLoadFailed,
+        actionLabel: l.actionRetry,
+        onAction: retry,
+      );
+    } else {
+      body = Center(
+        child: CircularProgressIndicator(color: context.nok.gold),
+      );
+    }
 
     return Scaffold(
       appBar: AppBar(title: Text(l.titleGoal, style: text.headlineMedium)),
-      body: goal == null
-          ? (async.isLoading
-              ? Center(
-                  child: CircularProgressIndicator(color: context.nok.gold),
-                )
-              : EmptyState(
-                  icon: Icons.cloud_off,
-                  title: l.goalsLoadFailed,
-                  actionLabel: l.actionRetry,
-                  onAction: () =>
-                      ref.invalidate(_goalDetailProvider(widget.goalId)),
-                ))
-          : _content(goal),
+      body: SyncHint.over(active: async.isRefetching, child: body),
     );
   }
 
@@ -403,6 +437,7 @@ class _DirectValueField extends StatefulWidget {
 
 class _DirectValueFieldState extends State<_DirectValueField> {
   late final TextEditingController _controller;
+  final _focus = FocusNode();
 
   @override
   void initState() {
@@ -410,9 +445,21 @@ class _DirectValueFieldState extends State<_DirectValueField> {
     _controller = TextEditingController(text: formatGoalNumber(widget.initial));
   }
 
+  /// Follows the goal when its value changes underneath — a ± step, a
+  /// refresh — so Save never writes back a stale number. Left alone while the
+  /// user is typing in it.
+  @override
+  void didUpdateWidget(_DirectValueField old) {
+    super.didUpdateWidget(old);
+    if (widget.initial != old.initial && !_focus.hasFocus) {
+      _controller.text = formatGoalNumber(widget.initial);
+    }
+  }
+
   @override
   void dispose() {
     _controller.dispose();
+    _focus.dispose();
     super.dispose();
   }
 
@@ -431,6 +478,7 @@ class _DirectValueFieldState extends State<_DirectValueField> {
         Expanded(
           child: TextField(
             controller: _controller,
+            focusNode: _focus,
             keyboardType: const TextInputType.numberWithOptions(decimal: true),
             decoration:
                 InputDecoration(labelText: context.l10n.goalsEnterValue),

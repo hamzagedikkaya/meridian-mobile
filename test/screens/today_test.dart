@@ -158,8 +158,8 @@ Future<void> pumpToday(WidgetTester tester, Map<String, dynamic> home) async {
   await tester.pumpWidget(
     ProviderScope(
       overrides: [
-        homeProvider.overrideWith(
-          (ref) => Fetched(summary, DateTime(2026, 7, 11)),
+        homeProvider.overrideWithBuild(
+          (ref, _) => Fetched(summary, DateTime(2026, 7, 11)),
         ),
         currentUserProvider.overrideWithValue(_fixtureUser),
       ],

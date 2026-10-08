@@ -1,17 +1,20 @@
 import 'package:flutter/material.dart';
-import 'package:flutter_animate/flutter_animate.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../../core/api.dart';
 import '../../../core/haptics.dart';
 import '../../../core/session.dart';
+import '../../../data/actions.dart';
 import '../../../data/providers.dart';
+import '../../../data/sync.dart';
 import '../../../l10n/app_l10n.dart';
 import '../../../models/home.dart';
 import '../../../models/todo.dart';
 import '../../../theme/app_colors.dart';
 import '../../widgets/app_snackbar.dart';
 import '../../widgets/empty_state.dart';
+import '../../widgets/entrance.dart';
 import '../../widgets/money_text.dart';
 import '../../widgets/nokturn_card.dart';
 import '../../widgets/offline_banner.dart';
@@ -19,12 +22,16 @@ import '../../widgets/paced_progress_bar.dart';
 import '../../widgets/section_header.dart';
 import '../../widgets/sparkline.dart';
 import '../../widgets/stat_chip.dart';
+import '../../widgets/sync_hint.dart';
+import '../habits/habit_log_sheet.dart';
+import '../shell/app_tabs.dart';
 import 'widgets/today_common.dart';
 import 'widgets/today_skeleton.dart';
 import 'widgets/event_row.dart';
 import 'widgets/home_habit_row.dart';
 import 'widgets/quick_capture_sheet.dart';
 import 'widgets/todo_row.dart';
+import 'widgets/zone_notice.dart';
 
 class TodayScreen extends ConsumerStatefulWidget {
   const TodayScreen({super.key});
@@ -33,70 +40,143 @@ class TodayScreen extends ConsumerStatefulWidget {
   ConsumerState<TodayScreen> createState() => _TodayScreenState();
 }
 
-class _TodayScreenState extends ConsumerState<TodayScreen> {
-  final Set<int> _optimisticTodoDone = {};
-  final Set<int> _togglingHabits = {};
+class _TodayScreenState extends ConsumerState<TodayScreen>
+    with TabRootScroll<TodayScreen> {
+  @override
+  AppTab get tab => AppTab.today;
+
+  /// Sections play their entrance only with the first data; refreshes then
+  /// update them in place (see [Entrance]).
   bool _animatedOnce = false;
 
+  /// Pull-to-refresh: Today summarises every domain, so it syncs everything.
   Future<void> _refresh() async {
     Haptics.celebrate();
-    ref.invalidate(homeProvider);
-    try {
-      await Future.wait([
-        ref.read(homeProvider.future),
-        Future.delayed(const Duration(milliseconds: 500)),
-      ]);
-    } catch (_) {
-      // Error surfaces through the AsyncValue; the banner handles it.
-    }
+    refreshTab(ref, AppTab.today);
+    await settleRefresh(
+      [refetchLanded(ref, homeProvider)],
+      minimum: const Duration(milliseconds: 500),
+    );
   }
 
-  Future<void> _toggleTodo(Todo todo) async {
-    if (_optimisticTodoDone.contains(todo.id)) return;
-    setState(() => _optimisticTodoDone.add(todo.id));
-    // CheckPop fires Haptics.success on the check itself — don't double-fire.
+  void _retry() => ref.read(dataSyncProvider).refresh([homeProvider]);
+
+  /// Checks [todo] off ([done]) or reopens it, on the spot (CheckPop fires
+  /// the success haptic), and sends that state. A finished todo leaves Today
+  /// with the refetch that follows; the snackbar's "Geri al" reopens it and
+  /// puts it back where it was ([restore]).
+  Future<void> _setTodoDone(
+    Todo todo, {
+    required bool done,
+    TodoPlace? restore,
+  }) async {
+    final l = context.l10n;
+    final actions = ref.read(todoActionsProvider);
+    final listed =
+        ref.read(homeProvider).value?.data.upcomingTodos ?? const <Todo>[];
+    final index = listed.indexWhere((t) => t.id == todo.id);
+    if (done) {
+      final place = (todo: todo, index: index < 0 ? listed.length : index);
+      // Up for 6 s, then gone — on every tab, since they share the
+      // messenger — or until dismissed while a screen reader is on (see
+      // [showAppSnack]).
+      showAppSnack(
+        context,
+        l.todayTodoDone(todo.title),
+        actionLabel: l.actionUndo,
+        onAction: () {
+          if (mounted) {
+            _setTodoDone(todo, done: false, restore: place);
+          } else {
+            // The snackbar outlived the screen (signed out, say): the undo
+            // still goes through, with nothing left to show it on.
+            actions
+                .setDone(todo.id, done: false, restore: place)
+                .then((_) {}, onError: (Object _) {});
+          }
+        },
+      );
+    }
     try {
-      await ref.read(repositoryProvider).toggleTodo(todo.id);
-      ref.invalidate(homeProvider);
-    } catch (_) {
+      await actions.setDone(todo.id, done: done, restore: restore);
+    } catch (e) {
       if (!mounted) return;
-      setState(() => _optimisticTodoDone.remove(todo.id));
-      showAppSnack(context, context.l10n.todayTodoUpdateFailed, isError: true);
+      showAppSnack(
+        context,
+        failureMessage(e, l, fallback: l.todayTodoUpdateFailed),
+        isError: true,
+      );
     }
   }
 
-  Future<void> _toggleHabit(HomeHabit habit) async {
-    if (_togglingHabits.contains(habit.id)) return;
-    // Was the day already complete before this tap? Used to fire the
-    // all-done celebration only on the transition (the last remaining habit).
-    final pre = ref.read(homeProvider).value?.data.todayHabits.take(6).toList() ??
-        const <HomeHabit>[];
-    final wasAllDone = pre.isNotEmpty && pre.every((h) => h.completedToday);
-    setState(() => _togglingHabits.add(habit.id));
-    try {
-      // CheckPop fires Haptics.success on the completing tap — don't double-fire.
-      await ref.read(repositoryProvider).toggleHabitToday(
-            habit.id,
-            delta: habit.targetCount > 1 ? 1 : null,
-          );
-      ref.invalidate(homeProvider);
-      final fresh = await ref.read(homeProvider.future);
-      final now = fresh.data.todayHabits.take(6).toList();
-      final nowAllDone = now.isNotEmpty && now.every((h) => h.completedToday);
-      if (!wasAllDone && nowAllDone) Haptics.celebrate();
-    } catch (_) {
-      if (mounted) {
-        showAppSnack(context, context.l10n.todayHabitUpdateFailed, isError: true);
-      }
-    } finally {
-      if (mounted) setState(() => _togglingHabits.remove(habit.id));
+  /// Logs [habit] for today here and on the Habits tab in the same frame;
+  /// the server's answer then refreshes streaks, goals and the rest. The
+  /// ring is done or not; a daily habit that counts more than once a day
+  /// goes up one per tap, and once it is full a tap opens its log, where it
+  /// can step back. Quick taps all count: one made while the habit's
+  /// previous tap is still waiting for the server shows at once and is sent
+  /// after it (see [HabitActions]).
+  Future<void> _tapHabit(HomeSummary home, HomeHabit habit) async {
+    final actions = ref.read(habitActionsProvider);
+    final counts = _counts(habit);
+    if (counts && habit.todayCount >= habit.targetCount) {
+      Haptics.tick();
+      await showHabitLogSheet(context, habitId: habit.id);
+      return;
     }
+    final count = counts
+        ? habit.todayCount + 1
+        : (habit.completedToday ? 0 : habit.targetCount);
+
+    // Fire the all-done celebration only on the transition (the last
+    // remaining habit), judged on the rows Today shows.
+    bool allDone() {
+      final shown =
+          ref.read(homeProvider).value?.data.todayHabits.take(6).toList() ??
+              const <HomeHabit>[];
+      return shown.isNotEmpty && shown.every((h) => h.completedToday);
+    }
+
+    final wasAllDone = allDone();
+    // CheckPop fires Haptics.success on the completing tap — don't double-fire.
+    final request = actions.setToday(habit.id, count, day: home.today);
+    // The optimistic patch has landed by the time setToday returns.
+    if (!wasAllDone && allDone()) Haptics.celebrate();
+    try {
+      await request;
+    } catch (e) {
+      if (!mounted) return;
+      final l = context.l10n;
+      showAppSnack(
+        context,
+        failureMessage(e, l, fallback: l.todayHabitUpdateFailed),
+        isError: true,
+      );
+    }
+  }
+
+  /// Whether [habit]'s day is a count (a daily habit with a target above
+  /// one) rather than done or not. `/home` does not say how often a habit
+  /// repeats; the habit payloads read so far do (see `HabitCadence`, which
+  /// reads the Habits list once when `/home` lists a habit none of them
+  /// named — and which the build watches, to redraw once it knows). Until
+  /// then the ring is done or not, which holds for any habit: a count would
+  /// misstate a weekly or monthly habit, whose target is days, not taps.
+  bool _counts(HomeHabit habit) =>
+      habit.targetCount > 1 &&
+      (ref.read(habitActionsProvider).isDaily(habit.id) ?? false);
+
+  void _openHabitLog(HomeHabit habit) {
+    Haptics.tick();
+    showHabitLogSheet(context, habitId: habit.id);
   }
 
   @override
   Widget build(BuildContext context) {
     final c = context.nok;
     final async = ref.watch(homeProvider);
+    // Which habits count within the day ([_counts]): redrawn once known.
+    ref.watch(habitCadenceProvider);
     final fetched = async.value;
 
     Widget body;
@@ -104,19 +184,22 @@ class _TodayScreenState extends ConsumerState<TodayScreen> {
       body = _content(
         context,
         fetched.data,
-        showOffline: async.hasError,
+        showOffline: async.refreshFailed,
         lastUpdated: fetched.at,
       );
-    } else if (async.hasError) {
+    } else if (async.hasFailed) {
       body = _errorState(context);
     } else {
       body = const TodaySkeleton();
     }
 
-    return Scaffold(
+    return primaryScroll(Scaffold(
       backgroundColor: c.bg,
-      body: SafeArea(bottom: false, child: body),
-    );
+      body: SafeArea(
+        bottom: false,
+        child: SyncHint.over(active: async.isRefetching, child: body),
+      ),
+    ));
   }
 
   Widget _errorState(BuildContext context) {
@@ -126,7 +209,7 @@ class _TodayScreenState extends ConsumerState<TodayScreen> {
       title: l.errServerUnreachable,
       subtitle: l.errCheckWifi,
       actionLabel: l.actionRetry,
-      onAction: () => ref.invalidate(homeProvider),
+      onAction: _retry,
       secondaryLabel: l.errServerSettings,
       onSecondary: () => context.push('/profile/server'),
     );
@@ -151,16 +234,18 @@ class _TodayScreenState extends ConsumerState<TodayScreen> {
         if (showOffline)
           OfflineBanner(
             lastUpdated: lastUpdated,
-            onRetry: () => ref.invalidate(homeProvider),
+            onRetry: _retry,
           ),
         Expanded(
           child: RefreshIndicator.adaptive(
             color: c.gold,
             onRefresh: _refresh,
             child: CustomScrollView(
+              primary: true,
               physics: const AlwaysScrollableScrollPhysics(),
               slivers: [
                 SliverToBoxAdapter(child: _appBar(context)),
+                const SliverToBoxAdapter(child: TodayZoneNotice()),
                 const SliverToBoxAdapter(child: SizedBox(height: 20)),
                 SliverPadding(
                   padding: const EdgeInsets.symmetric(horizontal: 20),
@@ -187,18 +272,8 @@ class _TodayScreenState extends ConsumerState<TodayScreen> {
     );
   }
 
-  Widget _stagger(Widget child, int index, bool animate) {
-    if (!animate) return child;
-    return child
-        .animate()
-        .fadeIn(duration: 300.ms, delay: (50 * index).ms)
-        .slideY(
-          begin: 0.06,
-          duration: 300.ms,
-          delay: (50 * index).ms,
-          curve: Curves.easeOutCubic,
-        );
-  }
+  Widget _stagger(Widget child, int index, bool animate) =>
+      Entrance.staggered(play: animate, index: index, child: child);
 
   // --- App bar ---------------------------------------------------------------
 
@@ -230,7 +305,7 @@ class _TodayScreenState extends ConsumerState<TodayScreen> {
             ),
           ),
           IconButton(
-            onPressed: () => showQuickCaptureSheet(context, ref),
+            onPressed: () => showQuickCaptureSheet(context),
             icon: const Icon(Icons.bolt),
             color: c.gold,
             tooltip: context.l10n.todayQuickCapture,
@@ -321,13 +396,17 @@ class _TodayScreenState extends ConsumerState<TodayScreen> {
   Widget _todayCard(BuildContext context, HomeSummary data) {
     final events = [...data.todayEvents]
       ..sort((a, b) => (a.allDay ? 0 : 1).compareTo(b.allDay ? 0 : 1));
+    // Keyed, so a row's check state follows its todo when the list shifts
+    // after a refetch.
     final rows = <Widget>[
-      for (final e in events.take(4)) EventRow(event: e),
+      for (final e in events.take(4))
+        EventRow(key: ValueKey('event-${e.id}'), event: e),
       for (final t in data.upcomingTodos)
         TodoRow(
+          key: ValueKey('todo-${t.id}'),
           todo: t,
-          done: _optimisticTodoDone.contains(t.id),
-          onToggle: () => _toggleTodo(t),
+          done: t.isDone,
+          onToggle: () => _setTodoDone(t, done: !t.isDone),
         ),
     ];
 
@@ -386,9 +465,11 @@ class _TodayScreenState extends ConsumerState<TodayScreen> {
             child: _withDividers([
               for (final h in habits)
                 HomeHabitRow(
+                  key: ValueKey('habit-${h.id}'),
                   habit: h,
-                  busy: _togglingHabits.contains(h.id),
-                  onToggle: () => _toggleHabit(h),
+                  counts: _counts(h),
+                  onTap: () => _tapHabit(data, h),
+                  onLongPress: () => _openHabitLog(h),
                 ),
             ]),
           ),
@@ -557,7 +638,10 @@ class _TodayScreenState extends ConsumerState<TodayScreen> {
                       itemBuilder: (_, i) => _SheetTodoRow(todo: todos[i]),
                     );
                   }
-                  if (async.hasError) {
+                  // The same rule as every screen (AsyncScreenState): the
+                  // failure only once the load's quick retry has failed too,
+                  // so a blip that the retry heals never flashes it.
+                  if (async.hasFailed) {
                     return Padding(
                       padding: const EdgeInsets.fromLTRB(20, 8, 20, 24),
                       child: Text(
@@ -566,6 +650,7 @@ class _TodayScreenState extends ConsumerState<TodayScreen> {
                       ),
                     );
                   }
+                  // isFirstLoad: the first load, its quick retry included.
                   return const Padding(
                     padding: EdgeInsets.symmetric(vertical: 32),
                     child: CircularProgressIndicator.adaptive(),
@@ -625,7 +710,7 @@ class _SheetTodoRow extends StatelessWidget {
     final c = context.nok;
     final text = Theme.of(context).textTheme;
     final edge = priorityEdgeColor(c, todo.priority);
-    final due = todo.dueAt;
+    final due = todo.dueDay;
 
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),

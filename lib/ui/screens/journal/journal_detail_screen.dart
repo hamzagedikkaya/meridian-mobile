@@ -6,15 +6,17 @@ import '../../../core/api.dart';
 import '../../../core/formats.dart';
 import '../../../core/haptics.dart';
 import '../../../data/providers.dart';
+import '../../../data/sync.dart';
 import '../../../l10n/app_l10n.dart';
 import '../../../models/journal.dart';
 import '../../../theme/app_colors.dart';
 import '../../../ui/widgets/app_snackbar.dart';
 import '../../../ui/widgets/confirm_dialog.dart';
 import '../../../ui/widgets/empty_state.dart';
+import '../../../ui/widgets/offline_banner.dart';
 import '../../../ui/widgets/skeletons.dart';
+import '../../../ui/widgets/sync_hint.dart';
 import 'journal_editor.dart';
-import 'journal_providers.dart';
 import 'widgets/energy_dots.dart';
 import 'widgets/journal_card.dart';
 import 'widgets/mood.dart';
@@ -35,11 +37,19 @@ class JournalDetailScreen extends ConsumerWidget {
     if (!ok || !context.mounted) return;
     Haptics.danger();
     try {
+      // The repository reports the delete and the journal lists refresh from
+      // that — also when this screen is left before the server answers. This
+      // entry itself is not asked for again while the screen animates out.
       await ref.read(repositoryProvider).deleteJournalEntry(entryId);
-      ref.invalidate(journalProvider);
       if (context.mounted) Navigator.of(context).pop();
-    } on ApiException catch (e) {
-      if (context.mounted) showAppSnack(context, e.localized(l), isError: true);
+    } catch (e) {
+      if (context.mounted) {
+        showAppSnack(
+          context,
+          failureMessage(e, l, fallback: l.journalDeleteFailed),
+          isError: true,
+        );
+      }
     }
   }
 
@@ -47,7 +57,44 @@ class JournalDetailScreen extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final l = context.l10n;
     final async = ref.watch(journalEntryProvider(entryId));
-    final entry = async.value;
+    // Deleted on the web or another device: the copy still cached here can
+    // be neither shown as current nor edited.
+    final entry = async.isGone ? null : async.value?.data;
+
+    final Widget body;
+    if (async.isGone) {
+      // A retry could only answer 404 again: say what happened instead of
+      // blaming the connection.
+      body = EmptyState(
+        icon: Icons.delete_outline,
+        title: l.journalGone,
+        subtitle: l.errRecordGoneBody,
+        actionLabel: l.actionBack,
+        onAction: () => Navigator.of(context).maybePop(),
+      );
+    } else if (entry != null) {
+      body = Column(
+        children: [
+          // A refresh failed: the entry shown may be out of date.
+          if (async.refreshFailed)
+            OfflineBanner(
+              lastUpdated: async.value!.at,
+              onRetry: () => _retry(ref),
+            ),
+          Expanded(child: _DetailBody(entry: entry)),
+        ],
+      );
+    } else if (async.hasFailed) {
+      body = EmptyState(
+        icon: Icons.cloud_off,
+        title: l.journalLoadFailed,
+        subtitle: l.errCheckWifi,
+        actionLabel: l.actionRetry,
+        onAction: () => _retry(ref),
+      );
+    } else {
+      body = _loading(context);
+    }
 
     return Scaffold(
       appBar: AppBar(
@@ -69,19 +116,12 @@ class JournalDetailScreen extends ConsumerWidget {
             ),
         ],
       ),
-      body: async.hasError && entry == null
-          ? EmptyState(
-              icon: Icons.cloud_off,
-              title: l.journalLoadFailed,
-              subtitle: l.errCheckWifi,
-              actionLabel: l.actionRetry,
-              onAction: () => ref.invalidate(journalEntryProvider(entryId)),
-            )
-          : entry == null
-              ? _loading(context)
-              : _DetailBody(entry: entry),
+      body: SyncHint.over(active: async.isRefetching, child: body),
     );
   }
+
+  void _retry(WidgetRef ref) =>
+      ref.read(dataSyncProvider).refresh([journalEntryProvider(entryId)]);
 
   Widget _loading(BuildContext context) {
     return NokSkeleton(

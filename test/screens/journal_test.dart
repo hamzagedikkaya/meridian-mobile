@@ -132,8 +132,7 @@ void main() {
 
     await tester.pumpWidget(_harness(_populatedBundle()));
     await tester.pumpAndSettle();
-    // Let the screen's 650ms stagger-retire timer fire so no timer outlives the
-    // widget tree (the flutter_animate entrance settles earlier, at ~550ms).
+    // Past the longest staggered entrance (6 × 50 ms delay + 300 ms).
     await tester.pump(const Duration(milliseconds: 700));
 
     expect(tester.takeException(), isNull);

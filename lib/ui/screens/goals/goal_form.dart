@@ -1,16 +1,21 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../core/api.dart';
 import '../../../core/formats.dart';
 import '../../../core/haptics.dart';
 import '../../../l10n/app_l10n.dart';
+import '../../../models/account.dart';
 import '../../../models/goal.dart';
+import '../../../models/habit.dart';
 import '../../../theme/app_colors.dart';
+import '../../../data/current_day.dart';
 import '../../../data/providers.dart';
 import '../../widgets/app_snackbar.dart';
 import '../../widgets/picker_sheet.dart';
 import '../../widgets/primary_button.dart';
 import '../../widgets/segmented_pill.dart';
+import '../finance/account_form.dart';
 import 'goal_ui.dart';
 
 const _swatches = [
@@ -66,7 +71,7 @@ class _GoalFormScreenState extends ConsumerState<GoalFormScreen> {
   }
 
   Future<void> _pickDeadline() async {
-    final now = DateTime.now();
+    final now = ref.read(currentDayProvider);
     final picked = await showDatePicker(
       context: context,
       initialDate: _deadline ?? now.add(const Duration(days: 30)),
@@ -76,28 +81,64 @@ class _GoalFormScreenState extends ConsumerState<GoalFormScreen> {
     if (picked != null) setState(() => _deadline = picked);
   }
 
+  /// The pickers read the same cached lists every screen shares (watched in
+  /// build, so already loaded and kept current), and say so when the server
+  /// cannot be reached instead of throwing.
+  Future<T?> _lookup<T>(Future<Fetched<T>> Function() load) async {
+    try {
+      return (await load()).data;
+    } on ApiException catch (e) {
+      if (mounted) showAppSnack(context, e.localized(context.l10n), isError: true);
+    } catch (_) {
+      if (mounted) {
+        showAppSnack(context, context.l10n.errNoConnection, isError: true);
+      }
+    }
+    return null;
+  }
+
+  /// Links an account — an active one, or one made here: with no account
+  /// yet, the account form opens straight away (a savings goal needs
+  /// somewhere to save).
   Future<void> _pickAccount() async {
-    final accounts = await ref.read(repositoryProvider).fetchAccounts();
-    if (!mounted) return;
-    final id = await showPickerSheet<int>(
-      context,
-      title: context.l10n.goalsFormLinkedAccount,
-      options: [
-        for (final a in accounts)
-          PickerOption(value: a.id, label: a.name, color: goalColor(a.color)),
-      ],
-    );
-    if (id == null) return;
-    final account = accounts.firstWhere((a) => a.id == id);
+    final l = context.l10n;
+    final List<Account>? all =
+        await _lookup(() => ref.read(accountsProvider.future));
+    if (all == null || !mounted) return;
+    final accounts = [for (final a in all) if (!a.archived) a];
+    const newAccount = -1;
+    final id = accounts.isEmpty
+        ? newAccount
+        : await showPickerSheet<int>(
+            context,
+            title: l.goalsFormLinkedAccount,
+            selected: int.tryParse(_related.replaceFirst('Account-', '')),
+            options: [
+              for (final a in accounts)
+                PickerOption(
+                    value: a.id, label: a.name, color: goalColor(a.color)),
+              PickerOption(
+                value: newAccount,
+                label: l.accountNew,
+                icon: Icons.add,
+              ),
+            ],
+          );
+    if (id == null || !mounted) return;
+    final account = id == newAccount
+        ? await openAccountForm(context)
+        : accounts.firstWhere((a) => a.id == id);
+    if (account == null || !mounted) return;
     setState(() {
-      _related = 'Account-$id';
+      _related = 'Account-${account.id}';
       _relatedLabel = account.name;
     });
   }
 
   Future<void> _pickHabit() async {
-    final bundle = await ref.read(repositoryProvider).fetchHabits();
-    if (!mounted) return;
+    final HabitsBundle? bundle =
+        await _lookup(() => ref.read(habitsProvider.future));
+    if (bundle == null || !mounted) return;
     final id = await showPickerSheet<int>(
       context,
       title: context.l10n.goalsFormLinkedHabit,
@@ -128,6 +169,8 @@ class _GoalFormScreenState extends ConsumerState<GoalFormScreen> {
 
     setState(() => _saving = true);
     try {
+      // The repository reports the new goal; the Goals grid and Today
+      // refresh from that, even if this form is closed before it answers.
       await ref.read(repositoryProvider).createGoal(
             GoalInput(
               name: name,
@@ -142,20 +185,36 @@ class _GoalFormScreenState extends ConsumerState<GoalFormScreen> {
               related: _related,
             ),
           );
-      ref.invalidate(goalsProvider);
       if (!mounted) return;
       Haptics.success();
       Navigator.of(context).pop();
       showAppSnack(context, l.goalsCreated);
-    } catch (_) {
+    } catch (e) {
       if (!mounted) return;
-      setState(() => _saving = false);
-      showAppSnack(context, l.goalsCreateFailed, isError: true);
+      // A refusal about a field goes under it; anything else to a snack.
+      final refusal = e is ApiException ? e : null;
+      final nameError = refusal?.fieldMessage(l, 'name');
+      final targetError = refusal?.fieldMessage(l, 'target_value');
+      setState(() {
+        _saving = false;
+        _nameError = nameError;
+        _targetError = targetError;
+      });
+      if (nameError == null && targetError == null) {
+        showAppSnack(
+          context,
+          failureMessage(e, l, fallback: l.goalsCreateFailed),
+          isError: true,
+        );
+      }
     }
   }
 
   @override
   Widget build(BuildContext context) {
+    // Loaded up front for the linked account / habit pickers.
+    ref.watch(accountsProvider);
+    ref.watch(habitsProvider);
     final c = context.nok;
     final text = Theme.of(context).textTheme;
     final l = context.l10n;
@@ -316,8 +375,15 @@ class _RowTile extends StatelessWidget {
         child: Row(
           children: [
             Text(label, style: text.titleSmall),
-            const Spacer(),
-            Text(value, style: text.bodyMedium!.copyWith(color: c.inkMid)),
+            const SizedBox(width: 12),
+            // A long account or habit name wraps instead of overflowing.
+            Expanded(
+              child: Text(
+                value,
+                textAlign: TextAlign.end,
+                style: text.bodyMedium!.copyWith(color: c.inkMid),
+              ),
+            ),
             const SizedBox(width: 4),
             Icon(Icons.chevron_right, size: 20, color: c.inkLow),
           ],

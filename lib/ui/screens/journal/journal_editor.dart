@@ -8,6 +8,7 @@ import '../../../core/api.dart';
 import '../../../core/formats.dart';
 import '../../../core/haptics.dart';
 import '../../../core/session.dart';
+import '../../../data/current_day.dart';
 import '../../../data/providers.dart';
 import '../../../l10n/app_l10n.dart';
 import '../../../models/date_utils.dart';
@@ -16,7 +17,6 @@ import '../../../theme/app_colors.dart';
 import '../../../ui/widgets/app_snackbar.dart';
 import '../../../ui/widgets/picker_sheet.dart';
 import '../../../ui/widgets/slide_up_route.dart';
-import 'journal_providers.dart';
 import 'widgets/energy_dots.dart';
 import 'widgets/mood.dart';
 
@@ -88,7 +88,8 @@ class _JournalEditorScreenState extends ConsumerState<JournalEditorScreen> {
       _tagsCtrl.text = e.tags.join(', ');
       _tagsOn = e.tags.isNotEmpty;
     } else {
-      _date = DateTime.now();
+      // The account's today (see data/current_day.dart).
+      _date = ref.read(currentDayProvider);
       _showMoodOverlay = true;
       _draftTimer =
           Timer.periodic(const Duration(seconds: 5), (_) => _saveDraft());
@@ -127,7 +128,8 @@ class _JournalEditorScreenState extends ConsumerState<JournalEditorScreen> {
       final raw = await ref.read(draftStoreProvider).read();
       if (raw == null) return;
       final d = jsonDecode(raw) as Map<String, dynamic>;
-      _date = DateTime.tryParse('${d['date']}') ?? DateTime.now();
+      _date =
+          DateTime.tryParse('${d['date']}') ?? ref.read(currentDayProvider);
       _titleCtrl.text = '${d['title'] ?? ''}';
       _bodyCtrl.text = '${d['body'] ?? ''}';
       _mood = d['mood'] as String?;
@@ -143,7 +145,11 @@ class _JournalEditorScreenState extends ConsumerState<JournalEditorScreen> {
   }
 
   void _saveDraft() {
-    if (_isEditing) return;
+    // Not while saving, nor after: a tick during the save — or during the
+    // close animation once it succeeded — would write the text just saved
+    // back as a draft, and the next new entry would restore (and duplicate)
+    // it. A failed save clears [_saving], and the autosave carries on.
+    if (_isEditing || _saving) return;
     try {
       ref.read(draftStoreProvider).write(
             jsonEncode({
@@ -160,12 +166,6 @@ class _JournalEditorScreenState extends ConsumerState<JournalEditorScreen> {
     } catch (_) {}
   }
 
-  Future<void> _clearDraft() async {
-    try {
-      await ref.read(draftStoreProvider).clear();
-    } catch (_) {}
-  }
-
   List<String> _parsedTags() => _tagsCtrl.text
       .split(',')
       .map((t) => t.trim())
@@ -174,7 +174,7 @@ class _JournalEditorScreenState extends ConsumerState<JournalEditorScreen> {
 
   Future<void> _pickDate() async {
     final first = DateTime(2015);
-    final last = DateTime.now();
+    final last = ref.read(currentDayProvider);
     // A draft/edit date can fall outside [first, last]; clamp so showDatePicker
     // never asserts on an out-of-range initialDate.
     final initial = _date.isBefore(first)
@@ -228,30 +228,37 @@ class _JournalEditorScreenState extends ConsumerState<JournalEditorScreen> {
       gratitude: gratitude.isEmpty ? null : gratitude,
       tags: _tagsOn ? _parsedTags() : const [],
     );
+    // Read before the await: if the editor is closed while saving, the draft
+    // must still be cleared, or the next "new entry" would restore the text
+    // that was just saved. The journal list and this entry refresh from the
+    // repository's report of the write, closed editor or not.
+    final repo = ref.read(repositoryProvider);
+    final drafts = ref.read(draftStoreProvider);
     try {
-      final repo = ref.read(repositoryProvider);
       if (_isEditing) {
         await repo.updateJournalEntry(widget.editEntry!.id, input);
-        ref.invalidate(journalEntryProvider(widget.editEntry!.id));
       } else {
         await repo.createJournalEntry(input);
-        await _clearDraft();
+        try {
+          await drafts.clear();
+        } catch (_) {
+          // Secure storage hiccup: the entry is saved either way.
+        }
       }
-      ref.invalidate(journalProvider);
       if (!mounted) return;
       Haptics.success();
       showAppSnack(context, _isEditing ? l.journalUpdated : l.journalAdded);
       Navigator.of(context).pop();
-    } on ApiException catch (e) {
+    } catch (e) {
+      // Any failure must clear the spinner, or the save button stays a
+      // permanent loading state.
       if (!mounted) return;
       setState(() => _saving = false);
-      showAppSnack(context, e.localized(l), isError: true);
-    } catch (_) {
-      // Any non-API failure must still clear the spinner, or the save button
-      // stays a permanent loading state.
-      if (!mounted) return;
-      setState(() => _saving = false);
-      showAppSnack(context, l.journalSaveFailed, isError: true);
+      showAppSnack(
+        context,
+        failureMessage(e, l, fallback: l.journalSaveFailed),
+        isError: true,
+      );
     }
   }
 

@@ -9,6 +9,7 @@ import 'package:meridian_mobile/models/goal.dart';
 import 'package:meridian_mobile/l10n/app_l10n.dart';
 import 'package:meridian_mobile/theme/app_theme.dart';
 import 'package:meridian_mobile/ui/screens/goals/goals_screen.dart';
+import 'package:meridian_mobile/ui/widgets/progress_ring.dart';
 
 /// One goal as the /goals endpoint delivers it. Fields default to the shapes
 /// seen in api-samples so callers only override what a case needs.
@@ -200,6 +201,69 @@ void main() {
 
     expect(tester.takeException(), isNull);
     expect(find.text('İlk hedefini koy'), findsOneWidget);
+  });
+
+  testWidgets('a refresh that shifts the grid moves each ring on from where it '
+      'was, rather than replaying its sweep from zero', (tester) async {
+    tester.view.physicalSize = const Size(1000, 2600);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    final first = goalJson(id: 18, name: 'Kitap', progressPercent: 40);
+    final second = goalJson(id: 21, name: 'Koşu', progressPercent: 60);
+    final third = goalJson(id: 22, name: 'Dil', progressPercent: 80);
+    var payload = <String, dynamic>{
+      'active': [first, second, third],
+      'achieved': const [],
+      'abandoned': const [],
+    };
+    await tester.pumpWidget(ProviderScope(
+      overrides: [
+        goalsProvider.overrideWith(
+          (ref) async =>
+              Fetched(GoalsBundle.fromJson(payload), DateTime(2026, 7, 11)),
+        ),
+      ],
+      child: MaterialApp(
+        theme: buildTheme(Brightness.dark),
+        locale: const Locale('tr'),
+        supportedLocales: const [Locale('tr'), Locale('en')],
+        localizationsDelegates: const [
+          AppL10n.delegate,
+          GlobalMaterialLocalizations.delegate,
+          GlobalWidgetsLocalizations.delegate,
+          GlobalCupertinoLocalizations.delegate,
+        ],
+        home: const GoalsScreen(),
+      ),
+    ));
+    await tester.pumpAndSettle();
+
+    // The first goal was achieved on the web: the other two move up a slot.
+    payload = {
+      'active': [second, third],
+      'achieved': [
+        {...first, 'status': 'achieved', 'progress_percent': 100},
+      ],
+      'abandoned': const [],
+    };
+    tester.container().invalidate(goalsProvider);
+    await tester.pump();
+    await tester.pump();
+    expect(find.text('Kitap'), findsNothing);
+
+    final sweeps = tester.widgetList<TweenAnimationBuilder<double>>(
+      find.descendant(
+        of: find.byType(ProgressRing),
+        matching: find.byType(TweenAnimationBuilder<double>),
+      ),
+    );
+    expect(sweeps, hasLength(2));
+    for (final sweep in sweeps) {
+      expect(sweep.tween.begin, isNull, reason: 'restarted from zero');
+    }
+    await tester.pumpAndSettle();
   });
 
   testWidgets('renders an achieved-only list (empty active) safely',

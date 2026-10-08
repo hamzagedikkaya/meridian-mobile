@@ -1,18 +1,23 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+
+import '../../../core/api.dart';
 import '../../../data/providers.dart';
+import '../../../data/sync.dart';
 import '../../../l10n/app_l10n.dart';
 import '../../../models/habit.dart';
 import '../../../theme/app_typography.dart';
 import '../../../theme/app_colors.dart';
 import '../../widgets/app_snackbar.dart';
 import '../../widgets/confirm_dialog.dart';
+import '../../widgets/sync_hint.dart';
 import 'widgets/chain_row.dart';
 import 'widgets/habit_visuals.dart';
 import 'widgets/mini_heatmap.dart';
 
 /// Habit detail bottom sheet (design §4.5): 30-day chain + stats grid + 84-day
-/// mini-heatmap + archive action. Loads `fetchHabit(id, days: 84)`.
+/// mini-heatmap + archive action. Watches `habitDetailProvider(id)` (84 days),
+/// so a check-in made elsewhere while it is open refreshes it too.
 Future<void> showHabitDetailSheet(
   BuildContext context,
   Habit initial,
@@ -34,15 +39,7 @@ class _HabitDetailSheet extends ConsumerStatefulWidget {
 }
 
 class _HabitDetailSheetState extends ConsumerState<_HabitDetailSheet> {
-  late Future<Habit> _future;
   bool _archiving = false;
-
-  @override
-  void initState() {
-    super.initState();
-    _future =
-        ref.read(repositoryProvider).fetchHabit(widget.initial.id, days: 84);
-  }
 
   Future<void> _archive() async {
     final l = context.l10n;
@@ -56,34 +53,54 @@ class _HabitDetailSheetState extends ConsumerState<_HabitDetailSheet> {
     if (!ok || !mounted) return;
     setState(() => _archiving = true);
     try {
+      // Habits, Today and goals refresh from the repository's report, even
+      // if the sheet is swiped away before the server answers.
       await ref.read(repositoryProvider).archiveHabit(widget.initial.id);
-      ref.invalidate(habitsProvider);
       if (!mounted) return;
       Navigator.of(context).pop();
       showAppSnack(context, l.habitsArchived);
-    } catch (_) {
+    } catch (e) {
       if (!mounted) return;
       setState(() => _archiving = false);
-      showAppSnack(context, l.habitsArchiveFailed, isError: true);
+      showAppSnack(
+        context,
+        failureMessage(e, l, fallback: l.habitsArchiveFailed),
+        isError: true,
+      );
     }
   }
 
   @override
   Widget build(BuildContext context) {
+    final async = ref.watch(habitDetailProvider(widget.initial.id));
+    // The list's copy (14 days) stands in until the 84-day detail arrives —
+    // or when it could not be loaded, which the history header then says.
+    final habit = async.value?.data ?? widget.initial;
     return FractionallySizedBox(
       heightFactor: 0.9,
-      child: FutureBuilder<Habit>(
-        future: _future,
-        builder: (context, snap) {
-          final habit = snap.data ?? widget.initial;
-          final loading = snap.connectionState != ConnectionState.done;
-          return _content(context, habit, loading);
-        },
+      child: _content(
+        context,
+        habit,
+        loading: async.isLoading,
+        failed: async.hasFailed,
+        gone: async.isGone,
       ),
     );
   }
 
-  Widget _content(BuildContext context, Habit habit, bool loading) {
+  void _retry() => ref
+      .read(dataSyncProvider)
+      .refresh([habitDetailProvider(widget.initial.id)]);
+
+  /// [gone]: the server no longer has the habit (a 404) — deleted on the web
+  /// or another device — which a retry cannot change, so none is offered.
+  Widget _content(
+    BuildContext context,
+    Habit habit, {
+    required bool loading,
+    required bool failed,
+    required bool gone,
+  }) {
     final c = context.nok;
     final text = Theme.of(context).textTheme;
     final l = context.l10n;
@@ -141,7 +158,27 @@ class _HabitDetailSheetState extends ConsumerState<_HabitDetailSheet> {
                   height: 14,
                   child:
                       CircularProgressIndicator(strokeWidth: 2, color: c.gold),
+                )
+              else if (gone)
+                Text(
+                  l.errNotFound,
+                  style: text.bodySmall!.copyWith(color: c.inkMid),
+                )
+              else if (failed) ...[
+                Icon(Icons.cloud_off, size: 14, color: c.inkMid),
+                const Spacer(),
+                GestureDetector(
+                  onTap: _retry,
+                  behavior: HitTestBehavior.opaque,
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 4),
+                    child: Text(
+                      l.actionRetry,
+                      style: text.labelLarge!.copyWith(color: c.gold),
+                    ),
+                  ),
                 ),
+              ],
             ],
           ),
           const SizedBox(height: 12),

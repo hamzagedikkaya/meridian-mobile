@@ -1,4 +1,5 @@
 import 'date_utils.dart';
+import 'json_read.dart';
 
 class DeadlineBadge {
   /// "overdue" | "today" | "soon" | "far".
@@ -9,7 +10,7 @@ class DeadlineBadge {
 
   factory DeadlineBadge.fromJson(Map<String, dynamic> json) => DeadlineBadge(
         state: (json['state'] as String?) ?? 'far',
-        days: (json['days'] as num?)?.toInt() ?? 0,
+        days: readInt(json['days']),
       );
 }
 
@@ -38,13 +39,13 @@ class GoalRelated {
 
   factory GoalRelated.fromJson(Map<String, dynamic> json) => GoalRelated(
         type: (json['type'] as String?) ?? '',
-        id: (json['id'] as num?)?.toInt() ?? 0,
+        id: readInt(json['id']),
         name: (json['name'] as String?) ?? '',
-        currentStreak: (json['current_streak'] as num?)?.toInt(),
-        completedDays: (json['completed_days'] as num?)?.toInt(),
-        balanceCents: (json['balance_cents'] as num?)?.toInt(),
+        currentStreak: readIntOrNull(json['current_streak']),
+        completedDays: readIntOrNull(json['completed_days']),
+        balanceCents: readIntOrNull(json['balance_cents']),
         currency: json['currency'] as String?,
-        subunitToUnit: (json['subunit_to_unit'] as num?)?.toInt(),
+        subunitToUnit: readIntOrNull(json['subunit_to_unit']),
       );
 }
 
@@ -82,7 +83,7 @@ class Goal {
   });
 
   factory Goal.fromJson(Map<String, dynamic> json) => Goal(
-        id: (json['id'] as num).toInt(),
+        id: readId(json['id']),
         name: (json['name'] as String?) ?? '',
         description: (json['description'] as String?) ?? '',
         targetType: (json['target_type'] as String?) ?? 'custom',
@@ -90,14 +91,14 @@ class Goal {
         color: (json['color'] as String?) ?? '#B8860B',
         unit: (json['unit'] as String?) ?? '',
         deadline: parseDateTime(json['deadline']),
-        daysRemaining: (json['days_remaining'] as num?)?.toInt() ?? 0,
+        daysRemaining: readInt(json['days_remaining']),
         deadlineBadge: json['deadline_badge'] == null
             ? null
             : DeadlineBadge.fromJson(
                 json['deadline_badge'] as Map<String, dynamic>),
-        targetValue: (json['target_value'] as num?)?.toDouble() ?? 0,
-        currentValue: (json['current_value'] as num?)?.toDouble() ?? 0,
-        progressPercent: (json['progress_percent'] as num?)?.toDouble() ?? 0,
+        targetValue: readDouble(json['target_value']),
+        currentValue: readDouble(json['current_value']),
+        progressPercent: readDouble(json['progress_percent']),
         related: json['related'] == null
             ? null
             : GoalRelated.fromJson(json['related'] as Map<String, dynamic>),

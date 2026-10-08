@@ -1,9 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import '../../../core/api.dart';
 import '../../../core/haptics.dart';
 import '../../../data/providers.dart';
 import '../../../l10n/app_l10n.dart';
-import '../../../models/goal.dart';
 import '../../../models/habit.dart';
 import '../../../theme/app_colors.dart';
 import '../../widgets/app_snackbar.dart';
@@ -15,11 +15,18 @@ import 'widgets/habit_visuals.dart';
 
 /// Full-screen habit create modal (design §4.5): name, frequency, target
 /// stepper, 8-swatch color row (gold default), optional goal link.
-Future<void> openHabitForm(BuildContext context) {
-  return Navigator.of(context, rootNavigator: true).push(
-    slideUpModalRoute((_) => const HabitFormScreen()),
+///
+/// [initialName] fills the name in (quick capture's "create the habit 'X'").
+/// Resolves to the habit created, or null when the form was closed without
+/// saving.
+Future<Habit?> openHabitForm(BuildContext context, {String? initialName}) {
+  return Navigator.of(context, rootNavigator: true).push<Habit>(
+    slideUpModalRoute((_) => HabitFormScreen(initialName: initialName)),
   );
 }
+
+/// The longest habit name the server takes (meridian `Habit`).
+const habitNameMaxLength = 60;
 
 const _swatches = [
   '#D4A853', // gold (default)
@@ -33,14 +40,16 @@ const _swatches = [
 ];
 
 class HabitFormScreen extends ConsumerStatefulWidget {
-  const HabitFormScreen({super.key});
+  final String? initialName;
+
+  const HabitFormScreen({super.key, this.initialName});
 
   @override
   ConsumerState<HabitFormScreen> createState() => _HabitFormScreenState();
 }
 
 class _HabitFormScreenState extends ConsumerState<HabitFormScreen> {
-  final _name = TextEditingController();
+  late final _name = TextEditingController(text: widget.initialName?.trim());
   String _frequency = 'daily';
   int _target = 1;
   String _color = _swatches.first;
@@ -57,8 +66,24 @@ class _HabitFormScreenState extends ConsumerState<HabitFormScreen> {
 
   Future<void> _pickGoal() async {
     final l = context.l10n;
-    final bundle = ref.read(goalsProvider).value?.data;
-    final goals = bundle?.active ?? const <Goal>[];
+    // Watched in build, so the list is normally fetched (and current) by the
+    // time the picker opens — even when the Goals tab was never visited. If
+    // it is still on its way, wait for it; if it cannot be had, say so rather
+    // than offering only "none".
+    var bundle = ref.read(goalsProvider).value?.data;
+    if (bundle == null) {
+      try {
+        bundle = (await ref.read(goalsProvider.future)).data;
+      } on ApiException catch (e) {
+        if (mounted) showAppSnack(context, e.localized(l), isError: true);
+        return;
+      } catch (_) {
+        if (mounted) showAppSnack(context, l.errNoConnection, isError: true);
+        return;
+      }
+      if (!mounted) return;
+    }
+    final goals = bundle.active;
     // -1 is the explicit "none" sentinel so a dismiss (null) can be told apart
     // from clearing an already-chosen goal.
     const noneSentinel = -1;
@@ -95,27 +120,41 @@ class _HabitFormScreenState extends ConsumerState<HabitFormScreen> {
       _nameError = null;
     });
     try {
-      await ref.read(repositoryProvider).createHabit(HabitInput(
+      // The repository reports the new habit; Habits, Today and goals
+      // refresh from that, even if this form is closed before it answers.
+      final habit = await ref.read(repositoryProvider).createHabit(HabitInput(
             name: name,
             frequency: _frequency,
             targetCount: _target,
             color: _color,
             goalId: _goalId,
           ));
-      ref.invalidate(habitsProvider);
       Haptics.success();
       if (!mounted) return;
-      Navigator.of(context).pop();
+      Navigator.of(context).pop(habit);
       showAppSnack(context, l.habitsAdded);
-    } catch (_) {
+    } catch (e) {
       if (!mounted) return;
-      setState(() => _saving = false);
-      showAppSnack(context, l.habitsSaveFailed, isError: true);
+      // A refusal about the name goes under the name; the rest to a snack.
+      final nameError = e is ApiException ? e.fieldMessage(l, 'name') : null;
+      setState(() {
+        _saving = false;
+        _nameError = nameError;
+      });
+      if (nameError == null) {
+        showAppSnack(
+          context,
+          failureMessage(e, l, fallback: l.habitsSaveFailed),
+          isError: true,
+        );
+      }
     }
   }
 
   @override
   Widget build(BuildContext context) {
+    // Keeps the goal list loaded for the "link to goal" picker.
+    ref.watch(goalsProvider);
     final text = Theme.of(context).textTheme;
     final l = context.l10n;
     final targetLabel =
@@ -135,6 +174,7 @@ class _HabitFormScreenState extends ConsumerState<HabitFormScreen> {
           TextField(
             controller: _name,
             autofocus: true,
+            maxLength: habitNameMaxLength,
             textCapitalization: TextCapitalization.sentences,
             decoration: InputDecoration(
               labelText: l.habitsFormName,

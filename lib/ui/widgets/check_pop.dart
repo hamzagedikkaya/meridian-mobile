@@ -7,7 +7,7 @@ enum CheckPopShape { circle, roundedSquare }
 
 /// Reusable section-5 check-off micro-interaction. Tap-down press-scales to
 /// 0.9 (~80ms); on becoming checked it plays a 250ms entity-color fill sweep +
-/// white check-mark draw + a single 0.9→1.05→1.0 easeOutBack overshoot over
+/// white check-mark draw + a single 0.9→1.05→1.0 overshoot (easeOutCubic) over
 /// 300ms (the only allowed overshoot). Uncheck is a plain 200ms fade — no
 /// celebration. Fires [Haptics.success] on check only.
 ///
@@ -54,10 +54,14 @@ class _CheckPopState extends State<CheckPop> with TickerProviderStateMixin {
     duration: const Duration(milliseconds: 300),
     value: 1,
   );
+  // The sequence is the overshoot (0.9 → 1.05 → 1.0), so it must be driven
+  // by a curve that stays within 0..1: easeOutBack overshoots past 1, which
+  // TweenSequence rejects — an assertion in debug, a thrown StateError (a
+  // grey error box for a few frames) in release, on every check.
   late final Animation<double> _popScale = TweenSequence<double>([
     TweenSequenceItem(tween: Tween(begin: 0.9, end: 1.05), weight: 60),
     TweenSequenceItem(tween: Tween(begin: 1.05, end: 1.0), weight: 40),
-  ]).animate(CurvedAnimation(parent: _pop, curve: Curves.easeOutBack));
+  ]).animate(CurvedAnimation(parent: _pop, curve: Curves.easeOutCubic));
 
   bool _pressed = false;
 

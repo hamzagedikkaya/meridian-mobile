@@ -1,4 +1,5 @@
 import 'date_utils.dart';
+import 'json_read.dart';
 
 /// Calendar event (GET /events). The `/home` `today_events` payload is a subset
 /// of these fields — fromJson tolerates the missing ones.
@@ -28,15 +29,15 @@ class Event {
   });
 
   factory Event.fromJson(Map<String, dynamic> json) => Event(
-        id: json['id'] as int,
+        id: readId(json['id']),
         title: (json['title'] as String?) ?? '',
         startAt: parseDateTime(json['start_at']),
         endAt: parseDateTime(json['end_at']),
-        allDay: (json['all_day'] as bool?) ?? false,
+        allDay: readBool(json['all_day']),
         color: (json['color'] as String?) ?? '#6B8FA0',
         eventType: json['event_type'] as String?,
         location: json['location'] as String?,
-        durationMinutes: (json['duration_minutes'] as num?)?.toInt(),
+        durationMinutes: readIntOrNull(json['duration_minutes']),
         occurrences: ((json['occurrences'] as List?) ?? const [])
             .map((e) => DateTime.parse(e as String))
             .toList(),

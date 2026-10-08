@@ -1,4 +1,5 @@
 import 'date_utils.dart';
+import 'json_read.dart';
 
 class JournalEntry {
   final int id;
@@ -34,18 +35,18 @@ class JournalEntry {
   });
 
   factory JournalEntry.fromJson(Map<String, dynamic> json) => JournalEntry(
-        id: json['id'] as int,
+        id: readId(json['id']),
         date: DateTime.parse(json['date'] as String),
         title: json['title'] as String?,
         bodyPlain: json['body_plain'] as String?,
         mood: json['mood'] as String?,
         moodEmoji: json['mood_emoji'] as String?,
-        energyLevel: (json['energy_level'] as num?)?.toInt(),
+        energyLevel: readIntOrNull(json['energy_level']),
         weather: json['weather'] as String?,
         tags: ((json['tags'] as List?) ?? const [])
             .map((e) => '$e')
             .toList(),
-        hasGratitude: (json['has_gratitude'] as bool?) ?? false,
+        hasGratitude: readBool(json['has_gratitude']),
         createdAt: parseDateTime(json['created_at']),
         bodyHtml: json['body_html'] as String?,
         gratitude: json['gratitude'] as String?,
@@ -74,10 +75,10 @@ class JournalBundle {
       entries: ((json['entries'] as List?) ?? const [])
           .map((e) => JournalEntry.fromJson(e as Map<String, dynamic>))
           .toList(),
-      entriesCount: (meta['entries_count'] as num?)?.toInt() ?? 0,
-      journalStreak: (meta['journal_streak'] as num?)?.toInt() ?? 0,
-      moodCounts: rawMoods.map(
-          (key, value) => MapEntry('$key', (value as num?)?.toInt() ?? 0)),
+      entriesCount: readInt(meta['entries_count']),
+      journalStreak: readInt(meta['journal_streak']),
+      moodCounts:
+          rawMoods.map((key, value) => MapEntry('$key', readInt(value))),
       range: (meta['range'] as String?) ?? '30d',
     );
   }

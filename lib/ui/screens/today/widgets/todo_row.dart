@@ -26,71 +26,82 @@ class TodoRow extends StatelessWidget {
     final text = Theme.of(context).textTheme;
     final edge = priorityEdgeColor(c, todo.priority);
 
-    final due = todo.dueAt;
+    final due = todo.dueDay;
     final dueLabel = due == null ? null : context.l10n.relativeDay(due);
     final overdue = todo.overdue && !done;
 
-    return InkWell(
-      onTap: onToggle,
-      splashColor: c.gold.withValues(alpha: 0.08),
-      child: SizedBox(
-        height: 60,
-        child: Stack(
-          children: [
-            Positioned(
-              left: 0,
-              top: 12,
-              bottom: 12,
-              child: Container(
-                width: 3,
-                decoration: BoxDecoration(
-                  color: edge,
-                  borderRadius: BorderRadius.circular(2),
+    // One node for screen readers: the title, the due day, and the checked
+    // state a tap flips (a checked todo reopens).
+    return Semantics(
+      checked: done,
+      child: InkWell(
+        onTap: onToggle,
+        splashColor: c.gold.withValues(alpha: 0.08),
+        child: SizedBox(
+          height: 60,
+          child: Stack(
+            children: [
+              Positioned(
+                left: 0,
+                top: 12,
+                bottom: 12,
+                child: Container(
+                  width: 3,
+                  decoration: BoxDecoration(
+                    color: edge,
+                    borderRadius: BorderRadius.circular(2),
+                  ),
                 ),
               ),
-            ),
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 20),
-              child: Row(
-                children: [
-                  CheckPop.checkbox(
-                    checked: done,
-                    color: c.gold,
-                    onTap: onToggle,
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: Column(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          todo.title,
-                          style: text.titleSmall!.copyWith(
-                            color: done ? c.inkLow : c.inkHi,
-                            decoration:
-                                done ? TextDecoration.lineThrough : null,
-                            decorationColor: c.inkLow,
-                          ),
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                        if (dueLabel != null)
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 20),
+                child: Row(
+                  children: [
+                    // The row is the control: its tap and checked state are
+                    // the row's node. The box's own tap would be a second,
+                    // unlabelled stop.
+                    ExcludeSemantics(
+                      child: CheckPop.checkbox(
+                        checked: done,
+                        color: c.gold,
+                        onTap: onToggle,
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
                           Text(
-                            dueLabel,
-                            style: text.bodySmall!.copyWith(
-                              color: overdue ? c.error : c.inkMid,
+                            todo.title,
+                            style: text.titleSmall!.copyWith(
+                              color: done ? c.inkLow : c.inkHi,
+                              decoration: done
+                                  ? TextDecoration.lineThrough
+                                  : null,
+                              decorationColor: c.inkLow,
                             ),
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
                           ),
-                      ],
+                          if (dueLabel != null)
+                            Text(
+                              dueLabel,
+                              style: text.bodySmall!.copyWith(
+                                color: overdue ? c.error : c.inkMid,
+                              ),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                        ],
+                      ),
                     ),
-                  ),
-                ],
+                  ],
+                ),
               ),
-            ),
-          ],
+            ],
+          ),
         ),
       ),
     );

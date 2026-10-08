@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:flutter_animate/flutter_animate.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/haptics.dart';
@@ -8,12 +7,16 @@ import '../../../models/goal.dart';
 import '../../../theme/app_colors.dart';
 import '../../../theme/app_typography.dart';
 import '../../../data/providers.dart';
+import '../../../data/sync.dart';
 import '../../widgets/empty_state.dart';
+import '../../widgets/entrance.dart';
 import '../../widgets/nokturn_card.dart';
 import '../../widgets/offline_banner.dart';
 import '../../widgets/section_header.dart';
 import '../../widgets/skeletons.dart';
 import '../../widgets/slide_up_route.dart';
+import '../../widgets/sync_hint.dart';
+import '../shell/app_tabs.dart';
 import 'goal_card.dart';
 import 'goal_form.dart';
 import 'goal_ui.dart';
@@ -25,14 +28,21 @@ class GoalsScreen extends ConsumerStatefulWidget {
   ConsumerState<GoalsScreen> createState() => _GoalsScreenState();
 }
 
-class _GoalsScreenState extends ConsumerState<GoalsScreen> {
+class _GoalsScreenState extends ConsumerState<GoalsScreen>
+    with TabRootScroll<GoalsScreen> {
+  @override
+  AppTab get tab => AppTab.goals;
+
+  /// Cards play their entrance only with the first data (see [Entrance]).
   bool _firstLoad = true;
 
   Future<void> _refresh() async {
     Haptics.celebrate();
-    ref.invalidate(goalsProvider);
-    await ref.read(goalsProvider.future);
+    refreshTab(ref, AppTab.goals);
+    await settleRefresh([ref.read(goalsProvider.future)]);
   }
+
+  void _retry() => refreshTab(ref, AppTab.goals);
 
   void _openForm() {
     Navigator.of(context, rootNavigator: true).push(
@@ -49,12 +59,14 @@ class _GoalsScreenState extends ConsumerState<GoalsScreen> {
     final bundle = async.value?.data;
 
     if (bundle != null && _firstLoad) {
+      // No setState: the cards already mounted keep playing (Entrance ignores
+      // later values), and nothing else needs to rebuild for this.
       WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (mounted && _firstLoad) setState(() => _firstLoad = false);
+        if (mounted) _firstLoad = false;
       });
     }
 
-    return Scaffold(
+    return primaryScroll(Scaffold(
       appBar: AppBar(title: Text(l.titleGoals, style: text.headlineLarge)),
       floatingActionButton: FloatingActionButton(
         onPressed: _openForm,
@@ -62,18 +74,21 @@ class _GoalsScreenState extends ConsumerState<GoalsScreen> {
         foregroundColor: c.onGold,
         child: const Icon(Icons.add),
       ),
-      body: RefreshIndicator.adaptive(
-        color: c.gold,
-        onRefresh: _refresh,
-        child: _body(async, bundle),
+      body: SyncHint.over(
+        active: async.isRefetching,
+        child: RefreshIndicator.adaptive(
+          color: c.gold,
+          onRefresh: _refresh,
+          child: _body(async, bundle),
+        ),
       ),
-    );
+    ));
   }
 
   Widget _body(AsyncValue<Fetched<GoalsBundle>> async, GoalsBundle? bundle) {
     final l = context.l10n;
     if (bundle == null) {
-      if (async.isLoading) return const _GoalsSkeleton();
+      if (async.isFirstLoad) return const _GoalsSkeleton();
       return ListView(
         physics: const AlwaysScrollableScrollPhysics(),
         children: [
@@ -84,7 +99,7 @@ class _GoalsScreenState extends ConsumerState<GoalsScreen> {
               title: l.errServerUnreachable,
               subtitle: l.errCheckWifi,
               actionLabel: l.actionRetry,
-              onAction: () => ref.invalidate(goalsProvider),
+              onAction: _retry,
             ),
           ),
         ],
@@ -97,13 +112,14 @@ class _GoalsScreenState extends ConsumerState<GoalsScreen> {
         bundle.abandoned.isEmpty;
 
     return CustomScrollView(
+      primary: true,
       physics: const AlwaysScrollableScrollPhysics(),
       slivers: [
-        if (async.hasError)
+        if (async.refreshFailed)
           SliverToBoxAdapter(
             child: OfflineBanner(
               lastUpdated: async.value?.at ?? DateTime.now(),
-              onRetry: () => ref.invalidate(goalsProvider),
+              onRetry: _retry,
             ),
           ),
         if (empty)
@@ -158,12 +174,11 @@ class _GoalsScreenState extends ConsumerState<GoalsScreen> {
           child: Row(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              Expanded(child: _staggered(i, GoalCard(goal: left))),
+              Expanded(child: _staggered(i, left)),
               const SizedBox(width: 12),
               Expanded(
-                child: right == null
-                    ? const SizedBox()
-                    : _staggered(i + 1, GoalCard(goal: right)),
+                child:
+                    right == null ? const SizedBox() : _staggered(i + 1, right),
               ),
             ],
           ),
@@ -174,13 +189,16 @@ class _GoalsScreenState extends ConsumerState<GoalsScreen> {
     return rows;
   }
 
-  Widget _staggered(int index, Widget child) {
-    if (!_firstLoad || index >= 6) return child;
-    return child
-        .animate(delay: (50 * index).ms)
-        .fadeIn(duration: 300.ms)
-        .slideY(begin: 0.06, duration: 300.ms, curve: Curves.easeOutCubic);
-  }
+  /// Deliberately not keyed. Each card is the only child of its slot, so a
+  /// key could never follow a goal into another slot of the grid: it would
+  /// only force a remount, replaying the ring's sweep from zero. Unkeyed,
+  /// each slot updates in place when a refresh shifts the grid, and its ring
+  /// moves from the old value to the new one.
+  Widget _staggered(int index, Goal goal) => Entrance.staggered(
+        play: _firstLoad,
+        index: index,
+        child: GoalCard(goal: goal),
+      );
 }
 
 /// Collapsed achieved / abandoned section — flat rows.

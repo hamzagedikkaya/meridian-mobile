@@ -46,9 +46,12 @@ abstract class AppL10n {
   String get actionDelete;
   String get actionEdit;
   String get actionRetry;
+  String get actionBack;
   String get actionSelect;
   String get actionSelectOptional;
   String get actionSeeAll;
+  String get actionUndo;
+  String get actionDismiss;
   String get labelAll;
   String get labelNone;
   String get labelSkip;
@@ -79,6 +82,10 @@ abstract class AppL10n {
   String get errCheckWifi;
   String get errServerSettings;
   String offlineLastUpdated(String time);
+
+  /// Screen-reader label of the thin progress line shown while data already
+  /// on screen is being refreshed.
+  String get syncUpdating;
   String get errInvalidData;
   String get errInvalidCredentials;
   String get errSessionExpired;
@@ -86,6 +93,71 @@ abstract class AppL10n {
   String errServer(int status);
   String get errNoConnection;
   String get noticeSessionExpired;
+
+  /// Under the title of a detail screen whose record the server no longer
+  /// has (a 404): it was deleted on the web or on another device.
+  String get errRecordGoneBody;
+
+  // --- Server refusals, by the error `code` the API sends -------------------
+  //
+  // Worded here rather than shown as the server wrote them, so a refusal
+  // reads in the app's language whatever the account's language is.
+
+  /// 429 `too_many_requests`: too many sign-in attempts.
+  String get errTooManyRequests;
+
+  /// `invalid_parameter`: the app sent a value the server cannot use.
+  String errInvalidParameter(String param);
+
+  /// `value_out_of_range`: a number does not fit (amounts top out at
+  /// 21,474,836.47).
+  String get errValueOutOfRange;
+  String get errInvalidDate;
+  String get errInvalidDatetime;
+
+  /// `future_date`: a habit day after today.
+  String get errFutureDate;
+
+  /// `before_habit_start`: a habit day before the habit existed.
+  String errBeforeHabitStart(DateTime? start);
+  String get errHabitArchived;
+
+  /// Quick capture `empty`: nothing was typed.
+  String get errCaptureEmpty;
+
+  /// Quick capture `no_account`: money needs an account to go to.
+  String get errNoAccount;
+
+  /// Quick capture `unknown_habit`: no habit is called [name].
+  String errUnknownHabit(String name);
+
+  /// Quick capture `invalid_amount`, by `reason`: `unreadable`, `zero`,
+  /// `too_precise` or `too_large`.
+  String errInvalidAmount(String? reason);
+
+  /// `has_transactions`: an account with history cannot be deleted.
+  String errHasTransactions(int transactions, int incomingTransfers);
+  String get errCurrencyLocked;
+  String get errKindLocked;
+  String get errAmountRequired;
+
+  /// `not_chargeable`, by `reason`: `inactive` or `no_next_charge`.
+  String errNotChargeable(String? reason);
+  String get errTargetReached;
+  String get errTargetNotReached;
+  String get errProgressComputed;
+  String get errBodyHasFormatting;
+
+  /// What is wrong with a field, by the validation type the server reports
+  /// for it (`blank`, `too_long` with [count], `taken`, …) — worded to sit
+  /// under the field, so it names no field. Null for a type the app does
+  /// not know; the server's own message is shown then.
+  String? validationDetail(String error, {num? count});
+
+  /// The name of a server field (`title`, `amount_cents`, …), to say which
+  /// field an error is about when it is not shown under the field itself.
+  /// Null for a field the app does not know.
+  String? fieldLabel(String field);
 
   // --- Login and server address ---------------------------------------------
 
@@ -142,6 +214,63 @@ abstract class AppL10n {
   String get todayTodoUpdateFailed;
   String get todayHabitUpdateFailed;
 
+  /// Snackbar after a todo is checked off on Today; it offers undo.
+  String todayTodoDone(String title);
+
+  /// Today's notice when this device's clock is in another time zone than
+  /// the account: days and times follow the account ([zone], [offset] like
+  /// `+03:00`), not the phone.
+  String todayZoneNotice(String zone, String offset);
+
+  // --- Quick capture --------------------------------------------------------
+
+  /// What a capture saved, by what it turned into.
+  String captureSavedExpense(String amount, String description);
+  String captureSavedIncome(String amount, String description);
+  String captureSavedHabit(String name, {required bool completed});
+  String captureSavedTodo(String title);
+
+  /// A capture of a kind this version of the app does not know.
+  String captureSaved(String summary);
+
+  /// The text names a day: nothing was saved, and the sheet says so.
+  String get captureLooksLikeEvent;
+
+  /// The server saved nothing, for a reason this app does not know.
+  String get captureNotSaved;
+
+  /// The line went out but no answer came back in time: it may have been
+  /// saved, so it is not sent again on its own (that could save it twice).
+  String get captureMaybeSaved;
+  String get captureSaveAsTodo;
+  String get captureAddAsEvent;
+  String get captureCreateAccount;
+  String captureCreateHabit(String name);
+
+  // --- Habit day log --------------------------------------------------------
+
+  /// Sheet title for setting today's count of a habit.
+  String get habitLogToday;
+  String get habitLogDone;
+  String get habitLogNotDone;
+  String get habitLogComplete;
+  String get habitLogReset;
+
+  /// The counter's − and + buttons, for screen readers and tooltips.
+  String get habitLogDecrease;
+  String get habitLogIncrease;
+
+  /// What a screen reader says for a habit's ring or counter.
+  String habitLogSemantics(
+    String name, {
+    required int count,
+    required int target,
+    required bool done,
+  });
+
+  /// Screen-reader hint: a long-press opens the day's log.
+  String get habitLogHint;
+
   // --- Finance --------------------------------------------------------------
 
   String get financeScopeMonth;
@@ -149,20 +278,16 @@ abstract class AppL10n {
   String get financeIncome;
   String get financeExpense;
   String get financeTransfer;
-  String get financeTransaction;
   String get financeLast6Months;
   String get financeCategoriesThisMonth;
   String get financeNoSpendThisMonth;
   String get financeBudgets;
-  String get financeExceeded;
   String financeRemaining(String amount);
   String financeMonthEndEstimate(String amount);
   String get financeUpcomingSubscriptions;
   String get financeRecentTransactions;
   String get financeNoTransactionsYet;
-  String get financeAddFirstAccount;
   String get financeAddAccount;
-  String get financeAddAccountSoon;
   String get financeNoTransactionsInAccount;
 
   /// Cash / bank / credit card / savings / crypto, by API `account_type`.
@@ -186,7 +311,6 @@ abstract class AppL10n {
   String get txNoneForFilter;
   String get txAllLoaded;
   String txSummary(String income, String expense);
-  String get txDeleteTitle;
   String get txDeleted;
   String get txDeleteFailed;
   String get txSaved;
@@ -206,7 +330,240 @@ abstract class AppL10n {
   String get txFormSelectAccount;
   String get txFormSelectTargetAccount;
   String get txFormAccountsMustDiffer;
-  String get txFormSelectCategory;
+  String get txFormNote;
+  String get txFormAmount;
+
+  /// The category filter's headings (pre-cased overlines).
+  String get txFilterGroupExpense;
+  String get txFilterGroupIncome;
+  String get txFilterCustomRange;
+
+  /// The transfer target list holds same-currency accounts only.
+  String get txFormTransferSameCurrency;
+  String get txFormNoTransferTarget;
+  String get txFormNeedAccount;
+
+  // --- Forms, keypad and undo -----------------------------------------------
+
+  String get actionAdd;
+  String get actionDone;
+  String get actionArchive;
+  String get actionRestore;
+  String get actionMoreOptions;
+  String get labelOptional;
+
+  /// The sheet a form with unsaved changes asks from when it is closed.
+  String get formDiscardTitle;
+  String get formKeepEditing;
+  String get formDiscard;
+
+  /// Under an amount that would pass what the server can store.
+  String amountTooLarge(String max);
+
+  /// Screen-reader labels of the keypad's icon and mark keys.
+  String get keypadBackspace;
+  String get keypadDecimalMark;
+  String get keypadClearHint;
+
+  /// A delete sent after its undo window that the server refused: the
+  /// record is back.
+  String get errDeleteFailed;
+
+  /// A colour swatch, for screen readers ("Renk 3").
+  String colorSwatch(int index);
+
+  // --- Finance: setup, accounts, menus --------------------------------------
+
+  String get financeAccounts;
+
+  /// The label of the Finance FAB (it adds a transaction).
+  String get financeAddTransactionFab;
+  String get financeMenuCategories;
+  String get financeMenuSubscriptions;
+  String get financeMenuArchivedAccounts;
+
+  /// First run, no account yet.
+  String get financeFirstRunTitle;
+  String get financeFirstRunBody;
+  String get financeFirstRunCash;
+  String get financeFirstRunOther;
+
+  /// The name of the cash account the first-run button opens.
+  String get financeCashAccountName;
+
+  /// First run, an account but no transaction yet.
+  String get financeFirstTxTitle;
+  String get financeFirstTxBody;
+  String get financeFirstTxAction;
+
+  /// Every account is archived.
+  String get financeNoActiveAccounts;
+  String get financeNoActiveAccountsBody;
+
+  /// Expenses without a category, as a slice of the month's spending.
+  String get financeUncategorized;
+  String get financeCategorize;
+  String get financeOtherCategories;
+  String get financeAddBudget;
+  String get financeBudgetsEmpty;
+
+  /// A budget's spend against its limit.
+  String financeBudgetSpentOf(String spent, String limit);
+
+  /// How far a budget is over its limit.
+  String financeOverBy(String amount);
+  String get financeNoUpcomingPayments;
+  String get financeAddSubscription;
+  String get financeSubscriptionsEmpty;
+
+  // --- Account form, archive, delete ----------------------------------------
+
+  String get accountFormNewTitle;
+  String get accountFormEditTitle;
+  String get accountFormType;
+  String get accountFormName;
+  String get accountFormNameRequired;
+  String get accountFormCurrency;
+  String get accountFormCurrencyLocked;
+  String get accountFormOpeningBalance;
+  String get accountFormOpeningBalanceHint;
+
+  /// The toggle that makes an opening balance negative (a card's debt).
+  String get accountFormDebt;
+  String get accountFormColor;
+  String get accountFormCreate;
+
+  /// The picker row that opens the account form.
+  String get accountNew;
+  String accountCreated(String name);
+  String get accountUpdated;
+  String get accountSaveFailed;
+  String accountArchived(String name);
+  String accountRestored(String name);
+  String get accountArchiveFailed;
+  String get accountRestoreFailed;
+  String get accountArchivedBadge;
+  String get accountArchivedNote;
+  String accountDeleted(String name);
+  String get accountDeleteFailed;
+  String get accountCantDeleteTitle;
+  String accountDeleteTitle(String name);
+
+  /// What else an account's delete takes or unlinks.
+  String accountDeleteConsequences({
+    required int subscriptions,
+    required int goals,
+  });
+  String get accountGone;
+  String get titleArchivedAccounts;
+  String get archivedAccountsEmpty;
+  String get archivedAccountsBody;
+
+  // --- Finance categories ----------------------------------------------------
+
+  String get titleCategories;
+  String get categoriesEmptyExpense;
+  String get categoriesEmptyIncome;
+  String get categoriesEmptyBody;
+  String get categoriesAddFab;
+  String get categoriesStarter;
+  String get categoriesStarterAdded;
+  String get categoriesStarterFailed;
+
+  /// The starter set "Hazır kategorileri ekle" creates, in this language.
+  List<String> starterCategories(String kind);
+  String get categoryNew;
+  String get categoryFormNewTitle;
+  String get categoryFormEditTitle;
+  String get categoryFormName;
+  String get categoryFormNameRequired;
+  String get categoryFormKind;
+  String get categoryFormKindLocked;
+  String get categoryFormParent;
+  String get categoryFormNoParent;
+  String get categoryFormParentLocked;
+  String get categoryFormColor;
+  String categoryCreated(String name);
+  String get categoryUpdated;
+  String get categorySaveFailed;
+  String categoryDeleted(String name);
+  String categoryDeleteTitle(String name);
+
+  /// What a category's delete touches, counts from GET /finance_categories/:id.
+  String categoryDeleteImpact({
+    required int transactions,
+    required int subscriptions,
+    required int children,
+    required int budgets,
+  });
+  String get categoryDeleteFailed;
+  String categoryChildren(int count);
+  String get categoryLoadFailed;
+
+  // --- Budgets ---------------------------------------------------------------
+
+  String get budgetNewTitle;
+  String budgetEditTitle(String category);
+  String get budgetCategory;
+  String get budgetLimit;
+  String get budgetLimitRequired;
+  String get budgetPickCategory;
+  String get budgetNoCategories;
+  String budgetCurrencyNote(String currency);
+  String get budgetCreated;
+  String get budgetUpdated;
+  String get budgetSaveFailed;
+  String get budgetRemove;
+  String budgetRemoved(String category);
+
+  // --- Subscriptions ---------------------------------------------------------
+
+  String get titleSubscriptions;
+
+  /// The Subscriptions page's hero: what the active ones cost a month, then
+  /// a year.
+  String subscriptionsMonthly(String amount);
+  String subscriptionsYearly(String amount);
+  String get subscriptionsActive;
+  String get subscriptionsPaused;
+  String get subscriptionsEmpty;
+  String get subscriptionsAddFab;
+  String get subscriptionFormNewTitle;
+  String get subscriptionFormEditTitle;
+  String get subscriptionFormName;
+  String get subscriptionFormNameHint;
+  String get subscriptionFormNameRequired;
+  String get subscriptionFormAmount;
+  String get subscriptionFormAmountRequired;
+  String get subscriptionFormFrequency;
+  String get subscriptionFormAccount;
+  String get subscriptionFormNextCharge;
+  String get subscriptionFormNextChargeAuto;
+  String get subscriptionFormCategory;
+  String get subscriptionFormVendor;
+  String get subscriptionFormNote;
+  String get subscriptionFormColor;
+  String get subscriptionFormMore;
+  String get subscriptionCreated;
+  String get subscriptionUpdated;
+  String get subscriptionSaveFailed;
+
+  /// "₺99,99 / ay": an amount per period, by API `frequency`.
+  String subscriptionAmountPer(String amount, String frequency);
+  String subscriptionNextOn(String date);
+  String get subscriptionNoDate;
+  String get subscriptionOverdue;
+  String get subscriptionPausedLabel;
+  String get subscriptionCharge;
+  String subscriptionCharged(String amount);
+  String get subscriptionChargeFailed;
+  String get subscriptionChargeMaybe;
+  String get subscriptionPause;
+  String get subscriptionResume;
+  String subscriptionPausedDone(String name);
+  String subscriptionResumedDone(String name);
+  String get subscriptionToggleFailed;
+  String subscriptionDeleted(String name);
 
   // --- Habits ---------------------------------------------------------------
 
@@ -286,6 +643,7 @@ abstract class AppL10n {
   String get goalsAbandonAction;
   String get goalsActionFailed;
   String get goalsLoadFailed;
+  String get goalsGone;
   String goalsProgressDays(String current, String target);
   String get goalsFormNewTitle;
   String get goalsFormName;
@@ -319,7 +677,9 @@ abstract class AppL10n {
   String get journalGratitude;
   String get journalDeleteTitle;
   String get journalDeleteBody;
+  String get journalDeleteFailed;
   String get journalLoadFailed;
+  String get journalGone;
   String get journalEditorNewTitle;
   String get journalEditorEditTitle;
   String get journalEditorTitleHint;
@@ -354,6 +714,13 @@ abstract class AppL10n {
   String get profileLanguageTr;
   String get profileLanguageEn;
   String get profileCurrency;
+
+  /// The account's time zone row; [zone] is its IANA name, [offset] `+03:00`.
+  String get profileTimeZone;
+  String profileTimeZoneValue(String zone, String offset);
+
+  /// Under the time zone row when this device is in another zone.
+  String profileTimeZoneDeviceDiffers(String deviceOffset);
   String get profileSectionServer;
   String get profileSectionAbout;
   String get profileVersion;

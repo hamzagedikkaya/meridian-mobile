@@ -1,17 +1,22 @@
 import 'package:flutter/material.dart';
-import 'package:flutter_animate/flutter_animate.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import '../../../core/api.dart';
 import '../../../core/haptics.dart';
+import '../../../data/actions.dart';
 import '../../../data/providers.dart';
+import '../../../data/sync.dart';
 import '../../../l10n/app_l10n.dart';
 import '../../../models/habit.dart';
 import '../../../theme/app_colors.dart';
 import '../../widgets/app_snackbar.dart';
 import '../../widgets/empty_state.dart';
+import '../../widgets/entrance.dart';
 import '../../widgets/nokturn_card.dart';
 import '../../widgets/offline_banner.dart';
 import '../../widgets/paced_progress_bar.dart';
 import '../../widgets/skeletons.dart';
+import '../../widgets/sync_hint.dart';
+import '../shell/app_tabs.dart';
 import 'habit_card.dart';
 import 'habit_detail_sheet.dart';
 import 'habit_form.dart';
@@ -26,134 +31,79 @@ class HabitsScreen extends ConsumerStatefulWidget {
       _HabitsScreenState();
 }
 
-class _HabitsScreenState extends ConsumerState<HabitsScreen> {
-  HabitsBundle? _local;
-  final Set<int> _inFlight = {};
+/// Renders `habitsProvider` directly — no copy of it in State. A tick patches
+/// the provider itself (through [HabitActions]), so this tab and Today flip
+/// together, and a background refetch can never paint an older list over it.
+class _HabitsScreenState extends ConsumerState<HabitsScreen>
+    with TabRootScroll<HabitsScreen> {
+  @override
+  AppTab get tab => AppTab.habits;
+
   bool _showConfetti = false;
+
+  /// Cards play their entrance only with the first data (see [Entrance]).
   bool _staggered = false;
   bool _staggerScheduled = false;
 
-  // --- optimistic helpers ----------------------------------------------------
+  /// Sets today's count of [habit] to [count] — what the card's tap asked
+  /// for. Every tap counts, also while the habit's previous tap is still
+  /// waiting for the server: [HabitActions] shows it at once and sends it
+  /// next.
+  Future<void> _log(Habit habit, int count) async {
+    final actions = ref.read(habitActionsProvider);
+    final bundle = ref.read(habitsProvider).value?.data;
+    if (bundle == null) return;
 
-  Habit _copyToday(Habit h, HabitToday today, HabitPeriod? period) => Habit(
-        id: h.id,
-        name: h.name,
-        description: h.description,
-        frequency: h.frequency,
-        targetCount: h.targetCount,
-        color: h.color,
-        goalId: h.goalId,
-        currentStreak: h.currentStreak,
-        longestStreak: h.longestStreak,
-        completionRate30d: h.completionRate30d,
-        today: today,
-        period: period ?? h.period,
-        chain: h.chain,
-      );
-
-  Habit _applyOptimistic(Habit h, int delta) {
-    final HabitToday today;
-    if (h.targetCount <= 1) {
-      final completed = delta > 0;
-      today = HabitToday(
-          date: h.today.date, completed: completed, count: completed ? 1 : 0);
-    } else {
-      final nc = (h.today.count + delta).clamp(0, h.targetCount);
-      today = HabitToday(
-          date: h.today.date, completed: nc >= h.targetCount, count: nc);
-    }
-    HabitPeriod? period = h.period;
-    if (period != null) {
-      final wasDone = h.today.completed ? 1 : 0;
-      final nowDone = today.completed ? 1 : 0;
-      final nc =
-          (period.completedCount + (nowDone - wasDone)).clamp(0, 9999);
-      period = HabitPeriod(
-        rangeStart: period.rangeStart,
-        rangeEnd: period.rangeEnd,
-        completedCount: nc,
-        complete: nc >= h.targetCount,
-      );
-    }
-    return _copyToday(h, today, period);
-  }
-
-  HabitsBundle _mergeResult(HabitsBundle cur, ToggleResult res) {
-    final habits = cur.habits
-        .map((h) => h.id == res.habit.id ? res.habit : h)
-        .toList();
-    return HabitsBundle(
-      habits: habits,
-      completedToday: res.completedToday,
-      totalActive: res.totalActive,
-      perfectDay: res.perfectDay,
-    );
-  }
-
-  Future<void> _toggle(Habit habit, int delta) async {
-    final base = _local;
-    if (base == null || _inFlight.contains(habit.id)) return;
-
-    final updated = _applyOptimistic(habit, delta);
-    final habits =
-        base.habits.map((h) => h.id == habit.id ? updated : h).toList();
-    final completed = habits.where((h) => h.today.completed).length;
+    // What the tap will do, for the haptics and the all-done confetti.
+    final log = habit.logFor(count);
+    final after = bundle.withHabitToday(habit.id, log);
     final wasAllDone =
-        base.totalActive > 0 && base.completedToday >= base.totalActive;
+        bundle.totalActive > 0 && bundle.completedToday >= bundle.totalActive;
     final nowAllDone =
-        base.totalActive > 0 && completed >= base.totalActive;
+        after.totalActive > 0 && after.completedToday >= after.totalActive;
+    final celebrate = nowAllDone && !wasAllDone;
 
-    setState(() {
-      _local = HabitsBundle(
-        habits: habits,
-        completedToday: completed,
-        totalActive: base.totalActive,
-        perfectDay: base.perfectDay,
-      );
-      _inFlight.add(habit.id);
-      if (nowAllDone && !wasAllDone) _showConfetti = true;
-    });
-
-    final becameComplete = updated.today.completed && !habit.today.completed;
-    final becameIncomplete = !updated.today.completed && habit.today.completed;
-    final isCheckRing = habit.targetCount <= 1;
+    final becameComplete = log.completed && !habit.today.completed;
+    final becameIncomplete = !log.completed && habit.today.completed;
+    final isCheckRing = !habit.countsWithinDay;
     if (becameComplete) {
       Haptics.success();
     } else if (!(isCheckRing && becameIncomplete)) {
       // Counter ± ticks; a check-ring uncheck stays silent (§5).
       Haptics.tick();
     }
-    if (nowAllDone && !wasAllDone) Haptics.celebrate();
+    if (celebrate) {
+      Haptics.celebrate();
+      setState(() => _showConfetti = true);
+    }
 
     try {
-      final res = await ref
-          .read(repositoryProvider)
-          .toggleHabitToday(habit.id, delta: delta);
+      final sent =
+          await actions.setToday(habit.id, count, day: habit.today.date);
+      // Taken back unsent, with an earlier tap that failed (and said so).
+      if (!sent && celebrate && mounted) {
+        setState(() => _showConfetti = false);
+      }
+    } catch (e) {
       if (!mounted) return;
-      setState(() => _local = _mergeResult(_local ?? base, res));
-      ref.invalidate(habitsProvider);
-    } catch (_) {
-      if (!mounted) return;
-      setState(() {
-        _local = base;
-        if (nowAllDone && !wasAllDone) _showConfetti = false;
-      });
-      showAppSnack(context, context.l10n.habitsToggleFailed, isError: true);
-    } finally {
-      _inFlight.remove(habit.id);
+      if (celebrate) setState(() => _showConfetti = false);
+      final l = context.l10n;
+      showAppSnack(
+        context,
+        failureMessage(e, l, fallback: l.habitsToggleFailed),
+        isError: true,
+      );
     }
   }
 
   Future<void> _refresh() async {
     Haptics.celebrate();
-    ref.invalidate(habitsProvider);
-    try {
-      await ref.read(habitsProvider.future);
-    } catch (_) {/* banner surfaces the error */}
+    refreshTab(ref, AppTab.habits);
+    await settleRefresh([refetchLanded(ref, habitsProvider)]);
   }
 
   void _openHistory() {
-    final bundle = _local;
+    final bundle = ref.read(habitsProvider).value?.data;
     if (bundle == null) return;
     final c = context.nok;
     final text = Theme.of(context).textTheme;
@@ -188,24 +138,15 @@ class _HabitsScreenState extends ConsumerState<HabitsScreen> {
   Widget build(BuildContext context) {
     final c = context.nok;
     final async = ref.watch(habitsProvider);
-
-    ref.listen(habitsProvider, (_, next) {
-      if (next.hasValue && _inFlight.isEmpty) {
-        setState(() => _local = next.value!.data);
-      }
-    });
-    if (_local == null) {
-      final v = async.value;
-      if (v != null) _local = v.data;
-    }
+    final fetched = async.value;
 
     final l = context.l10n;
-    final bundle = _local;
-    final firstLoading = async.isLoading && bundle == null;
-    final showOffline = async.hasError && bundle != null;
-    final showErrorState = async.hasError && bundle == null;
+    final bundle = fetched?.data;
+    final firstLoading = async.isFirstLoad;
+    final showOffline = async.refreshFailed;
+    final showErrorState = async.hasFailed;
 
-    return Scaffold(
+    return primaryScroll(Scaffold(
       appBar: AppBar(
         title: Text(l.titleHabits),
         actions: [
@@ -221,37 +162,45 @@ class _HabitsScreenState extends ConsumerState<HabitsScreen> {
         onPressed: () => openHabitForm(context),
         child: const Icon(Icons.add),
       ),
-      body: firstLoading
-          ? const _HabitsSkeleton()
-          : showErrorState
-              ? EmptyState(
-                  icon: Icons.cloud_off,
-                  title: l.errServerUnreachable,
-                  subtitle: l.errCheckWifi,
-                  actionLabel: l.actionRetry,
-                  onAction: _refresh,
-                )
-              : RefreshIndicator.adaptive(
-                  color: c.gold,
-                  onRefresh: _refresh,
-                  child: _content(context, bundle!, showOffline),
-                ),
-    );
+      body: SyncHint.over(
+        active: async.isRefetching,
+        child: firstLoading
+            ? const _HabitsSkeleton()
+            : showErrorState
+                ? EmptyState(
+                    icon: Icons.cloud_off,
+                    title: l.errServerUnreachable,
+                    subtitle: l.errCheckWifi,
+                    actionLabel: l.actionRetry,
+                    onAction: _refresh,
+                  )
+                : RefreshIndicator.adaptive(
+                    color: c.gold,
+                    onRefresh: _refresh,
+                    child: _content(context, bundle!, showOffline, fetched!.at),
+                  ),
+      ),
+    ));
   }
 
-  Widget _content(BuildContext context, HabitsBundle bundle, bool offline) {
+  Widget _content(
+    BuildContext context,
+    HabitsBundle bundle,
+    bool offline,
+    DateTime lastUpdated,
+  ) {
     final l = context.l10n;
     final habits = bundle.habits;
 
     if (habits.isEmpty) {
       return CustomScrollView(
+        primary: true,
         physics: const AlwaysScrollableScrollPhysics(),
         slivers: [
           if (offline)
             SliverToBoxAdapter(
               child: OfflineBanner(
-                lastUpdated:
-                    ref.watch(habitsProvider).value?.at ?? DateTime.now(),
+                lastUpdated: lastUpdated,
                 onRetry: _refresh,
               ),
             ),
@@ -278,13 +227,13 @@ class _HabitsScreenState extends ConsumerState<HabitsScreen> {
     }
 
     return CustomScrollView(
+      primary: true,
       physics: const AlwaysScrollableScrollPhysics(),
       slivers: [
         if (offline)
           SliverToBoxAdapter(
             child: OfflineBanner(
-              lastUpdated:
-                  ref.watch(habitsProvider).value?.at ?? DateTime.now(),
+              lastUpdated: lastUpdated,
               onRetry: _refresh,
             ),
           ),
@@ -297,7 +246,10 @@ class _HabitsScreenState extends ConsumerState<HabitsScreen> {
               _perfectChainCard(context, bundle),
               const SizedBox(height: 32),
               for (var i = 0; i < habits.length; i++)
+                // Keyed by habit, so a card's check state (and its fill
+                // animation) follows its habit when the list shifts.
                 Padding(
+                  key: ValueKey('habit-${habits[i].id}'),
                   padding: const EdgeInsets.only(bottom: 12),
                   child: _habitCard(habits[i], i, stagger),
                 ),
@@ -309,16 +261,15 @@ class _HabitsScreenState extends ConsumerState<HabitsScreen> {
   }
 
   Widget _habitCard(Habit habit, int index, bool stagger) {
-    final card = HabitCard(
-      habit: habit,
-      onToggle: (delta) => _toggle(habit, delta),
-      onOpen: () => showHabitDetailSheet(context, habit),
+    return Entrance.staggered(
+      play: stagger,
+      index: index,
+      child: HabitCard(
+        habit: habit,
+        onLog: (count) => _log(habit, count),
+        onOpen: () => showHabitDetailSheet(context, habit),
+      ),
     );
-    if (!stagger || index >= 6) return card;
-    return card
-        .animate()
-        .fadeIn(duration: 300.ms, delay: (50 * index).ms)
-        .slideY(begin: 0.06, duration: 300.ms, delay: (50 * index).ms);
   }
 
   Widget _todayCard(BuildContext context, HabitsBundle bundle) {

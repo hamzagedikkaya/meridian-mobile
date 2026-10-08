@@ -150,8 +150,8 @@ HabitsBundle _bundle(String json) =>
 Widget _app(HabitsBundle bundle) {
   return ProviderScope(
     overrides: [
-      habitsProvider.overrideWith(
-        (ref) async => Fetched(bundle, DateTime(2026, 7, 11)),
+      habitsProvider.overrideWithBuild(
+        (ref, _) async => Fetched(bundle, DateTime(2026, 7, 11)),
       ),
     ],
     child: MaterialApp(

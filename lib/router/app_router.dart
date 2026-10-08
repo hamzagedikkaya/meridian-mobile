@@ -12,6 +12,10 @@ import '../ui/screens/goals/goal_detail_screen.dart';
 import '../ui/screens/goals/goals_screen.dart';
 import '../ui/screens/login_screen.dart';
 import '../ui/screens/finance/account_detail_screen.dart';
+import '../ui/screens/finance/archived_accounts_screen.dart';
+import '../ui/screens/finance/categories_screen.dart';
+import '../ui/screens/finance/finance_utils.dart';
+import '../ui/screens/finance/subscriptions_screen.dart';
 import '../ui/screens/finance/transactions_screen.dart';
 import '../ui/screens/finance/finance_screen.dart';
 import '../ui/screens/profile/profile_screen.dart';
@@ -50,6 +54,37 @@ CustomTransitionPage<void> _fadeThrough(
     ),
   );
 }
+
+/// The tabs' navigators, as `StatefulShellRoute.indexedStack` lays them out —
+/// the selected one shown, every visited one kept alive offstage with its
+/// tickers off — and with the hidden ones' heroes switched off as well.
+///
+/// A route pushed over the shell (a goal, an entry, an account) looks for
+/// heroes in every tab that is still mounted. Two tabs' FABs share the
+/// default hero tag, which fails outright, and a goal's ring on a hidden
+/// Goals tab would fly into the goal opened from Today out of a screen the
+/// user cannot see.
+Widget _tabStack(
+  BuildContext context,
+  StatefulNavigationShell shell,
+  List<Widget> children,
+) =>
+    IndexedStack(
+      index: shell.currentIndex,
+      children: [
+        for (var i = 0; i < children.length; i++)
+          Offstage(
+            offstage: i != shell.currentIndex,
+            child: TickerMode(
+              enabled: i == shell.currentIndex,
+              child: HeroMode(
+                enabled: i == shell.currentIndex,
+                child: children[i],
+              ),
+            ),
+          ),
+      ],
+    );
 
 final routerProvider = Provider<GoRouter>((ref) {
   final refresh = _SessionRefresh(ref);
@@ -101,9 +136,10 @@ final routerProvider = Provider<GoRouter>((ref) {
         parentNavigatorKey: _rootKey,
         builder: (_, _) => const ServerScreen(),
       ),
-      StatefulShellRoute.indexedStack(
+      StatefulShellRoute(
         parentNavigatorKey: _rootKey,
         builder: (context, state, shell) => AppScaffold(shell: shell),
+        navigatorContainerBuilder: _tabStack,
         branches: [
           StatefulShellBranch(
             navigatorKey: _shellKey,
@@ -120,10 +156,14 @@ final routerProvider = Provider<GoRouter>((ref) {
                 path: '/finance',
                 pageBuilder: (_, state) => _fadeThrough(const FinanceScreen(), state),
                 routes: [
+                  // Finance drills in with filters in the query (a
+                  // category this month, the uncategorized spending).
                   GoRoute(
                     path: 'transactions',
                     parentNavigatorKey: _rootKey,
-                    builder: (_, _) => const TransactionsScreen(),
+                    builder: (_, state) => TransactionsScreen(
+                      initial: filtersFromQuery(state.uri.queryParameters),
+                    ),
                   ),
                   GoRoute(
                     path: 'account/:id',
@@ -131,6 +171,21 @@ final routerProvider = Provider<GoRouter>((ref) {
                     builder: (_, state) => AccountDetailScreen(
                       accountId: int.parse(state.pathParameters['id']!),
                     ),
+                  ),
+                  GoRoute(
+                    path: 'accounts/archived',
+                    parentNavigatorKey: _rootKey,
+                    builder: (_, _) => const ArchivedAccountsScreen(),
+                  ),
+                  GoRoute(
+                    path: 'categories',
+                    parentNavigatorKey: _rootKey,
+                    builder: (_, _) => const CategoriesScreen(),
+                  ),
+                  GoRoute(
+                    path: 'subscriptions',
+                    parentNavigatorKey: _rootKey,
+                    builder: (_, _) => const SubscriptionsScreen(),
                   ),
                 ],
               ),

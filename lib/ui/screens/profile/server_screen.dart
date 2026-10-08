@@ -4,6 +4,7 @@ import 'package:go_router/go_router.dart';
 
 import '../../../core/haptics.dart';
 import '../../../core/session.dart';
+import '../../../data/sync.dart';
 import '../../../l10n/app_l10n.dart';
 import '../../../theme/app_colors.dart';
 import '../../widgets/app_snackbar.dart';
@@ -84,7 +85,14 @@ class _ServerScreenState extends ConsumerState<ServerScreen> {
       if (!go) return;
     }
     setState(() => _saving = true);
+    // A new address signs out (its token belongs to the old server). The
+    // same address — typically saved after a test showed the server is back
+    // — refetches everything instead, so an error screen behind this one
+    // recovers without a manual retry.
+    final unchanged = normalizeServerUrl(url) == ref.read(serverUrlProvider);
+    final sync = ref.read(dataSyncProvider);
     await ref.read(serverUrlProvider.notifier).set(url);
+    if (unchanged) sync.refreshAll();
     if (!mounted) return;
     showAppSnack(context, l.serverSaved);
     context.pop();
