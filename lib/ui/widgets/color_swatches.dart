@@ -3,20 +3,11 @@ import 'package:flutter/material.dart';
 import '../../core/haptics.dart';
 import '../../l10n/app_l10n.dart';
 import '../../theme/app_colors.dart';
+import '../../theme/entity_color.dart';
 import '../screens/finance/finance_utils.dart';
 
-/// The eight colours a new record can take (accounts, categories,
-/// subscriptions), the same set the habit and goal forms offer.
-const recordSwatches = [
-  '#D4A853', // gold
-  '#6B8E5A', // sage
-  '#6B8FA0', // dusty blue
-  '#B85450', // clay
-  '#D4A574', // tan
-  '#7A5C9E', // mauve
-  '#5A9E8B', // teal
-  '#8B5A00', // amber
-];
+// The swatches live with the other record-colour tokens.
+export '../../theme/entity_color.dart' show recordSwatches;
 
 /// The swatch a new record starts with when [existing] records already
 /// exist: the colours rotate, so consecutive records differ.

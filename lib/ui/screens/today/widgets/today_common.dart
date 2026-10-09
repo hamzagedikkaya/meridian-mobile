@@ -1,13 +1,11 @@
 import 'package:flutter/material.dart';
 import '../../../../theme/app_colors.dart';
+import '../../../../theme/entity_color.dart';
 
 /// Parse a "#B8860B" / "#b8860b" hex string into a Color (opaque).
-Color hexColor(String hex, {Color fallback = const Color(0xFF6B8FA0)}) {
-  var h = hex.replaceAll('#', '').trim();
-  if (h.length == 6) h = 'FF$h';
-  final value = int.tryParse(h, radix: 16);
-  return value == null ? fallback : Color(value);
-}
+/// New code draws record colours through `entityTone` (theme/entity_color).
+Color hexColor(String hex, {Color fallback = const Color(0xFF6B8FA0)}) =>
+    parseEntityHex(hex, fallback: fallback);
 
 /// Todo priority → 3dp left edge bar color (design §4.3).
 Color priorityEdgeColor(NokturnColors c, String priority) => switch (priority) {

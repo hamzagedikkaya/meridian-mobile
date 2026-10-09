@@ -1,5 +1,6 @@
 import '../core/formats.dart';
 import '../models/event.dart';
+import '../theme/entity_color.dart' show RecordSwatch;
 import 'app_l10n.dart';
 
 /// English copy. Keep this file and [AppL10nTr] member-for-member identical —
@@ -11,6 +12,7 @@ class AppL10nEn extends AppL10n {
   String get localeCode => 'en';
 
   // --- Generic actions and words --------------------------------------------
+  // region common (WP-1)
 
   @override
   String get appName => 'Meridian';
@@ -22,8 +24,6 @@ class AppL10nEn extends AppL10n {
   String get actionUpdate => 'Update';
   @override
   String get actionCancel => 'Cancel';
-  @override
-  String get actionConfirm => 'Confirm';
   @override
   String get actionDelete => 'Delete';
   @override
@@ -50,8 +50,35 @@ class AppL10nEn extends AppL10n {
   String get labelSkip => 'Skip';
   @override
   String get labelChange => 'Change';
+  @override
+  String get actionClose => 'Close';
+  @override
+  String get actionSearch => 'Search';
+  @override
+  String get labelAllDone => 'All done';
+  @override
+  String streakDays(int days) => '$days-day streak';
+  @override
+  String streakNewRecord(int record) => 'New streak · Best $record';
+  @override
+  String get semProfileAndSettings => 'Profile and settings';
+  @override
+  String get semDragToReorder => 'Drag to reorder';
+  @override
+  String colorName(RecordSwatch swatch) => switch (swatch) {
+        RecordSwatch.gold => 'Gold',
+        RecordSwatch.sage => 'Sage',
+        RecordSwatch.dustyBlue => 'Dusty blue',
+        RecordSwatch.clay => 'Clay',
+        RecordSwatch.tan => 'Tan',
+        RecordSwatch.mauve => 'Mauve',
+        RecordSwatch.teal => 'Teal',
+        RecordSwatch.amber => 'Amber',
+      };
+  // endregion
 
   // --- Navigation and screen titles -----------------------------------------
+  // region shell (WP-4)
 
   @override
   String get tabToday => 'Today';
@@ -85,13 +112,19 @@ class AppL10nEn extends AppL10n {
   String get titleGoal => 'Goal';
   @override
   String get titleJournalEntry => 'Entry';
+  // endregion
+
+  // --- Search ----------------------------------------------------------------
+  // region search (WP-16)
+  // endregion
 
   // --- Errors, offline, session ---------------------------------------------
+  // region errors (WP-1)
 
   @override
   String get errServerUnreachable => 'Can\'t reach the server';
   @override
-  String get errCheckWifi => 'Make sure you\'re on the same Wi-Fi network';
+  String get errCheckWifi => 'Check your Wi-Fi or Tailscale connection';
   @override
   String get errServerSettings => 'Server settings';
   @override
@@ -110,14 +143,16 @@ class AppL10nEn extends AppL10n {
   String errServer(int status) => 'Server error ($status)';
   @override
   String get errNoConnection =>
-      'Can\'t reach the server — make sure you\'re on the same Wi-Fi network';
+      'Can\'t reach the server — check your Wi-Fi or Tailscale connection';
   @override
   String get noticeSessionExpired => 'Your session expired, sign in again';
   @override
   String get errRecordGoneBody =>
       'It may have been deleted on the web or on another device.';
+  // endregion
 
   // --- Server refusals, by the error `code` the API sends -------------------
+  // region server refusals (WP-1)
 
   @override
   String get errTooManyRequests =>
@@ -313,8 +348,10 @@ class AppL10nEn extends AppL10n {
         decimals: value == value.roundToDouble() ? 0 : 2,
         locale: localeCode,
       );
+  // endregion
 
   // --- Login and server address ---------------------------------------------
+  // region login (WP-14)
 
   @override
   String get loginEmail => 'Email';
@@ -328,9 +365,11 @@ class AppL10nEn extends AppL10n {
   String get serverAddressShort => 'Address';
   @override
   String get serverAddressUnreachable =>
-      'Couldn\'t reach the server — check the address and your Wi-Fi';
+      'Couldn\'t reach the server — check the address and your Wi-Fi or Tailscale connection';
+  // endregion
 
   // --- Dates and relative days ----------------------------------------------
+  // region dates (WP-1)
 
   @override
   String get dayToday => 'Today';
@@ -380,8 +419,10 @@ class AppL10nEn extends AppL10n {
   @override
   String compactMillions(double major) =>
       '${formatDecimal(major / 1000000, locale: localeCode)}M';
+  // endregion
 
   // --- Today ----------------------------------------------------------------
+  // region today (WP-5)
 
   @override
   String get todayMonthNet => 'NET THIS MONTH';
@@ -403,9 +444,9 @@ class AppL10nEn extends AppL10n {
   @override
   String get todayQuickCaptureFailed => 'Couldn\'t capture that';
   @override
-  String get todayEmptyDay => 'Nothing planned — a quiet day ☁';
+  String get todayEmptyDay => 'Nothing planned — a quiet day';
   @override
-  String get todayAllHabitsDone => '✦ All done';
+  String get todayAllHabitsDone => 'All done';
   @override
   String get todayNoHabitsYet => 'No habits yet — start small';
   @override
@@ -413,7 +454,7 @@ class AppL10nEn extends AppL10n {
   @override
   String get todayOpenTodos => 'Open todos';
   @override
-  String get todayNoOpenTodos => 'Nothing open — all clear ✦';
+  String get todayNoOpenTodos => 'Nothing open — all clear';
   @override
   String get todayTodosFailed => 'Couldn\'t load todos';
   @override
@@ -425,8 +466,10 @@ class AppL10nEn extends AppL10n {
   @override
   String todayZoneNotice(String zone, String offset) =>
       'Days and times follow your account\'s time zone: $zone (UTC$offset)';
+  // endregion
 
   // --- Quick capture --------------------------------------------------------
+  // region quick capture (WP-6)
 
   @override
   String captureSavedExpense(String amount, String description) =>
@@ -436,7 +479,7 @@ class AppL10nEn extends AppL10n {
       'Income added · $amount · $description';
   @override
   String captureSavedHabit(String name, {required bool completed}) =>
-      completed ? '“$name” done for today ✓' : '“$name” logged';
+      completed ? '“$name” done for today' : '“$name” logged';
   @override
   String captureSavedTodo(String title) => 'Task added: $title';
   @override
@@ -458,8 +501,10 @@ class AppL10nEn extends AppL10n {
   String get captureCreateAccount => 'Create an account';
   @override
   String captureCreateHabit(String name) => 'Create the habit “$name”';
+  // endregion
 
   // --- Todos and todo lists -------------------------------------------------
+  // region todos (WP-7)
 
   @override
   String get titleTodos => 'Tasks';
@@ -480,11 +525,11 @@ class AppL10nEn extends AppL10n {
         'today' => 'Nothing due today',
         'upcoming' => 'Nothing due in the next 7 days',
         'week' => 'Nothing due this week',
-        'overdue' => 'Nothing overdue — nice ✦',
+        'overdue' => 'Nothing overdue — nice',
         'undated' => 'No tasks without a date',
         'done' => 'No finished tasks yet',
         'cancelled' => 'No cancelled tasks',
-        _ => 'No open tasks — all done ✦',
+        _ => 'No open tasks — all done',
       };
   @override
   String get todoAllLists => 'All lists';
@@ -613,8 +658,10 @@ class AppL10nEn extends AppL10n {
   String todoListDeleted(String name) => 'List “$name” deleted';
   @override
   String get todoListDeleteFailed => 'Couldn’t delete the list';
+  // endregion
 
   // --- Events and agenda ----------------------------------------------------
+  // region agenda (WP-7)
 
   @override
   String get titleAgenda => 'Agenda';
@@ -729,8 +776,10 @@ class AppL10nEn extends AppL10n {
   @override
   String eventSemantics(String title, {required String when, String? where}) =>
       [title, when, ?where].join(', ');
+  // endregion
 
   // --- Habit day log --------------------------------------------------------
+  // region habit log (WP-11)
 
   @override
   String get habitLogToday => 'Today\'s log';
@@ -760,8 +809,10 @@ class AppL10nEn extends AppL10n {
 
   @override
   String get habitLogHint => 'Long-press to adjust';
+  // endregion
 
   // --- Finance --------------------------------------------------------------
+  // region finance (WP-8)
 
   @override
   String get financeScopeMonth => 'Month';
@@ -814,8 +865,10 @@ class AppL10nEn extends AppL10n {
         'yearly' => 'Yearly',
         _ => frequency,
       };
+  // endregion
 
   // --- Transactions feed ----------------------------------------------------
+  // region transactions (WP-9)
 
   @override
   String get txFilterAccount => 'Account';
@@ -849,9 +902,9 @@ class AppL10nEn extends AppL10n {
   @override
   String get txDeleteFailed => 'Couldn\'t delete it';
   @override
-  String get txSaved => 'Transaction saved ✓';
+  String get txSaved => 'Transaction saved';
   @override
-  String get txUpdated => 'Transaction updated ✓';
+  String get txUpdated => 'Transaction updated';
   @override
   String get txLinkedTitle => 'Linked transaction';
   @override
@@ -874,8 +927,10 @@ class AppL10nEn extends AppL10n {
   String get txGone => 'This transaction was deleted';
   @override
   String get txSaveFailed => 'Couldn\'t save, try again';
+  // endregion
 
   // --- Transaction form ------------------------------------------------------
+  // region transaction form (WP-9)
 
   @override
   String get txFormNewTitle => 'New Transaction';
@@ -922,8 +977,10 @@ class AppL10nEn extends AppL10n {
   @override
   String get txFormAccountsFailed =>
       'Couldn\'t load your accounts. Tap to try again.';
+  // endregion
 
   // --- Forms, keypad and undo -----------------------------------------------
+  // region forms and controls (WP-2)
 
   @override
   String get actionAdd => 'Add';
@@ -955,8 +1012,14 @@ class AppL10nEn extends AppL10n {
   String get errDeleteFailed => 'Couldn\'t delete it; it\'s back';
   @override
   String colorSwatch(int index) => 'Color $index';
+  // endregion
+
+  // --- Numbers, progress, motion and celebrations ----------------------------
+  // region numbers and motion (WP-3)
+  // endregion
 
   // --- Finance: setup, accounts, menus --------------------------------------
+  // region accounts (WP-8)
 
   @override
   String get financeAccounts => 'Accounts';
@@ -1021,8 +1084,10 @@ class AppL10nEn extends AppL10n {
   @override
   String get financeSubscriptionsEmpty =>
       'Add your regular payments and see your fixed costs as one number.';
+  // endregion
 
   // --- Account form, archive, delete ----------------------------------------
+  // region account form (WP-8)
 
   @override
   String get accountFormNewTitle => 'New account';
@@ -1054,9 +1119,9 @@ class AppL10nEn extends AppL10n {
   @override
   String get accountNew => 'New account';
   @override
-  String accountCreated(String name) => 'Account “$name” is ready ✓';
+  String accountCreated(String name) => 'Account “$name” is ready';
   @override
-  String get accountUpdated => 'Account updated ✓';
+  String get accountUpdated => 'Account updated';
   @override
   String get accountSaveFailed => 'Couldn\'t save the account';
   @override
@@ -1123,8 +1188,10 @@ class AppL10nEn extends AppL10n {
   @override
   String get archivedAccountsBody =>
       'Accounts you archive wait here; restore one whenever you like.';
+  // endregion
 
   // --- Finance categories ----------------------------------------------------
+  // region categories (WP-10)
 
   @override
   String get titleCategories => 'Categories';
@@ -1140,7 +1207,7 @@ class AppL10nEn extends AppL10n {
   @override
   String get categoriesStarter => 'Add starter categories';
   @override
-  String get categoriesStarterAdded => 'Starter categories added ✓';
+  String get categoriesStarterAdded => 'Starter categories added';
   @override
   String get categoriesStarterFailed =>
       'Some categories couldn\'t be added, try again';
@@ -1182,9 +1249,9 @@ class AppL10nEn extends AppL10n {
   @override
   String get categoryFormColor => 'Color';
   @override
-  String categoryCreated(String name) => '“$name” added ✓';
+  String categoryCreated(String name) => '“$name” added';
   @override
-  String get categoryUpdated => 'Category updated ✓';
+  String get categoryUpdated => 'Category updated';
   @override
   String get categorySaveFailed => 'Couldn\'t save the category';
   @override
@@ -1221,8 +1288,10 @@ class AppL10nEn extends AppL10n {
       count == 1 ? '1 subcategory' : '$count subcategories';
   @override
   String get categoryLoadFailed => 'Couldn\'t load the category';
+  // endregion
 
   // --- Budgets ---------------------------------------------------------------
+  // region budgets (WP-10)
 
   @override
   String get budgetNewTitle => 'New budget';
@@ -1243,17 +1312,19 @@ class AppL10nEn extends AppL10n {
   String budgetCurrencyNote(String currency) =>
       'Budgets are kept in your profile currency ($currency).';
   @override
-  String get budgetCreated => 'Budget added ✓';
+  String get budgetCreated => 'Budget added';
   @override
-  String get budgetUpdated => 'Budget updated ✓';
+  String get budgetUpdated => 'Budget updated';
   @override
   String get budgetSaveFailed => 'Couldn\'t save the budget';
   @override
   String get budgetRemove => 'Remove budget';
   @override
   String budgetRemoved(String category) => '“$category” budget removed';
+  // endregion
 
   // --- Subscriptions ---------------------------------------------------------
+  // region subscriptions (WP-10)
 
   @override
   String get titleSubscriptions => 'Subscriptions';
@@ -1303,9 +1374,9 @@ class AppL10nEn extends AppL10n {
   @override
   String get subscriptionFormMore => 'More details';
   @override
-  String get subscriptionCreated => 'Subscription added ✓';
+  String get subscriptionCreated => 'Subscription added';
   @override
-  String get subscriptionUpdated => 'Subscription updated ✓';
+  String get subscriptionUpdated => 'Subscription updated';
   @override
   String get subscriptionSaveFailed => 'Couldn\'t save the subscription';
   @override
@@ -1345,20 +1416,22 @@ class AppL10nEn extends AppL10n {
   String get subscriptionToggleFailed => 'Couldn\'t update the subscription';
   @override
   String subscriptionDeleted(String name) => '“$name” deleted';
+  // endregion
 
   // --- Habits ---------------------------------------------------------------
+  // region habits (WP-11)
 
   @override
   String habitsDoneOfTotal(int done, int total) => '$done / $total done';
   @override
-  String get habitsAllDone => '✦ All done';
+  String get habitsAllDone => 'All done';
   @override
   String get habitsPerfectChain => 'Perfect-day chain';
   @override
   String get habitsPerfectHistory => 'Perfect-day history';
   @override
   String habitsPerfectStreak(int streak, int record) =>
-      'Perfect streak: 🔥 $streak · Best: $record';
+      'Perfect streak: $streak ${streak == 1 ? 'day' : 'days'} · Best: $record';
   @override
   String get habitsHistory => 'History';
   @override
@@ -1370,7 +1443,7 @@ class AppL10nEn extends AppL10n {
   @override
   String get habitsToggleFailed => 'Couldn\'t check it off, try again';
   @override
-  String habitsMeta(int streak, int rate) => '🔥 $streak · $rate% (30d)';
+  String habitsMeta(int streak, int rate) => 'Streak $streak · $rate% (30d)';
   @override
   String get habitsThisWeek => 'This week';
   @override
@@ -1433,7 +1506,7 @@ class AppL10nEn extends AppL10n {
   @override
   String get habitsFormLinkGoal => 'Link to a goal';
   @override
-  String get habitsAdded => 'Habit added ✓';
+  String get habitsAdded => 'Habit added';
   @override
   String get habitsSaveFailed => 'Couldn\'t save, try again';
   @override
@@ -1446,7 +1519,7 @@ class AppL10nEn extends AppL10n {
   String get habitsFormHistoryNote =>
       'Past days stay as they were logged; the change applies from today.';
   @override
-  String get habitsUpdated => 'Habit updated ✓';
+  String get habitsUpdated => 'Habit updated';
   @override
   String habitsArchiveFreezes(String goals) =>
       'These goals count this habit\'s completed days: $goals. '
@@ -1528,8 +1601,10 @@ class AppL10nEn extends AppL10n {
             : 'not done';
     return loggable ? '$date, $state' : '$date, $state, can\'t be changed';
   }
+  // endregion
 
   // --- Goals ----------------------------------------------------------------
+  // region goals (WP-12)
 
   @override
   String get goalsTypeFinancial => 'FINANCIAL';
@@ -1632,13 +1707,13 @@ class AppL10nEn extends AppL10n {
   @override
   String get goalsFormSubmit => 'Create goal';
   @override
-  String get goalsCreated => 'Goal created ✓';
+  String get goalsCreated => 'Goal created';
   @override
   String get goalsCreateFailed => 'Couldn\'t create the goal';
   @override
   String get goalsFormEditTitle => 'Edit goal';
   @override
-  String get goalsUpdated => 'Goal updated ✓';
+  String get goalsUpdated => 'Goal updated';
   @override
   String get goalsSaveFailed => 'Couldn\'t save the goal';
   @override
@@ -1668,7 +1743,7 @@ class AppL10nEn extends AppL10n {
   @override
   String get goalsMarkAchieved => 'Mark as achieved';
   @override
-  String get goalsMarkedAchieved => 'Goal achieved 🎉';
+  String get goalsMarkedAchieved => 'Goal achieved';
   @override
   String get goalsAbandonedSnack => 'Goal abandoned';
   @override
@@ -1702,8 +1777,10 @@ class AppL10nEn extends AppL10n {
       '$days ${days == 1 ? 'day' : 'days'} past';
   @override
   String get goalsMore => 'More actions';
+  // endregion
 
   // --- Journal --------------------------------------------------------------
+  // region journal (WP-13)
 
   @override
   String journalEntriesCount(int count) =>
@@ -1749,9 +1826,9 @@ class AppL10nEn extends AppL10n {
   @override
   String get journalEditorNeedsContent => 'Write a title or a few lines';
   @override
-  String get journalUpdated => 'Updated ✓';
+  String get journalUpdated => 'Updated';
   @override
-  String get journalAdded => 'Entry added ✓';
+  String get journalAdded => 'Entry added';
   @override
   String get journalSaveFailed => 'Couldn\'t save the entry';
   @override
@@ -1827,8 +1904,10 @@ class AppL10nEn extends AppL10n {
         '1y' => '1y',
         _ => 'All',
       };
+  // endregion
 
   // --- Profile and server settings ------------------------------------------
+  // region profile (WP-14)
 
   @override
   String get profileSectionApp => 'App';
@@ -1981,7 +2060,7 @@ class AppL10nEn extends AppL10n {
   String profileWeeklyReviewSaved(String day) => 'Weekly review day: $day';
   @override
   String get serverBlurb =>
-      'Your Meridian server\'s LAN address. The phone has to be on the same Wi-Fi network.';
+      'Your Meridian server\'s local network or Tailscale address. Can\'t connect? Check your Wi-Fi or Tailscale connection.';
   @override
   String get serverTest => 'Test connection';
   @override
@@ -1992,7 +2071,7 @@ class AppL10nEn extends AppL10n {
   String serverLatency(int ms) => '$ms ms';
   @override
   String get serverCantConnect =>
-      'Couldn\'t connect — check the address and your Wi-Fi';
+      'Couldn\'t connect — check the address and your Wi-Fi or Tailscale connection';
   @override
   String get serverEmpty => 'The server address can\'t be empty';
   @override
@@ -2004,4 +2083,5 @@ class AppL10nEn extends AppL10n {
   String get serverSaveAnyway => 'Save anyway';
   @override
   String get serverSaved => 'Server address saved';
+  // endregion
 }

@@ -85,7 +85,7 @@ void main() {
     await settleFrames(tester);
     expect(api.bodiesOf('POST /budgets').single,
         {'finance_category_id': 5, 'monthly_limit_cents': 300000});
-    expect(find.text('Bütçe eklendi ✓'), findsOneWidget);
+    expect(find.text('Bütçe eklendi'), findsOneWidget);
   });
 
   testWidgets('the card says spent against the limit; a tap changes the '

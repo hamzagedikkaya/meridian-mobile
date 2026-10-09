@@ -224,7 +224,7 @@ void main() {
     expect(tester.takeException(), isNull);
 
     // Empty-state copy for each section (design §4.3).
-    expect(find.text('Bugün plan yok — sakin bir gün ☁'), findsOneWidget);
+    expect(find.text('Bugün plan yok — sakin bir gün'), findsOneWidget);
     expect(find.text('Henüz alışkanlık yok — küçük başla'), findsOneWidget);
     expect(find.text('Henüz hedef yok — ilk hedefini koy'), findsOneWidget);
 

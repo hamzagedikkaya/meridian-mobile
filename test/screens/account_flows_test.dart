@@ -66,7 +66,7 @@ void main() {
         'initial_balance_cents': 0,
         'color': '#D4A853',
       });
-      expect(find.text('“Nakit” hesabı açıldı ✓'), findsOneWidget);
+      expect(find.text('“Nakit” hesabı açıldı'), findsOneWidget);
       // The account list refetched: the card moved on.
       expect(find.text('İlk hesabını oluştur'), findsNothing);
       expect(find.text('İlk işlemini ekle'), findsOneWidget);
@@ -168,7 +168,7 @@ void main() {
       await tester.tap(find.text('Kaydet'));
       await settleFrames(tester);
       expect(api.bodiesOf('PATCH /accounts/1').single, {'name': 'Ziraat'});
-      expect(find.text('Hesap güncellendi ✓'), findsOneWidget);
+      expect(find.text('Hesap güncellendi'), findsOneWidget);
     });
 
     testWidgets('a currency change refused because the account got a '
@@ -224,7 +224,7 @@ void main() {
       await tester.tap(find.text('Kaydet'));
       await settleFrames(tester);
       expect(api.bodiesOf('PATCH /accounts/1').last, {'name': 'Ziraat'});
-      expect(find.text('Hesap güncellendi ✓'), findsOneWidget);
+      expect(find.text('Hesap güncellendi'), findsOneWidget);
     });
 
     testWidgets('archive at once, with "Geri al" that restores it',

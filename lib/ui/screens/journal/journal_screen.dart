@@ -86,7 +86,12 @@ class _JournalScreenState extends ConsumerState<JournalScreen>
     final showErrorState = async.hasFailed;
 
     return primaryScroll(Scaffold(
-      appBar: AppBar(title: Text(context.l10n.titleJournal)),
+      appBar: AppBar(
+        title: Text(
+          context.l10n.titleJournal,
+          style: Theme.of(context).textTheme.headlineLarge,
+        ),
+      ),
       floatingActionButton: FloatingActionButton(
         onPressed: () => openJournalEditor(context),
         child: const Icon(Icons.add),

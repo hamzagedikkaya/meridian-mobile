@@ -1,5 +1,6 @@
 import '../core/formats.dart';
 import '../models/event.dart';
+import '../theme/entity_color.dart' show RecordSwatch;
 import 'app_l10n.dart';
 
 /// Turkish copy. Keep this file and [AppL10nEn] member-for-member identical —
@@ -11,6 +12,7 @@ class AppL10nTr extends AppL10n {
   String get localeCode => 'tr';
 
   // --- Generic actions and words --------------------------------------------
+  // region common (WP-1)
 
   @override
   String get appName => 'Meridian';
@@ -22,8 +24,6 @@ class AppL10nTr extends AppL10n {
   String get actionUpdate => 'Güncelle';
   @override
   String get actionCancel => 'Vazgeç';
-  @override
-  String get actionConfirm => 'Onayla';
   @override
   String get actionDelete => 'Sil';
   @override
@@ -50,8 +50,35 @@ class AppL10nTr extends AppL10n {
   String get labelSkip => 'Geç';
   @override
   String get labelChange => 'Değiştir';
+  @override
+  String get actionClose => 'Kapat';
+  @override
+  String get actionSearch => 'Ara';
+  @override
+  String get labelAllDone => 'Hepsi tamam';
+  @override
+  String streakDays(int days) => '$days günlük seri';
+  @override
+  String streakNewRecord(int record) => 'Yeni seri · Rekor $record';
+  @override
+  String get semProfileAndSettings => 'Profil ve ayarlar';
+  @override
+  String get semDragToReorder => 'Sıralamak için sürükle';
+  @override
+  String colorName(RecordSwatch swatch) => switch (swatch) {
+        RecordSwatch.gold => 'Altın',
+        RecordSwatch.sage => 'Adaçayı',
+        RecordSwatch.dustyBlue => 'Toz mavisi',
+        RecordSwatch.clay => 'Kil',
+        RecordSwatch.tan => 'Ten',
+        RecordSwatch.mauve => 'Mor',
+        RecordSwatch.teal => 'Deniz',
+        RecordSwatch.amber => 'Amber',
+      };
+  // endregion
 
   // --- Navigation and screen titles -----------------------------------------
+  // region shell (WP-4)
 
   @override
   String get tabToday => 'Bugün';
@@ -85,13 +112,19 @@ class AppL10nTr extends AppL10n {
   String get titleGoal => 'Hedef';
   @override
   String get titleJournalEntry => 'Günlük';
+  // endregion
+
+  // --- Search ----------------------------------------------------------------
+  // region search (WP-16)
+  // endregion
 
   // --- Errors, offline, session ---------------------------------------------
+  // region errors (WP-1)
 
   @override
   String get errServerUnreachable => 'Sunucuya ulaşılamıyor';
   @override
-  String get errCheckWifi => 'Aynı Wi-Fi ağında olduğundan emin ol';
+  String get errCheckWifi => 'Wi-Fi veya Tailscale bağlantını kontrol et';
   @override
   String get errServerSettings => 'Sunucu ayarları';
   @override
@@ -110,14 +143,16 @@ class AppL10nTr extends AppL10n {
   String errServer(int status) => 'Sunucu hatası ($status)';
   @override
   String get errNoConnection =>
-      'Sunucuya ulaşılamıyor — aynı Wi-Fi ağında olduğundan emin ol';
+      'Sunucuya ulaşılamıyor — Wi-Fi veya Tailscale bağlantını kontrol et';
   @override
   String get noticeSessionExpired => 'Oturum süresi doldu, tekrar giriş yap';
   @override
   String get errRecordGoneBody =>
       'Web\'de ya da başka bir cihazda silinmiş olabilir.';
+  // endregion
 
   // --- Server refusals, by the error `code` the API sends -------------------
+  // region server refusals (WP-1)
 
   @override
   String get errTooManyRequests =>
@@ -306,8 +341,10 @@ class AppL10nTr extends AppL10n {
         decimals: value == value.roundToDouble() ? 0 : 2,
         locale: localeCode,
       );
+  // endregion
 
   // --- Login and server address ---------------------------------------------
+  // region login (WP-14)
 
   @override
   String get loginEmail => 'E-posta';
@@ -321,9 +358,11 @@ class AppL10nTr extends AppL10n {
   String get serverAddressShort => 'Sunucu adresi';
   @override
   String get serverAddressUnreachable =>
-      'Sunucuya ulaşılamadı — adresi ve Wi-Fi\'yi kontrol et';
+      'Sunucuya ulaşılamadı — adresi, Wi-Fi veya Tailscale bağlantını kontrol et';
+  // endregion
 
   // --- Dates and relative days ----------------------------------------------
+  // region dates (WP-1)
 
   @override
   String get dayToday => 'Bugün';
@@ -371,8 +410,10 @@ class AppL10nTr extends AppL10n {
   @override
   String compactMillions(double major) =>
       '${formatDecimal(major / 1000000, locale: localeCode)}Mn';
+  // endregion
 
   // --- Today ----------------------------------------------------------------
+  // region today (WP-5)
 
   @override
   String get todayMonthNet => 'BU AY NET';
@@ -394,9 +435,9 @@ class AppL10nTr extends AppL10n {
   @override
   String get todayQuickCaptureFailed => 'Kayıt eklenemedi';
   @override
-  String get todayEmptyDay => 'Bugün plan yok — sakin bir gün ☁';
+  String get todayEmptyDay => 'Bugün plan yok — sakin bir gün';
   @override
-  String get todayAllHabitsDone => '✦ Hepsi tamam';
+  String get todayAllHabitsDone => 'Hepsi tamam';
   @override
   String get todayNoHabitsYet => 'Henüz alışkanlık yok — küçük başla';
   @override
@@ -404,7 +445,7 @@ class AppL10nTr extends AppL10n {
   @override
   String get todayOpenTodos => 'Açık görevler';
   @override
-  String get todayNoOpenTodos => 'Açık görev yok — hepsi tamam ✦';
+  String get todayNoOpenTodos => 'Açık görev yok — hepsi tamam';
   @override
   String get todayTodosFailed => 'Görevler yüklenemedi';
   @override
@@ -416,8 +457,10 @@ class AppL10nTr extends AppL10n {
   @override
   String todayZoneNotice(String zone, String offset) =>
       'Günler ve saatler hesabının saat dilimine göre: $zone (UTC$offset)';
+  // endregion
 
   // --- Quick capture --------------------------------------------------------
+  // region quick capture (WP-6)
 
   @override
   String captureSavedExpense(String amount, String description) =>
@@ -427,7 +470,7 @@ class AppL10nTr extends AppL10n {
       'Gelir eklendi · $amount · $description';
   @override
   String captureSavedHabit(String name, {required bool completed}) =>
-      completed ? '“$name” bugün tamamlandı ✓' : '“$name” işaretlendi';
+      completed ? '“$name” bugün tamamlandı' : '“$name” işaretlendi';
   @override
   String captureSavedTodo(String title) => 'Görev eklendi: $title';
   @override
@@ -449,8 +492,10 @@ class AppL10nTr extends AppL10n {
   String get captureCreateAccount => 'Hesap oluştur';
   @override
   String captureCreateHabit(String name) => '“$name” alışkanlığını oluştur';
+  // endregion
 
   // --- Todos and todo lists -------------------------------------------------
+  // region todos (WP-7)
 
   @override
   String get titleTodos => 'Görevler';
@@ -471,11 +516,11 @@ class AppL10nTr extends AppL10n {
         'today' => 'Bugün için görev yok',
         'upcoming' => 'Önümüzdeki 7 günde görev yok',
         'week' => 'Bu hafta görev yok',
-        'overdue' => 'Gecikmiş görev yok — harika ✦',
+        'overdue' => 'Gecikmiş görev yok — harika',
         'undated' => 'Tarihsiz görev yok',
         'done' => 'Henüz tamamlanan görev yok',
         'cancelled' => 'İptal edilen görev yok',
-        _ => 'Açık görev yok — hepsi tamam ✦',
+        _ => 'Açık görev yok — hepsi tamam',
       };
   @override
   String get todoAllLists => 'Tüm listeler';
@@ -603,8 +648,10 @@ class AppL10nTr extends AppL10n {
   String todoListDeleted(String name) => '“$name” listesi silindi';
   @override
   String get todoListDeleteFailed => 'Liste silinemedi';
+  // endregion
 
   // --- Events and agenda ----------------------------------------------------
+  // region agenda (WP-7)
 
   @override
   String get titleAgenda => 'Ajanda';
@@ -718,8 +765,10 @@ class AppL10nTr extends AppL10n {
   @override
   String eventSemantics(String title, {required String when, String? where}) =>
       [title, when, ?where].join(', ');
+  // endregion
 
   // --- Habit day log --------------------------------------------------------
+  // region habit log (WP-11)
 
   @override
   String get habitLogToday => 'Bugünün kaydı';
@@ -749,8 +798,10 @@ class AppL10nTr extends AppL10n {
 
   @override
   String get habitLogHint => 'Ayarlamak için basılı tut';
+  // endregion
 
   // --- Finance --------------------------------------------------------------
+  // region finance (WP-8)
 
   @override
   String get financeScopeMonth => 'Ay';
@@ -803,8 +854,10 @@ class AppL10nTr extends AppL10n {
         'yearly' => 'Yıllık',
         _ => frequency,
       };
+  // endregion
 
   // --- Transactions feed ----------------------------------------------------
+  // region transactions (WP-9)
 
   @override
   String get txFilterAccount => 'Hesap';
@@ -838,9 +891,9 @@ class AppL10nTr extends AppL10n {
   @override
   String get txDeleteFailed => 'Silinemedi';
   @override
-  String get txSaved => 'İşlem kaydedildi ✓';
+  String get txSaved => 'İşlem kaydedildi';
   @override
-  String get txUpdated => 'İşlem güncellendi ✓';
+  String get txUpdated => 'İşlem güncellendi';
   @override
   String get txSaveFailed => 'Kaydedilemedi, tekrar dene';
   @override
@@ -861,8 +914,10 @@ class AppL10nTr extends AppL10n {
   String get txDeletedWithLinked => 'İşlem ve bağlı işlem silindi';
   @override
   String get txGone => 'Bu işlem silinmiş';
+  // endregion
 
   // --- Transaction form ------------------------------------------------------
+  // region transaction form (WP-9)
 
   @override
   String get txFormNewTitle => 'İşlem Ekle';
@@ -910,8 +965,10 @@ class AppL10nTr extends AppL10n {
   @override
   String get txFormAccountsFailed =>
       'Hesaplar yüklenemedi. Tekrar denemek için dokun.';
+  // endregion
 
   // --- Forms, keypad and undo -----------------------------------------------
+  // region forms and controls (WP-2)
 
   @override
   String get actionAdd => 'Ekle';
@@ -943,8 +1000,14 @@ class AppL10nTr extends AppL10n {
   String get errDeleteFailed => 'Silinemedi; geri getirildi';
   @override
   String colorSwatch(int index) => 'Renk $index';
+  // endregion
+
+  // --- Numbers, progress, motion and celebrations ----------------------------
+  // region numbers and motion (WP-3)
+  // endregion
 
   // --- Finance: setup, accounts, menus --------------------------------------
+  // region accounts (WP-8)
 
   @override
   String get financeAccounts => 'Hesaplar';
@@ -1009,8 +1072,10 @@ class AppL10nTr extends AppL10n {
   @override
   String get financeSubscriptionsEmpty =>
       'Düzenli ödemelerini ekle, sabit giderini tek bir sayıda gör.';
+  // endregion
 
   // --- Account form, archive, delete ----------------------------------------
+  // region account form (WP-8)
 
   @override
   String get accountFormNewTitle => 'Yeni hesap';
@@ -1041,9 +1106,9 @@ class AppL10nTr extends AppL10n {
   @override
   String get accountNew => 'Yeni hesap';
   @override
-  String accountCreated(String name) => '“$name” hesabı açıldı ✓';
+  String accountCreated(String name) => '“$name” hesabı açıldı';
   @override
-  String get accountUpdated => 'Hesap güncellendi ✓';
+  String get accountUpdated => 'Hesap güncellendi';
   @override
   String get accountSaveFailed => 'Hesap kaydedilemedi';
   @override
@@ -1100,8 +1165,10 @@ class AppL10nTr extends AppL10n {
   @override
   String get archivedAccountsBody =>
       'Arşivlediğin hesaplar burada durur; istediğinde geri yükle.';
+  // endregion
 
   // --- Finance categories ----------------------------------------------------
+  // region categories (WP-10)
 
   @override
   String get titleCategories => 'Kategoriler';
@@ -1117,7 +1184,7 @@ class AppL10nTr extends AppL10n {
   @override
   String get categoriesStarter => 'Hazır kategorileri ekle';
   @override
-  String get categoriesStarterAdded => 'Hazır kategoriler eklendi ✓';
+  String get categoriesStarterAdded => 'Hazır kategoriler eklendi';
   @override
   String get categoriesStarterFailed =>
       'Kategorilerin bir kısmı eklenemedi, tekrar dene';
@@ -1159,9 +1226,9 @@ class AppL10nTr extends AppL10n {
   @override
   String get categoryFormColor => 'Renk';
   @override
-  String categoryCreated(String name) => '“$name” eklendi ✓';
+  String categoryCreated(String name) => '“$name” eklendi';
   @override
-  String get categoryUpdated => 'Kategori güncellendi ✓';
+  String get categoryUpdated => 'Kategori güncellendi';
   @override
   String get categorySaveFailed => 'Kategori kaydedilemedi';
   @override
@@ -1187,8 +1254,10 @@ class AppL10nTr extends AppL10n {
   String categoryChildren(int count) => '$count alt kategori';
   @override
   String get categoryLoadFailed => 'Kategori yüklenemedi';
+  // endregion
 
   // --- Budgets ---------------------------------------------------------------
+  // region budgets (WP-10)
 
   @override
   String get budgetNewTitle => 'Yeni bütçe';
@@ -1209,17 +1278,19 @@ class AppL10nTr extends AppL10n {
   String budgetCurrencyNote(String currency) =>
       'Bütçeler profilindeki para biriminde ($currency) tutulur.';
   @override
-  String get budgetCreated => 'Bütçe eklendi ✓';
+  String get budgetCreated => 'Bütçe eklendi';
   @override
-  String get budgetUpdated => 'Bütçe güncellendi ✓';
+  String get budgetUpdated => 'Bütçe güncellendi';
   @override
   String get budgetSaveFailed => 'Bütçe kaydedilemedi';
   @override
   String get budgetRemove => 'Bütçeyi kaldır';
   @override
   String budgetRemoved(String category) => '“$category” bütçesi kaldırıldı';
+  // endregion
 
   // --- Subscriptions ---------------------------------------------------------
+  // region subscriptions (WP-10)
 
   @override
   String get titleSubscriptions => 'Abonelikler';
@@ -1268,9 +1339,9 @@ class AppL10nTr extends AppL10n {
   @override
   String get subscriptionFormMore => 'Daha fazla ayrıntı';
   @override
-  String get subscriptionCreated => 'Abonelik eklendi ✓';
+  String get subscriptionCreated => 'Abonelik eklendi';
   @override
-  String get subscriptionUpdated => 'Abonelik güncellendi ✓';
+  String get subscriptionUpdated => 'Abonelik güncellendi';
   @override
   String get subscriptionSaveFailed => 'Abonelik kaydedilemedi';
   @override
@@ -1310,21 +1381,23 @@ class AppL10nTr extends AppL10n {
   String get subscriptionToggleFailed => 'Abonelik güncellenemedi';
   @override
   String subscriptionDeleted(String name) => '“$name” silindi';
+  // endregion
 
   // --- Habits ---------------------------------------------------------------
+  // region habits (WP-11)
 
   @override
   String habitsDoneOfTotal(int done, int total) =>
       '$done / $total tamamlandı';
   @override
-  String get habitsAllDone => '✦ Hepsi tamam';
+  String get habitsAllDone => 'Hepsi tamam';
   @override
   String get habitsPerfectChain => 'Mükemmel gün zinciri';
   @override
   String get habitsPerfectHistory => 'Mükemmel gün geçmişi';
   @override
   String habitsPerfectStreak(int streak, int record) =>
-      'Mükemmel seri: 🔥 $streak · Rekor: $record';
+      'Mükemmel seri: $streak gün · Rekor: $record';
   @override
   String get habitsHistory => 'Geçmiş';
   @override
@@ -1336,7 +1409,7 @@ class AppL10nTr extends AppL10n {
   @override
   String get habitsToggleFailed => 'İşaretlenemedi, tekrar dene';
   @override
-  String habitsMeta(int streak, int rate) => '🔥 $streak · %$rate (30g)';
+  String habitsMeta(int streak, int rate) => 'Seri $streak · %$rate (30g)';
   @override
   String get habitsThisWeek => 'Bu hafta';
   @override
@@ -1399,7 +1472,7 @@ class AppL10nTr extends AppL10n {
   @override
   String get habitsFormLinkGoal => 'Hedefe bağla';
   @override
-  String get habitsAdded => 'Alışkanlık eklendi ✓';
+  String get habitsAdded => 'Alışkanlık eklendi';
   @override
   String get habitsSaveFailed => 'Kaydedilemedi, tekrar dene';
   @override
@@ -1412,7 +1485,7 @@ class AppL10nTr extends AppL10n {
   String get habitsFormHistoryNote =>
       'Geçmiş günler kaydedildikleri gibi kalır; değişiklik bugünden itibaren geçerli.';
   @override
-  String get habitsUpdated => 'Alışkanlık güncellendi ✓';
+  String get habitsUpdated => 'Alışkanlık güncellendi';
   @override
   String habitsArchiveFreezes(String goals) =>
       'Şu hedefler bu alışkanlığın tamamlanan günlerini sayıyor: $goals. '
@@ -1493,8 +1566,10 @@ class AppL10nTr extends AppL10n {
             : 'yapılmadı';
     return loggable ? '$date, $state' : '$date, $state, değiştirilemez';
   }
+  // endregion
 
   // --- Goals ----------------------------------------------------------------
+  // region goals (WP-12)
 
   @override
   String get goalsTypeFinancial => 'FİNANSAL';
@@ -1598,13 +1673,13 @@ class AppL10nTr extends AppL10n {
   @override
   String get goalsFormSubmit => 'Hedef oluştur';
   @override
-  String get goalsCreated => 'Hedef oluşturuldu ✓';
+  String get goalsCreated => 'Hedef oluşturuldu';
   @override
   String get goalsCreateFailed => 'Hedef oluşturulamadı';
   @override
   String get goalsFormEditTitle => 'Hedefi düzenle';
   @override
-  String get goalsUpdated => 'Hedef güncellendi ✓';
+  String get goalsUpdated => 'Hedef güncellendi';
   @override
   String get goalsSaveFailed => 'Hedef kaydedilemedi';
   @override
@@ -1634,7 +1709,7 @@ class AppL10nTr extends AppL10n {
   @override
   String get goalsMarkAchieved => 'Tamamlandı olarak işaretle';
   @override
-  String get goalsMarkedAchieved => 'Hedef tamamlandı 🎉';
+  String get goalsMarkedAchieved => 'Hedef tamamlandı';
   @override
   String get goalsAbandonedSnack => 'Hedef bırakıldı';
   @override
@@ -1667,8 +1742,10 @@ class AppL10nTr extends AppL10n {
   String goalsDaysOverdue(int days) => '$days gün geçti';
   @override
   String get goalsMore => 'Diğer işlemler';
+  // endregion
 
   // --- Journal --------------------------------------------------------------
+  // region journal (WP-13)
 
   @override
   String journalEntriesCount(int count) => '$count kayıt';
@@ -1714,9 +1791,9 @@ class AppL10nTr extends AppL10n {
   String get journalEditorNeedsContent =>
       'Bir başlık ya da birkaç satır yaz';
   @override
-  String get journalUpdated => 'Güncellendi ✓';
+  String get journalUpdated => 'Güncellendi';
   @override
-  String get journalAdded => 'Kayıt eklendi ✓';
+  String get journalAdded => 'Kayıt eklendi';
   @override
   String get journalSaveFailed => 'Kayıt kaydedilemedi';
   @override
@@ -1792,8 +1869,10 @@ class AppL10nTr extends AppL10n {
         '1y' => '1y',
         _ => 'Tümü',
       };
+  // endregion
 
   // --- Profile and server settings ------------------------------------------
+  // region profile (WP-14)
 
   @override
   String get profileSectionApp => 'Uygulama';
@@ -1947,7 +2026,7 @@ class AppL10nTr extends AppL10n {
       'Haftalık değerlendirme günü: $day';
   @override
   String get serverBlurb =>
-      'Meridian sunucusunun LAN adresi. Telefonun aynı Wi-Fi ağında olmalı.';
+      'Meridian sunucusunun yerel ağ ya da Tailscale adresi. Bağlanamazsan Wi-Fi veya Tailscale bağlantını kontrol et.';
   @override
   String get serverTest => 'Bağlantıyı test et';
   @override
@@ -1958,7 +2037,7 @@ class AppL10nTr extends AppL10n {
   String serverLatency(int ms) => '$ms ms';
   @override
   String get serverCantConnect =>
-      'Bağlanılamadı — adresi ve Wi-Fi\'yi kontrol et';
+      'Bağlanılamadı — adresi, Wi-Fi veya Tailscale bağlantını kontrol et';
   @override
   String get serverEmpty => 'Sunucu adresi boş olamaz';
   @override
@@ -1970,4 +2049,5 @@ class AppL10nTr extends AppL10n {
   String get serverSaveAnyway => 'Yine de kaydet';
   @override
   String get serverSaved => 'Sunucu adresi kaydedildi';
+  // endregion
 }

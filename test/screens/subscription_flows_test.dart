@@ -92,7 +92,7 @@ void main() {
     expect(body['amount_cents'], 9999);
     expect(body['frequency'], 'yearly');
     expect(body.containsKey('next_charge_on'), isFalse);
-    expect(find.text('Abonelik eklendi ✓'), findsOneWidget);
+    expect(find.text('Abonelik eklendi'), findsOneWidget);
   });
 
   testWidgets('the account list could not be loaded: the account row says '

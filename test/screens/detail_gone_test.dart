@@ -202,7 +202,7 @@ void main() {
       await tester.pumpAndSettle();
       expect(find.byType(JournalEditorScreen), findsNothing);
       expect(find.byType(JournalDetailScreen), findsNothing);
-      expect(find.text('Kayıt eklendi ✓'), findsOneWidget);
+      expect(find.text('Kayıt eklendi'), findsOneWidget);
     });
 
     testWidgets('a save answered 404 keeps the editor and the text', (

@@ -187,7 +187,7 @@ void main() {
     // Perfect-day chain caption with the real streak/record numbers.
     expect(find.text('Mükemmel gün zinciri'), findsOneWidget);
     expect(
-      find.text('Mükemmel seri: 🔥 2 · Rekor: 9'),
+      find.text('Mükemmel seri: 2 gün · Rekor: 9'),
       findsOneWidget,
     );
 
@@ -218,6 +218,6 @@ void main() {
     expect(t.takeException(), isNull);
     // pct==1.0 progress bar + "Hepsi tamam" badge.
     expect(find.text('1 / 1 tamamlandı'), findsOneWidget);
-    expect(find.text('✦ Hepsi tamam'), findsOneWidget);
+    expect(find.text('Hepsi tamam'), findsOneWidget);
   });
 }

@@ -113,7 +113,10 @@ class _FinanceScreenState extends ConsumerState<FinanceScreen>
 
     return primaryScroll(Scaffold(
       appBar: AppBar(
-        title: Text(l.titleFinance),
+        title: Text(
+          l.titleFinance,
+          style: Theme.of(context).textTheme.headlineLarge,
+        ),
         actions: [
           SegmentedPill<String>(
             options: [

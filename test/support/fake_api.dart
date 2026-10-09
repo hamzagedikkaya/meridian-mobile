@@ -732,6 +732,45 @@ Map<String, dynamic> captureTodoJson({int id = 40, String title = 'süt al'}) =>
       'record': {...todoJson(id: id), 'title': title, 'due_at': null},
     };
 
+// Payload helpers added by a work package go in its own region below
+// (see design-analysis §9.0): edits in different regions merge cleanly.
+
+// region shell (WP-4)
+// endregion
+
+// region today (WP-5)
+// endregion
+
+// region quick capture (WP-6)
+// endregion
+
+// region agenda (WP-7)
+// endregion
+
+// region finance (WP-8)
+// endregion
+
+// region transactions (WP-9)
+// endregion
+
+// region categories, budgets, subscriptions (WP-10)
+// endregion
+
+// region habits (WP-11)
+// endregion
+
+// region goals (WP-12)
+// endregion
+
+// region journal (WP-13)
+// endregion
+
+// region profile (WP-14)
+// endregion
+
+// region search (WP-16)
+// endregion
+
 /// Answers for routes with ids or dates in the path that no test set.
 _Route? _patterned(String key) {
   final log = RegExp(r'^PUT /habits/(\d+)/logs/(\d{4}-\d{2}-\d{2})$').firstMatch(key);
@@ -841,6 +880,46 @@ final Map<String, _Route> _defaults = {
     },
   }),
   'GET /journal_entries/20': _Route(body: {'entry': journalEntryJson()}),
+
+  // Default routes added by a work package, reads and writes, go in its
+  // own region.
+
+  // region shell (WP-4)
+  // endregion
+
+  // region today (WP-5)
+  // endregion
+
+  // region quick capture (WP-6)
+  // endregion
+
+  // region agenda (WP-7)
+  // endregion
+
+  // region finance (WP-8)
+  // endregion
+
+  // region transactions (WP-9)
+  // endregion
+
+  // region categories, budgets, subscriptions (WP-10)
+  // endregion
+
+  // region habits (WP-11)
+  // endregion
+
+  // region goals (WP-12)
+  // endregion
+
+  // region journal (WP-13)
+  // endregion
+
+  // region profile (WP-14)
+  // endregion
+
+  // region search (WP-16)
+  // endregion
+
   // Writes.
   'PATCH /me': _Route(body: {'user': userJson()}),
   'PATCH /me/password': _Route(body: {'token': 'new-token', 'user': userJson()}),

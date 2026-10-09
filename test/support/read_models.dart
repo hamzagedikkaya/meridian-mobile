@@ -39,6 +39,43 @@ Map<String, ProviderListenable<AsyncValue<Object?>>> readModelsByPath() => {
       '/events/12': eventDetailProvider(12),
       '/journal_entries': journalProvider('30d'),
       '/journal_entries/20': journalEntryProvider(20),
+
+      // A new read model is listed in its work package's region.
+      // region shell (WP-4)
+      // endregion
+
+      // region today (WP-5)
+      // endregion
+
+      // region quick capture (WP-6)
+      // endregion
+
+      // region agenda (WP-7)
+      // endregion
+
+      // region finance (WP-8)
+      // endregion
+
+      // region transactions (WP-9)
+      // endregion
+
+      // region categories, budgets, subscriptions (WP-10)
+      // endregion
+
+      // region habits (WP-11)
+      // endregion
+
+      // region goals (WP-12)
+      // endregion
+
+      // region journal (WP-13)
+      // endregion
+
+      // region profile (WP-14)
+      // endregion
+
+      // region search (WP-16)
+      // endregion
     };
 
 /// Shows every read model (as visible screens would) and waits until each

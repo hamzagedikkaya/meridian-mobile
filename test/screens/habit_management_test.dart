@@ -279,7 +279,7 @@ void main() {
       {'name': 'Sabah koşusu'},
     ]);
     expect(find.byType(HabitFormScreen), findsNothing);
-    expect(find.text('Alışkanlık güncellendi ✓'), findsOneWidget);
+    expect(find.text('Alışkanlık güncellendi'), findsOneWidget);
   });
 
   testWidgets('edit: closing a changed form asks before dropping the change', (

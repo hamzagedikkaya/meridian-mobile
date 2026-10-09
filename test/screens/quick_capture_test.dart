@@ -197,7 +197,7 @@ void main() {
         }, status: 201);
       await _open(tester, api);
       await _send(tester, 'alışkanlık: su');
-      expect(find.text('“Su” bugün tamamlandı ✓'), findsOneWidget);
+      expect(find.text('“Su” bugün tamamlandı'), findsOneWidget);
     });
 
     testWidgets('a kind this app does not know yet still says it was saved', (

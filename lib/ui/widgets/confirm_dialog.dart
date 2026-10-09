@@ -3,11 +3,14 @@ import '../../l10n/app_l10n.dart';
 import '../../theme/app_colors.dart';
 
 /// Destructive confirm — cancel text button + filled error button (design §4.8).
+///
+/// [confirmLabel] is a verb naming the outcome ("Sil", "Arşivle") — never a
+/// bare "Confirm" (design-analysis §4.16).
 Future<bool> showConfirmDialog(
   BuildContext context, {
   required String title,
   String? message,
-  String? confirmLabel,
+  required String confirmLabel,
   bool destructive = false,
 }) async {
   final c = context.nok;
@@ -31,7 +34,7 @@ Future<bool> showConfirmDialog(
                   minimumSize: const Size(0, 44),
                 )
               : FilledButton.styleFrom(minimumSize: const Size(0, 44)),
-          child: Text(confirmLabel ?? l.actionConfirm),
+          child: Text(confirmLabel),
         ),
       ],
     ),

@@ -101,7 +101,7 @@ Theme (dark / light / system), **language (Türkçe / English)**, currency, live
 | Localization | typed string classes + a `LocalizationsDelegate` (no `.arb`, no codegen) · `flutter_localizations` |
 | Storage | `flutter_secure_storage` ^10.3.1 (token bound to its server, journal drafts) · `shared_preferences` ^2.5.5 (server URL, language, theme) |
 | Charts | `fl_chart` ^1.2.0 — donut, sparkline, grouped six-month bars |
-| Motion | `animations` ^2.2.0 (fade-through) · `flutter_animate` ^4.5.2 (entrance staggers only) |
+| Motion | `animations` ^2.2.0 (fade-through, shared axis) · tokens in `lib/theme/app_motion.dart` |
 | Loading | `skeletonizer` ^2.1.3 |
 | Rich text | `flutter_widget_from_html_core` ^0.17.2 — journal `body_html` |
 | Formatting | `intl` ^0.20.2 — money, dates and month names per locale |

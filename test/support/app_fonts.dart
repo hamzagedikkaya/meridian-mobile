@@ -10,7 +10,6 @@ import 'package:flutter/services.dart' show FontLoader, rootBundle;
 /// Once loaded they stay for every test of the file (its isolate).
 Future<void> loadAppFonts() async {
   final fraunces = FontLoader('Fraunces')
-    ..addFont(_font('assets/fonts/Fraunces-Regular.ttf'))
     ..addFont(_font('assets/fonts/Fraunces-SemiBold.ttf'));
   final inter = FontLoader('Inter')
     ..addFont(_font('assets/fonts/Inter-Regular.ttf'))

@@ -3,14 +3,12 @@ import 'package:flutter/material.dart';
 import '../../../core/formats.dart';
 import '../../../l10n/app_l10n.dart';
 import '../../../models/goal.dart';
+import '../../../theme/entity_color.dart';
 
 /// Parse a "#RRGGBB" (or "#AARRGGBB") goal color, falling back to gold.
-Color goalColor(String hex) {
-  var h = hex.replaceFirst('#', '').trim();
-  if (h.length == 6) h = 'FF$h';
-  if (h.length != 8) return const Color(0xFFD4A853);
-  return Color(int.tryParse(h, radix: 16) ?? 0xFFD4A853);
-}
+/// New code draws record colours through `entityTone` (theme/entity_color).
+Color goalColor(String hex) =>
+    parseEntityHex(hex, fallback: const Color(0xFFD4A853));
 
 String goalTypeOverline(AppL10n l, String targetType) => switch (targetType) {
       'financial' => l.goalsTypeFinancial,

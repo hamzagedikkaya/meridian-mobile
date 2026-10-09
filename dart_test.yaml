@@ -1,15 +1,15 @@
-# The golden suite renders every screen in both languages for visual review.
-# Its fixtures are relative to "now" on purpose — the screenshots should look
-# like a live phone — so the images drift as the clock moves and would turn
-# `flutter test` red every day. Keep it out of the default run and shoot it
-# deliberately:
+# The golden suite (test/golden/<area>_golden_test.dart + golden_harness.dart)
+# renders every screen across the language × theme × text-scale matrix for
+# visual review. The clock is pinned (4 Oct 2026, 09:41), but pixel output
+# still depends on the host's font rasteriser, so it stays out of the default
+# run. Shoot it deliberately:
 #
-#   flutter test                                     # unit + widget suites
-#   flutter test test/golden                         # compare screenshots
-#   flutter test --update-goldens test/golden        # refresh them
+#   flutter test                                                  # unit + widget suites
+#   flutter test test/golden --run-skipped                        # compare screenshots
+#   flutter test test/golden --run-skipped --update-goldens       # refresh them
 tags:
   golden:
-    skip: "visual-review harness — run: flutter test test/golden"
+    skip: "visual-review harness — run: flutter test test/golden --run-skipped"
   # Conformance against a running Meridian server (test/live): the real
   # repository and Dio stack, a throwaway account's data created and deleted.
   #

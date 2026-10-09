@@ -64,6 +64,7 @@ final repositoryProvider = Provider<MeridianRepository>((ref) {
 
 // --- Shared read-model plumbing ----------------------------------------------
 
+// region read-model plumbing (WP-1)
 /// How old data may be before showing it again refetches it in the background.
 const staleAfter = Duration(minutes: 1);
 
@@ -315,9 +316,11 @@ final class PendingEdit<T> {
     if (_owner._pending.remove(this)) _owner._show();
   }
 }
+// endregion
 
 // --- Screen providers: AsyncValue<Fetched<T>> --------------------------------
 
+// region profile (WP-14)
 /// The currencies and time zones the account can be set to (GET /me/options),
 /// for the profile's pickers. Its labels are in the account's language, so a
 /// language change refetches it with everything else (`DataScope.me`).
@@ -325,7 +328,9 @@ final meOptionsProvider = FutureProvider.autoDispose<Fetched<MeOptions>>(
   (ref) => fetched(ref, (r) => r.fetchMeOptions(), dateRelative: false),
   retry: _retriedInFetch,
 );
+// endregion
 
+// region today (WP-5)
 final homeProvider =
     AsyncNotifierProvider.autoDispose<HomeNotifier, Fetched<HomeSummary>>(
   HomeNotifier.new,
@@ -352,7 +357,9 @@ class HomeNotifier extends FetchedNotifier<HomeSummary> {
     return home;
   }
 }
+// endregion
 
+// region accounts (WP-8)
 /// Every account, archived ones included (they follow the active ones): the
 /// carousel and the pickers show the active ones, the archive page the
 /// others, and an archived account still opens.
@@ -381,7 +388,9 @@ final currenciesProvider = FutureProvider.autoDispose<Fetched<CurrenciesBundle>>
   (ref) => fetched(ref, (r) => r.fetchCurrencies(), dateRelative: false),
   retry: _retriedInFetch,
 );
+// endregion
 
+// region category usage, budgets, subscriptions (WP-10)
 /// One category and what a delete or a type change would touch
 /// (GET /finance_categories/:id).
 final FutureProviderFamily<Fetched<CategoryUsage>, int> categoryUsageProvider =
@@ -411,13 +420,17 @@ final subscriptionsProvider =
   (ref) => fetched(ref, (r) => r.fetchSubscriptions(), dateRelative: false),
   retry: _retriedInFetch,
 );
+// endregion
 
+// region finance dashboard (WP-8)
 final financeDashboardProvider =
     FutureProvider.autoDispose<Fetched<FinanceDashboard>>(
   (ref) => fetched(ref, (r) => r.fetchFinanceDashboard()),
   retry: _retriedInFetch,
 );
+// endregion
 
+// region habits (WP-11)
 final habitsProvider =
     AsyncNotifierProvider.autoDispose<HabitsNotifier, Fetched<HabitsBundle>>(
   HabitsNotifier.new,
@@ -527,7 +540,9 @@ final FutureProviderFamily<Fetched<Habit>, int> habitDetailProvider =
   ),
   retry: _retriedInFetch,
 );
+// endregion
 
+// region goals (WP-12)
 final goalsProvider = FutureProvider.autoDispose<Fetched<GoalsBundle>>(
   (ref) => fetched(ref, (r) => r.fetchGoals()),
   retry: _retriedInFetch,
@@ -544,13 +559,17 @@ final FutureProviderFamily<Fetched<Goal>, int> goalDetailProvider =
   ),
   retry: _retriedInFetch,
 );
+// endregion
 
+// region categories (WP-10)
 final categoriesProvider =
     FutureProvider.autoDispose<Fetched<List<TxCategory>>>(
   (ref) => fetched(ref, (r) => r.fetchCategories(), dateRelative: false),
   retry: _retriedInFetch,
 );
+// endregion
 
+// region agenda (WP-7)
 final eventsTodayProvider = FutureProvider.autoDispose<Fetched<List<Event>>>(
   (ref) {
     final today = ref.watch(currentDayProvider);
@@ -622,9 +641,11 @@ final FutureProviderFamily<Fetched<Event>, int> eventDetailProvider =
   ),
   retry: _retriedInFetch,
 );
+// endregion
 
 // --- Family screen providers -------------------------------------------------
 
+// region journal (WP-13)
 final journalProvider =
     FutureProvider.autoDispose.family<Fetched<JournalBundle>, String>(
   (ref, range) => fetched(ref, (r) => r.fetchJournal(range: range)),
@@ -643,7 +664,9 @@ final FutureProviderFamily<Fetched<JournalEntry>, int> journalEntryProvider =
   ),
   retry: _retriedInFetch,
 );
+// endregion
 
+// region todos (WP-7)
 /// What a todo list shows — the family key of [todosProvider]: one of the
 /// server's filters (contract §9: `open`, `today`, `week`, `upcoming`,
 /// `overdue`, `undated`, `done`, `cancelled`, `all`), in one list or in none.
@@ -744,9 +767,19 @@ final todoListsProvider = FutureProvider.autoDispose<Fetched<TodoListsBundle>>(
   (ref) => fetched(ref, (r) => r.fetchTodoLists(), dateRelative: false),
   retry: _retriedInFetch,
 );
+// endregion
+
+// --- Shell and search ------------------------------------------------------
+
+// region shell (WP-4)
+// endregion
+
+// region search (WP-16)
+// endregion
 
 // --- Transactions: infinite-scroll AsyncNotifier family ----------------------
 
+// region transactions (WP-9)
 /// Immutable filter key for the transactions feed. It is the `.family`
 /// argument, so a distinct set of filters gets its own independent notifier
 /// instance + cache — there is no shared, racy `setFilters`.
@@ -1169,3 +1202,4 @@ void forgetDeletedTransaction(ProviderContainer container, int id) {
     container.read(transactionsProvider(filters).notifier).removeLocally(id);
   }
 }
+// endregion

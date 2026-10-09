@@ -265,7 +265,7 @@ class _TodayScreenState extends ConsumerState<TodayScreen>
     final c = context.nok;
     final text = Theme.of(context).textTheme;
     final user = ref.watch(currentUserProvider);
-    final greeting = context.l10n.greeting(DateTime.now().hour);
+    final greeting = context.l10n.greeting(ref.read(clockProvider)().hour);
     final name = user?.displayName ?? '';
     final initials = user?.initials ?? '';
 

@@ -6,6 +6,7 @@ import '../../../core/formats.dart';
 import '../../../core/locale_mode.dart';
 import '../../../core/session.dart';
 import '../../../core/theme_mode.dart';
+import '../../../core/turkish_case.dart';
 import '../../../data/current_day.dart';
 import '../../../data/providers.dart';
 import '../../../data/sync.dart';
@@ -243,7 +244,11 @@ class _Header extends StatelessWidget {
     if (fromApi.isNotEmpty) return fromApi;
     final words = name.trim().split(RegExp(r'\s+')).where((w) => w.isNotEmpty);
     if (words.isEmpty) return '?';
-    return words.take(2).map((w) => w[0].toUpperCase()).join();
+    // Turkish casing: "ilker" → "İ", not "I".
+    return words
+        .take(2)
+        .map((w) => trUpper(String.fromCharCode(w.runes.first)))
+        .join();
   }
 }
 

@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 
 import '../models/event.dart';
+import '../theme/entity_color.dart' show RecordSwatch;
 import 'app_l10n_en.dart';
 import 'app_l10n_tr.dart';
 
@@ -20,6 +21,13 @@ import 'app_l10n_tr.dart';
 ///
 /// Pure number/date formatting lives in `core/formats.dart` and follows
 /// [Intl.defaultLocale], which this file's delegate keeps in sync.
+///
+/// Copy is grouped by area in `// region <area> (WP-n)` … `// endregion`
+/// blocks, identical in this file, [AppL10nTr] and [AppL10nEn]. Add a string
+/// inside its own area's region — at the end of it — in all three files, so
+/// work on different areas merges without conflicts. No glyph that Inter
+/// lacks (✦ ☁ 🔥 …): `test/l10n/glyph_coverage_test.dart` checks every
+/// string against the bundled font; icons are drawn next to text instead.
 abstract class AppL10n {
   const AppL10n();
 
@@ -37,13 +45,13 @@ abstract class AppL10n {
   String get localeCode;
 
   // --- Generic actions and words --------------------------------------------
+  // region common (WP-1)
 
   String get appName;
   String get tagline;
   String get actionSave;
   String get actionUpdate;
   String get actionCancel;
-  String get actionConfirm;
   String get actionDelete;
   String get actionEdit;
   String get actionRetry;
@@ -57,8 +65,31 @@ abstract class AppL10n {
   String get labelNone;
   String get labelSkip;
   String get labelChange;
+  String get actionClose;
+  String get actionSearch;
+
+  /// The calm "everything for today is done" line. No glyph: the caller
+  /// draws `Icons.auto_awesome_rounded` next to it.
+  String get labelAllDone;
+
+  /// A running streak, for captions and screen readers: "12 günlük seri".
+  String streakDays(int days);
+
+  /// What a broken streak shows instead of a zero: "Yeni seri · Rekor 21".
+  String streakNewRecord(int record);
+
+  /// The avatar button that opens Profile.
+  String get semProfileAndSettings;
+
+  /// The drag handle of a reorderable row.
+  String get semDragToReorder;
+
+  /// A record colour by name, for screen readers ("Adaçayı" / "Sage").
+  String colorName(RecordSwatch swatch);
+  // endregion
 
   // --- Navigation and screen titles -----------------------------------------
+  // region shell (WP-4)
 
   String get tabToday;
   String get tabFinance;
@@ -76,8 +107,14 @@ abstract class AppL10n {
   String get titleAccount;
   String get titleGoal;
   String get titleJournalEntry;
+  // endregion
+
+  // --- Search ----------------------------------------------------------------
+  // region search (WP-16)
+  // endregion
 
   // --- Errors, offline, session ---------------------------------------------
+  // region errors (WP-1)
 
   String get errServerUnreachable;
   String get errCheckWifi;
@@ -98,8 +135,10 @@ abstract class AppL10n {
   /// Under the title of a detail screen whose record the server no longer
   /// has (a 404): it was deleted on the web or on another device.
   String get errRecordGoneBody;
+  // endregion
 
   // --- Server refusals, by the error `code` the API sends -------------------
+  // region server refusals (WP-1)
   //
   // Worded here rather than shown as the server wrote them, so a refusal
   // reads in the app's language whatever the account's language is.
@@ -166,8 +205,10 @@ abstract class AppL10n {
   /// field an error is about when it is not shown under the field itself.
   /// Null for a field the app does not know.
   String? fieldLabel(String field);
+  // endregion
 
   // --- Login and server address ---------------------------------------------
+  // region login (WP-14)
 
   String get loginEmail;
   String get loginPassword;
@@ -177,8 +218,10 @@ abstract class AppL10n {
   /// Shorter label for the Profile row, where the address sits beside it.
   String get serverAddressShort;
   String get serverAddressUnreachable;
+  // endregion
 
   // --- Dates and relative days ----------------------------------------------
+  // region dates (WP-1)
 
   String get dayToday;
   String get dayYesterday;
@@ -200,8 +243,10 @@ abstract class AppL10n {
   /// Compact chart-axis numbers: `75B` / `1,2Mn` in Turkish, `75K` / `1.2M`.
   String compactThousands(double major);
   String compactMillions(double major);
+  // endregion
 
   // --- Today ----------------------------------------------------------------
+  // region today (WP-5)
 
   String get todayMonthNet;
   String get todayYearNet;
@@ -229,8 +274,10 @@ abstract class AppL10n {
   /// the account: days and times follow the account ([zone], [offset] like
   /// `+03:00`), not the phone.
   String todayZoneNotice(String zone, String offset);
+  // endregion
 
   // --- Quick capture --------------------------------------------------------
+  // region quick capture (WP-6)
 
   /// What a capture saved, by what it turned into.
   String captureSavedExpense(String amount, String description);
@@ -254,8 +301,10 @@ abstract class AppL10n {
   String get captureAddAsEvent;
   String get captureCreateAccount;
   String captureCreateHabit(String name);
+  // endregion
 
   // --- Todos and todo lists -------------------------------------------------
+  // region todos (WP-7)
 
   String get titleTodos;
 
@@ -337,8 +386,10 @@ abstract class AppL10n {
   String get todoListDeleteAll;
   String todoListDeleted(String name);
   String get todoListDeleteFailed;
+  // endregion
 
   // --- Events and agenda ----------------------------------------------------
+  // region agenda (WP-7)
 
   String get titleAgenda;
   String get agendaThisWeek;
@@ -394,8 +445,10 @@ abstract class AppL10n {
 
   /// Screen readers: an event row — its title, when, and where.
   String eventSemantics(String title, {required String when, String? where});
+  // endregion
 
   // --- Habit day log --------------------------------------------------------
+  // region habit log (WP-11)
 
   /// Sheet title for setting today's count of a habit.
   String get habitLogToday;
@@ -418,8 +471,10 @@ abstract class AppL10n {
 
   /// Screen-reader hint: a long-press opens the day's log.
   String get habitLogHint;
+  // endregion
 
   // --- Finance --------------------------------------------------------------
+  // region finance (WP-8)
 
   String get financeScopeMonth;
   String get financeScopeYear;
@@ -443,8 +498,10 @@ abstract class AppL10n {
 
   /// Subscription cadence, by API `frequency`.
   String subscriptionFrequency(String frequency);
+  // endregion
 
   // --- Transactions feed ----------------------------------------------------
+  // region transactions (WP-9)
 
   String get txFilterAccount;
   String get txFilterAllAccounts;
@@ -481,8 +538,10 @@ abstract class AppL10n {
 
   /// The sheet of a transaction deleted on the web or another device.
   String get txGone;
+  // endregion
 
   // --- Transaction form ------------------------------------------------------
+  // region transaction form (WP-9)
 
   String get txFormNewTitle;
   String get txFormEditTitle;
@@ -512,8 +571,10 @@ abstract class AppL10n {
   /// loaded (a tap tries again) — never "make your first account" then.
   String get txFormAccountsLoading;
   String get txFormAccountsFailed;
+  // endregion
 
   // --- Forms, keypad and undo -----------------------------------------------
+  // region forms and controls (WP-2)
 
   String get actionAdd;
   String get actionDone;
@@ -541,8 +602,14 @@ abstract class AppL10n {
 
   /// A colour swatch, for screen readers ("Renk 3").
   String colorSwatch(int index);
+  // endregion
+
+  // --- Numbers, progress, motion and celebrations ----------------------------
+  // region numbers and motion (WP-3)
+  // endregion
 
   // --- Finance: setup, accounts, menus --------------------------------------
+  // region accounts (WP-8)
 
   String get financeAccounts;
 
@@ -593,8 +660,10 @@ abstract class AppL10n {
   String get financeNoUpcomingPayments;
   String get financeAddSubscription;
   String get financeSubscriptionsEmpty;
+  // endregion
 
   // --- Account form, archive, delete ----------------------------------------
+  // region account form (WP-8)
 
   String get accountFormNewTitle;
   String get accountFormEditTitle;
@@ -640,8 +709,10 @@ abstract class AppL10n {
   String get titleArchivedAccounts;
   String get archivedAccountsEmpty;
   String get archivedAccountsBody;
+  // endregion
 
   // --- Finance categories ----------------------------------------------------
+  // region categories (WP-10)
 
   String get titleCategories;
   String get categoriesEmptyExpense;
@@ -681,8 +752,10 @@ abstract class AppL10n {
   String get categoryDeleteFailed;
   String categoryChildren(int count);
   String get categoryLoadFailed;
+  // endregion
 
   // --- Budgets ---------------------------------------------------------------
+  // region budgets (WP-10)
 
   String get budgetNewTitle;
   String budgetEditTitle(String category);
@@ -697,8 +770,10 @@ abstract class AppL10n {
   String get budgetSaveFailed;
   String get budgetRemove;
   String budgetRemoved(String category);
+  // endregion
 
   // --- Subscriptions ---------------------------------------------------------
+  // region subscriptions (WP-10)
 
   String get titleSubscriptions;
 
@@ -746,8 +821,10 @@ abstract class AppL10n {
   String subscriptionResumedDone(String name);
   String get subscriptionToggleFailed;
   String subscriptionDeleted(String name);
+  // endregion
 
   // --- Habits ---------------------------------------------------------------
+  // region habits (WP-11)
 
   String habitsDoneOfTotal(int done, int total);
   String get habitsAllDone;
@@ -846,8 +923,10 @@ abstract class AppL10n {
     required bool done,
     required bool loggable,
   });
+  // endregion
 
   // --- Goals ----------------------------------------------------------------
+  // region goals (WP-12)
 
   String get goalsTypeFinancial;
   String get goalsTypeHabit;
@@ -942,8 +1021,10 @@ abstract class AppL10n {
   String get goalsTotalIncome;
   String goalsDaysOverdue(int days);
   String get goalsMore;
+  // endregion
 
   // --- Journal --------------------------------------------------------------
+  // region journal (WP-13)
 
   String journalEntriesCount(int count);
   String get journalNoEntryForMood;
@@ -999,8 +1080,10 @@ abstract class AppL10n {
 
   /// Range pill label for `7d` / `30d` / `6mo` / `1y` / `all`.
   String journalRange(String range);
+  // endregion
 
   // --- Profile and server settings ------------------------------------------
+  // region profile (WP-14)
 
   String get profileSectionApp;
   String get profileTheme;
@@ -1102,6 +1185,7 @@ abstract class AppL10n {
   String get serverUnverifiedBody;
   String get serverSaveAnyway;
   String get serverSaved;
+  // endregion
 }
 
 class _AppL10nDelegate extends LocalizationsDelegate<AppL10n> {

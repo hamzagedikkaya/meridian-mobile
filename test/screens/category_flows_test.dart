@@ -64,7 +64,7 @@ void main() {
       'color': '#B85450',
     });
     expect(find.byType(BottomSheet), findsNothing);
-    expect(find.text('“Yeni” eklendi ✓'), findsOneWidget);
+    expect(find.text('“Yeni” eklendi'), findsOneWidget);
   });
 
   testWidgets('a name already taken is said under the field, in the app\'s '
@@ -172,7 +172,7 @@ void main() {
     await settleFrames(tester);
     expect(api.bodiesOf('PATCH /finance_categories/5').last, {'name': 'Gıda'});
     expect(find.byType(BottomSheet), findsNothing);
-    expect(find.text('Kategori güncellendi ✓'), findsOneWidget);
+    expect(find.text('Kategori güncellendi'), findsOneWidget);
   });
 
   testWidgets('a save that changes nothing closes the sheet quietly',
@@ -186,7 +186,7 @@ void main() {
     await settleFrames(tester);
     expect(find.byType(BottomSheet), findsNothing);
     expect(api.bodiesOf('PATCH /finance_categories/5'), isEmpty);
-    expect(find.text('Kategori güncellendi ✓'), findsNothing);
+    expect(find.text('Kategori güncellendi'), findsNothing);
   });
 
   testWidgets('a category nothing is filed under is deleted with "Geri al"',
@@ -307,6 +307,6 @@ void main() {
       'income:Maaş',
       'income:Diğer gelir',
     ]);
-    expect(find.text('Hazır kategoriler eklendi ✓'), findsOneWidget);
+    expect(find.text('Hazır kategoriler eklendi'), findsOneWidget);
   });
 }

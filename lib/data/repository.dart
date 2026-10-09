@@ -35,6 +35,7 @@ class MeridianRepository {
   final WriteListener? _writes;
 
   // --- Me -------------------------------------------------------------------
+  // region profile (WP-14)
 
   /// Changes the account's settings (`PATCH /me`); only the keys given are
   /// sent. The caller adopts the returned user.
@@ -129,13 +130,17 @@ class MeridianRepository {
         touches: const {},
         parse: (_) {},
       );
+  // endregion
 
   // --- Home -----------------------------------------------------------------
+  // region today (WP-5)
 
   Future<HomeSummary> fetchHome() =>
       _get('/home', (data) => HomeSummary.fromJson(data));
+  // endregion
 
   // --- Accounts -------------------------------------------------------------
+  // region accounts (WP-8)
 
   /// Every account: the active ones by name, then the archived ones — one
   /// list for the carousel and pickers (active only), the archive page and
@@ -219,15 +224,19 @@ class MeridianRepository {
   /// The currencies a new account can be opened in, and the default one.
   Future<CurrenciesBundle> fetchCurrencies() =>
       _get('/currencies', (data) => CurrenciesBundle.fromJson(data));
+  // endregion
 
   // --- Finance --------------------------------------------------------------
+  // region finance (WP-8)
 
   Future<FinanceDashboard> fetchFinanceDashboard({String? range}) => _get(
         '/finance/dashboard',
         (data) => FinanceDashboard.fromJson(data),
         query: _pruned({'range': range}),
       );
+  // endregion
 
+  // region transactions (WP-9)
   /// One page of transactions. [uncategorized] asks for the ones without a
   /// category (`category_id=none`) instead of [categoryId];
   /// [includeIncomingTransfers] adds, to an [accountId] filter, the other
@@ -296,8 +305,10 @@ class MeridianRepository {
         deletes: (scope: DataScope.transactions, id: id),
         parse: (_) {},
       );
+  // endregion
 
   // --- Finance categories ---------------------------------------------------
+  // region categories (WP-10)
 
   Future<List<TxCategory>> fetchCategories() => _get(
         '/finance_categories',
@@ -343,8 +354,10 @@ class MeridianRepository {
         deletes: (scope: DataScope.categories, id: id),
         parse: (_) {},
       );
+  // endregion
 
   // --- Budgets --------------------------------------------------------------
+  // region budgets (WP-10)
 
   Future<BudgetsBundle> fetchBudgets() =>
       _get('/budgets', (data) => BudgetsBundle.fromJson(data));
@@ -373,8 +386,10 @@ class MeridianRepository {
         deletes: (scope: DataScope.budgets, id: id),
         parse: (_) {},
       );
+  // endregion
 
   // --- Subscriptions --------------------------------------------------------
+  // region subscriptions (WP-10)
 
   Future<SubscriptionsBundle> fetchSubscriptions() =>
       _get('/subscriptions', (data) => SubscriptionsBundle.fromJson(data));
@@ -439,8 +454,10 @@ class MeridianRepository {
         },
         parse: (data) => SubscriptionCharge.fromJson(data),
       );
+  // endregion
 
   // --- Habits ---------------------------------------------------------------
+  // region habits (WP-11)
 
   Future<HabitsBundle> fetchHabits() =>
       _get('/habits', (data) => HabitsBundle.fromJson(data));
@@ -533,8 +550,10 @@ class MeridianRepository {
         deletes: (scope: DataScope.habits, id: id),
         parse: (_) {},
       );
+  // endregion
 
   // --- Goals ----------------------------------------------------------------
+  // region goals (WP-12)
 
   Future<GoalsBundle> fetchGoals() =>
       _get('/goals', (data) => GoalsBundle.fromJson(data));
@@ -658,8 +677,10 @@ class MeridianRepository {
         deletes: (scope: DataScope.goals, id: id),
         parse: (_) {},
       );
+  // endregion
 
   // --- Journal --------------------------------------------------------------
+  // region journal (WP-13)
 
   Future<JournalBundle> fetchJournal({String range = '30d'}) => _get(
         '/journal_entries',
@@ -705,8 +726,10 @@ class MeridianRepository {
         deletes: (scope: DataScope.journal, id: id),
         parse: (_) {},
       );
+  // endregion
 
   // --- Todos ----------------------------------------------------------------
+  // region todos (WP-7)
 
   /// The todos one of the server's filters lists (contract §9), in [listId]
   /// or — [unlisted] — in no list, in [sort] order; with [perPage], only
@@ -781,8 +804,10 @@ class MeridianRepository {
         deletes: (scope: DataScope.todos, id: id),
         parse: (_) {},
       );
+  // endregion
 
   // --- Todo lists -----------------------------------------------------------
+  // region todo lists (WP-7)
 
   /// The active lists, by position then name, and how many open todos are
   /// in no list.
@@ -819,8 +844,10 @@ class MeridianRepository {
         deletes: (scope: DataScope.todoLists, id: id),
         parse: (_) {},
       );
+  // endregion
 
   // --- Events ---------------------------------------------------------------
+  // region agenda (WP-7)
 
   Future<List<Event>> fetchEvents({DateTime? from, DateTime? to}) => _get(
         '/events',
@@ -874,8 +901,10 @@ class MeridianRepository {
         deletes: (scope: DataScope.events, id: id),
         parse: (_) {},
       );
+  // endregion
 
   // --- Quick capture --------------------------------------------------------
+  // region quick capture (WP-6)
 
   /// One line of free text becomes a transaction, a habit check-in or a todo
   /// — or, for a line that names a day, nothing (an event suggestion, with
@@ -910,8 +939,14 @@ class MeridianRepository {
     DataScope.habitLogs,
     DataScope.todos,
   };
+  // endregion
+
+  // --- Search ----------------------------------------------------------------
+  // region search (WP-16)
+  // endregion
 
   // --- Plumbing -------------------------------------------------------------
+  // region plumbing (WP-1)
 
   Future<T> _get<T>(
     String path,
@@ -1008,4 +1043,5 @@ class MeridianRepository {
       ((raw as List?) ?? const [])
           .map((e) => fromJson(e as Map<String, dynamic>))
           .toList();
+  // endregion
 }

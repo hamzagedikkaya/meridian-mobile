@@ -15,6 +15,10 @@ class PrefKeys {
   static const locale = 'locale';
   static const themeMode = 'theme_mode';
 
+  /// The app's own "Reduce motion" switch, `'true'` when on (see
+  /// `reduceMotionProvider`).
+  static const reduceMotion = 'reduce_motion';
+
   /// The time-zone pair whose notice on Today was dismissed (see
   /// `zoneMismatchProvider`): account and device offsets in minutes.
   static const zoneNoticeDismissed = 'zone_notice_dismissed';
@@ -23,7 +27,7 @@ class PrefKeys {
   static const lastAccountId = 'last_account_id';
 
   /// Device-level settings that survive a sign-out.
-  static const keptOnSignOut = [serverUrl, locale, themeMode];
+  static const keptOnSignOut = [serverUrl, locale, themeMode, reduceMotion];
 }
 
 /// Overridden with the real instance in main().
@@ -404,9 +408,10 @@ class SessionController extends Notifier<SessionState> {
     if (state is! SessionLoggedOut) state = const SessionLoggedOut();
   }
 
-  /// Signing out drops everything about the account but keeps the three
-  /// device-level settings: which server to talk to, and the language and theme
-  /// the login screen should still be rendered in. Journal drafts go only
+  /// Signing out drops everything about the account but keeps the four
+  /// device-level settings ([PrefKeys.keptOnSignOut]): which server to talk
+  /// to, the language and theme the login screen should still be rendered in,
+  /// and reduced motion. Journal drafts go only
   /// with [drafts] — a sign-out the user asked for.
   Future<void> _wipeLocal({bool drafts = false}) async {
     await ref.read(tokenStoreProvider).clear();

@@ -151,7 +151,10 @@ class _HabitsScreenState extends ConsumerState<HabitsScreen>
 
     return primaryScroll(Scaffold(
       appBar: AppBar(
-        title: Text(l.titleHabits),
+        title: Text(
+          l.titleHabits,
+          style: Theme.of(context).textTheme.headlineLarge,
+        ),
         actions: [
           IconButton(
             icon: const Icon(Icons.calendar_month_outlined),

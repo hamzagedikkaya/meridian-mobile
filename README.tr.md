@@ -101,7 +101,7 @@ Tema (koyu / açık / sistem), **dil (Türkçe / English)**, para birimi, canlı
 | Yerelleştirme | tipli metin sınıfları + bir `LocalizationsDelegate` (`.arb` yok, codegen yok) · `flutter_localizations` |
 | Depolama | `flutter_secure_storage` ^10.3.1 (sunucusuna bağlı token, günlük taslakları) · `shared_preferences` ^2.5.5 (sunucu adresi, dil, tema) |
 | Grafik | `fl_chart` ^1.2.0 — donut, sparkline, gruplu altı ay barları |
-| Hareket | `animations` ^2.2.0 (fade-through) · `flutter_animate` ^4.5.2 (yalnızca giriş stagger'ları) |
+| Hareket | `animations` ^2.2.0 (fade-through, shared axis) · token'lar `lib/theme/app_motion.dart` içinde |
 | Yükleme | `skeletonizer` ^2.1.3 |
 | Zengin metin | `flutter_widget_from_html_core` ^0.17.2 — günlük `body_html` |
 | Biçimleme | `intl` ^0.20.2 — dile göre para, tarih ve ay adları |
