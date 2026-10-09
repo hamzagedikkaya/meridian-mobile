@@ -262,9 +262,8 @@ void main() {
       final api = FakeApi()
         ..on('GET /journal_entries/20', {'entry': _fullJson()});
       final preview = JournalEntry.fromJson({
-        ...journalEntryJson(),
+        ...journalListItemJson(),
         'body_plain': '${_longBody.substring(0, 197)}...',
-        'body_html': null,
       });
       await _pump(tester, api, entry: preview);
       await _open(tester, 'open');

@@ -45,6 +45,15 @@ class FakeApi implements HttpClientAdapter {
 
   void clearLog() => requests.clear();
 
+  /// Every route answered by default ("METHOD /path"), plus one example of
+  /// each patterned route — what the live suite (test/live) holds up
+  /// against the real server's answers.
+  static Iterable<String> get defaultRoutes => [
+        ..._defaults.keys,
+        'PUT /habits/7/logs/2026-10-04',
+        'PATCH /todos/39/toggle',
+      ];
+
   /// Answers [key] ("METHOD /path") with [body] and [status].
   void on(String key, Object? body, {int status = 200}) =>
       _routes[key] = _Route(body: body, status: status);
@@ -177,6 +186,10 @@ Map<String, dynamic> habitJson({
       'target_count': targetCount,
       'color': '#D4A853',
       'goal_id': null,
+      'archived': false,
+      'archived_at': null,
+      'created_at': '2026-09-01T10:00:00.000+03:00',
+      'start_date': '2026-09-01',
       'current_streak': streak,
       'longest_streak': 9,
       'completion_rate_30d': 40.0,
@@ -186,6 +199,22 @@ Map<String, dynamic> habitJson({
         {'date': '2026-10-03', 'status': 'partial', 'completed': 1, 'possible': 3},
         {'date': '2026-10-04', 'status': 'today_pending'},
       ],
+    };
+
+/// GET /habits/:id: the habit object and what an archive or a delete would
+/// touch (contract §5).
+Map<String, dynamic> habitDetailJson({
+  int id = 7,
+  String name = 'Koşu',
+  int logged = 12,
+  int completedDays = 10,
+  List<Map<String, dynamic>> trackedBy = const [],
+}) =>
+    {
+      ...habitJson(id: id, name: name),
+      'logged_days_count': logged,
+      'completed_days_count': completedDays,
+      'tracked_by_goals': trackedBy,
     };
 
 Map<String, dynamic> habitsMeta({int completedToday = 0, int totalActive = 2}) => {
@@ -251,6 +280,7 @@ Map<String, dynamic> todoJson({int id = 39, String status = 'pending'}) => {
       'completed_at': status == 'done' ? '2026-10-04T12:30:00.000+03:00' : null,
       'overdue': status != 'done',
       'position': 1,
+      'goal_id': null,
       'todo_list': null,
       'subtask_count': 0,
     };
@@ -386,6 +416,7 @@ Map<String, dynamic> goalJson({int id = 3, num current = 40}) => {
       'target_value': 100.0,
       'current_value': current,
       'progress_percent': current,
+      'progress_source': 'manual',
       'related': null,
     };
 
@@ -622,7 +653,9 @@ Map<String, dynamic> subscriptionsJson({
       ],
     };
 
-Map<String, dynamic> journalEntryJson({int id = 20}) => {
+/// A journal entry as `GET /journal_entries` lists it: `body_plain` is a
+/// preview there, and the full entry's keys are absent (contract §7.1).
+Map<String, dynamic> journalListItemJson({int id = 20}) => {
       'id': id,
       'date': '2026-10-04',
       'title': 'Sakin bir gün',
@@ -633,9 +666,19 @@ Map<String, dynamic> journalEntryJson({int id = 20}) => {
       'weather': null,
       'tags': const [],
       'has_gratitude': false,
-      'created_at': '2026-10-04T19:00:00.000Z',
-      'body_html': '<p>Kısa bir not.</p>',
+      'created_at': '2026-10-04T19:00:00.000+03:00',
+    };
+
+/// The full journal entry (`GET /journal_entries/:id`, `POST`, `PATCH`):
+/// the whole body as plain text and as HTML, and whether it is plain.
+Map<String, dynamic> journalEntryJson({int id = 20}) => {
+      ...journalListItemJson(id: id),
+      'body_html': '<div class="trix-content">\n  <div>Kısa bir not.</div>\n</div>\n',
+      'body_text': 'Kısa bir not.',
+      'body_format': 'plain',
+      'body_formatting': const <String>[],
       'gratitude': null,
+      'updated_at': '2026-10-04T19:00:00.000+03:00',
     };
 
 Map<String, dynamic> userJson({String name = 'Demo'}) => {
@@ -722,7 +765,7 @@ final Map<String, _Route> _defaults = {
   'GET /me/options': _Route(body: meOptionsJson()),
   'GET /home': _Route(body: homeJson()),
   'GET /habits': _Route(body: habitsJson()),
-  'GET /habits/7': _Route(body: {'habit': habitJson()}),
+  'GET /habits/7': _Route(body: {'habit': habitDetailJson()}),
   'GET /goals': _Route(body: {
     'active': [goalJson()],
     'achieved': const [],
@@ -765,7 +808,22 @@ final Map<String, _Route> _defaults = {
       _Route(body: {'transaction': transactionDetailJson()}),
   'GET /todos': _Route(body: {
     'todos': [todoJson()],
-    'meta': const {'open_count': 1, 'overdue_count': 1},
+    'meta': const {
+      'open_count': 1,
+      'overdue_count': 1,
+      'total_count': 1,
+      'counts': {
+        'open': 1,
+        'today': 1,
+        'week': 1,
+        'upcoming': 0,
+        'overdue': 1,
+        'undated': 0,
+        'done': 0,
+        'cancelled': 0,
+        'all': 1,
+      },
+    },
   }),
   'GET /events': const _Route(body: {'events': []}),
   'GET /events/12': _Route(body: {'event': eventJson(full: true)}),
@@ -774,7 +832,7 @@ final Map<String, _Route> _defaults = {
     'meta': const {'unlisted_open_count': 1},
   }),
   'GET /journal_entries': _Route(body: {
-    'entries': [journalEntryJson()],
+    'entries': [journalListItemJson()],
     'meta': const {
       'entries_count': 1,
       'journal_streak': 1,

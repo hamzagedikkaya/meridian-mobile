@@ -10,3 +10,9 @@
 tags:
   golden:
     skip: "visual-review harness — run: flutter test test/golden"
+  # Conformance against a running Meridian server (test/live): the real
+  # repository and Dio stack, a throwaway account's data created and deleted.
+  #
+  #   flutter test test/live --run-skipped
+  live:
+    skip: "needs a running Meridian server — run: flutter test test/live --run-skipped"

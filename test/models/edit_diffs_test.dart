@@ -217,7 +217,7 @@ void main() {
         ...goalJson(),
         'target_type': 'habit',
         'related': {'type': 'Habit', 'id': 7, 'name': 'Koşu'},
-      });
+      }..remove('progress_source'));
       expect(old.progressSource, 'habit');
     });
 

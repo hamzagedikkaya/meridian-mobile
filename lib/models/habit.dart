@@ -168,8 +168,10 @@ class Habit {
   final DateTime? archivedAt;
 
   /// The first day a log can be set for (the day it was created, in the
-  /// account's zone): earlier chain days are "missed" only because the
-  /// habit did not exist yet. Null from an older server.
+  /// account's zone). The server starts [chain] and [completionRate30d] on
+  /// it (or on an earlier logged day), so a new habit's chain is short
+  /// rather than "missed" for days it did not exist. Null from an older
+  /// server.
   final DateTime? startDate;
 
   /// Detail only (`GET /habits/:id`): the days a delete would remove, the
