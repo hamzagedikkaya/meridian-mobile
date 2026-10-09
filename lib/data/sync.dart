@@ -24,6 +24,7 @@ import 'package:flutter_riverpod/misc.dart'
 import '../core/session.dart';
 import 'data_scope.dart';
 import 'providers.dart';
+import 'recent_changes.dart';
 
 /// The cached read models whose server response depends on [scope].
 ///
@@ -269,12 +270,38 @@ final class DataSync implements WriteListener {
   /// Writes sent and not yet answered.
   int get writesInFlight => _writesInFlight;
 
+  /// When this device last sent or finished a write (any container): a
+  /// number that changes within [userChangeWindow] of it changed because of
+  /// the user, and rolls (`NumberCause.user`); later it is a refresh.
+  static DateTime? lastUserWriteAt;
+
+  /// How long after a write a changed number still counts as the user's.
+  static const userChangeWindow = Duration(seconds: 5);
+
+  /// Whether a number changing now was changed by the user's own write.
+  static bool get userWroteRecently {
+    final at = lastUserWriteAt;
+    return at != null && DateTime.now().difference(at) <= userChangeWindow;
+  }
+
+  /// A repository write tells which record it created, edited or brought
+  /// back, so that row — and only that row — animates (`RecentChanges`).
+  void noteChange(DataScope scope, int id, ChangeKind kind) {
+    if (_disposed) return;
+    _container.read(recentChangesProvider.notifier).record(scope, id, kind);
+  }
+
   @override
-  void writeStarted() => _writesInFlight++;
+  void writeStarted() {
+    _writesInFlight++;
+    lastUserWriteAt = DateTime.now();
+  }
 
   @override
   void writeFinished(Set<DataScope> changed, {DeletedRecord? deleted}) {
     if (_writesInFlight > 0) _writesInFlight--;
+    lastUserWriteAt = DateTime.now();
+    if (deleted != null) noteChange(deleted.scope, deleted.id, ChangeKind.removed);
     // Once per write, however many of its scopes name a model.
     final models = {for (final scope in changed) ...readModelsFor(scope)};
     for (final model in models) {

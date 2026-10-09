@@ -253,17 +253,20 @@ void main() {
     await tester.pump();
     expect(find.text('Kitap'), findsNothing);
 
-    final sweeps = tester.widgetList<TweenAnimationBuilder<double>>(
-      find.descendant(
-        of: find.byType(ProgressRing),
-        matching: find.byType(TweenAnimationBuilder<double>),
-      ),
+    final rings = tester.stateList<ProgressRingState>(
+      find.byType(ProgressRing),
     );
-    expect(sweeps, hasLength(2));
-    for (final sweep in sweeps) {
-      expect(sweep.tween.begin, isNull, reason: 'restarted from zero');
+    expect(rings, hasLength(2));
+    for (final ring in rings) {
+      // Each ring moves on from a value it already showed (0.4–0.8), never
+      // from zero.
+      expect(ring.paintedValue, greaterThan(0.3), reason: 'restarted from zero');
     }
     await tester.pumpAndSettle();
+    final settled = tester
+        .stateList<ProgressRingState>(find.byType(ProgressRing))
+        .map((r) => r.paintedValue);
+    expect(settled, [closeTo(0.6, 0.001), closeTo(0.8, 0.001)]);
   });
 
   testWidgets('renders an achieved-only list (empty active) safely',

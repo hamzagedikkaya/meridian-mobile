@@ -346,7 +346,7 @@ class _TodayScreenState extends ConsumerState<TodayScreen>
           child: StatChip(
             value: '${data.openTodos}',
             label: l.todayStatOpenTodos,
-            onTap: () => context.push('/todos'),
+            onTap: () => context.go('/agenda?view=open'),
           ),
         ),
         const SizedBox(width: 12),
@@ -409,7 +409,7 @@ class _TodayScreenState extends ConsumerState<TodayScreen>
         _InlineAction(
           icon: Icons.checklist,
           label: l.todoAllOpen(data.openTodos),
-          onTap: () => context.push('/todos'),
+          onTap: () => context.go('/agenda?view=open'),
         ),
     ];
 
@@ -418,7 +418,7 @@ class _TodayScreenState extends ConsumerState<TodayScreen>
       children: [
         SectionHeader(
           l.titleTodos,
-          onSeeAll: () => context.push('/todos'),
+          onSeeAll: () => context.go('/agenda?view=open'),
         ),
         NokturnCard(
           padding: const EdgeInsets.symmetric(vertical: 8),
@@ -498,7 +498,11 @@ class _TodayScreenState extends ConsumerState<TodayScreen>
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        SectionHeader(l.titleGoals),
+        // Goals is a page now, not a tab: this is the way there (§6.1).
+        SectionHeader(
+          l.titleGoals,
+          onSeeAll: () => context.push('/goals'),
+        ),
         if (goals.isEmpty)
           _emptyCard(
             context,

@@ -772,6 +772,40 @@ final todoListsProvider = FutureProvider.autoDispose<Fetched<TodoListsBundle>>(
 // --- Shell and search ------------------------------------------------------
 
 // region shell (WP-4)
+/// Whether global search (`/search`, WP-16) is offered: Today's and
+/// Agenda's search icons are drawn only when it is. WP-16 turns it on.
+const kSearchEnabled = false;
+
+/// The overdue todo count as the Agenda tab last read it (its open todos'
+/// `meta.counts.overdue`), with when — reported by the Agenda screen as its
+/// list lands, never fetched for the badge itself.
+final agendaOverdueProvider =
+    NotifierProvider<AgendaOverdueNotifier, Fetched<int>?>(
+        AgendaOverdueNotifier.new);
+
+class AgendaOverdueNotifier extends Notifier<Fetched<int>?> {
+  @override
+  Fetched<int>? build() => null;
+
+  void report(Fetched<int> count) {
+    final shown = state;
+    if (shown != null && shown.data == count.data && shown.at == count.at) {
+      return;
+    }
+    state = count;
+  }
+}
+
+/// The count on the Agenda tab's badge (§6.1): `/home`'s overdue count, or
+/// the Agenda's own once it has read one newer than `/home`'s.
+final overdueBadgeProvider = Provider.autoDispose<int>((ref) {
+  final home = ref.watch(homeProvider.select((home) => home.value));
+  final agenda = ref.watch(agendaOverdueProvider);
+  final fromHome = home?.data.overdueCount ?? 0;
+  if (agenda == null) return fromHome;
+  if (home == null || !agenda.at.isBefore(home.at)) return agenda.data;
+  return fromHome;
+});
 // endregion
 
 // region search (WP-16)

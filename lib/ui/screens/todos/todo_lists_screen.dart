@@ -105,8 +105,8 @@ class TodoListsScreen extends ConsumerWidget {
                                   title: list.name,
                                   meta: l.todoListCounts(
                                       list.openCount, list.todosCount),
-                                  onTap: () => context.push(
-                                      '/todos?list=${list.id}'),
+                                  onTap: () => context
+                                      .go('/agenda?list=${list.id}'),
                                   trailing: IconButton(
                                     icon: const Icon(Icons.edit_outlined),
                                     tooltip: l.todoListEdit,

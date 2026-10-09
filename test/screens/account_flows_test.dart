@@ -98,10 +98,10 @@ void main() {
       }
       await tester.tap(find.byType(Switch));
       await tester.pump();
-      expect(find.text('−1.234 \$'), findsOneWidget);
+      expect(find.text('−\$1.234'), findsOneWidget);
       await tester.tap(find.text('Tamam'));
       await settleFrames(tester);
-      expect(find.text('−1.234,00 \$'), findsOneWidget);
+      expect(find.text('−\$1.234,00'), findsOneWidget);
 
       await tester.tap(find.text('Hesabı oluştur'));
       await settleFrames(tester);
@@ -194,11 +194,11 @@ void main() {
             'değişmez.'),
         findsNothing,
       );
-      expect(find.text('1.250,50 ₺'), findsOneWidget);
+      expect(find.text('₺1.250,50'), findsOneWidget);
       await tester.tap(find.text('GAU · Gram altın'));
       await settleFrames(tester);
       // The opening balance as typed, in grams (no decimals).
-      expect(find.text('1.250 gr'), findsOneWidget);
+      expect(find.text('1.250\u00A0gr'), findsOneWidget);
       // A transaction was recorded on it on the web meanwhile.
       api.on('GET /accounts/1', {'account': accountDetailJson(transactions: 1)});
       await tester.tap(find.text('Kaydet'));
@@ -214,10 +214,10 @@ void main() {
       expect(find.text('An account with transactions cannot change it.'),
           findsNothing);
       // Its own currency and opening balance again, and they stay.
-      expect(find.text('1.250,50 ₺'), findsOneWidget);
+      expect(find.text('₺1.250,50'), findsOneWidget);
       await tester.tap(find.text('GAU · Gram altın'));
       await settleFrames(tester);
-      expect(find.text('1.250,50 ₺'), findsOneWidget);
+      expect(find.text('₺1.250,50'), findsOneWidget);
 
       api.on('PATCH /accounts/1', {'account': accountJson(name: 'Ziraat')});
       await tester.enterText(find.byType(TextField), 'Ziraat');
@@ -427,8 +427,8 @@ void main() {
       await _openAccount(tester, api);
       expect(queries.first['account_id'], 1);
       expect(queries.first['include_incoming_transfers'], true);
-      expect(find.text('+100,00 ₺'), findsOneWidget);
-      expect(find.text('−100,00 ₺'), findsOneWidget);
+      expect(find.text('+₺100,00'), findsOneWidget);
+      expect(find.text('−₺100,00'), findsOneWidget);
       expect(find.text('Banka → Cüzdan'), findsOneWidget);
     });
   });

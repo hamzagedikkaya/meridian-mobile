@@ -1,9 +1,12 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/api.dart';
 import '../../l10n/app_l10n.dart';
 import '../../theme/app_colors.dart';
+import '../../theme/app_motion.dart';
 
 /// The three things a screen can show for a read model, decided the same way
 /// on every screen so that no refresh or retry flashes a skeleton:
@@ -48,12 +51,18 @@ extension AsyncScreenState on AsyncValue<Object?> {
       };
 }
 
-/// A 2 dp line that says "updating" without hiding anything.
+/// A 2 dp gold line that says "updating" without hiding anything
+/// (design-analysis §4.27).
 ///
 /// Shown at the top of a screen while data that is already on screen is
 /// refetched in the background (after a write, on app resume, on a tab
-/// re-tap, at midnight). It waits ~300 ms before it appears, so a quick
-/// refresh never flashes it, and it takes no layout space.
+/// re-tap, at midnight). It takes no layout space and appears only after
+/// [Motion.syncHintDelay] — a real timer, so a quick refresh never flashes
+/// it, reduced motion included — then fades in over 150 ms and out over
+/// 200 ms. Under reduced motion it is a still line at 60 %.
+///
+/// Hide it while a pull-to-refresh spinner shows
+/// (`active: isRefetching && !pulling`).
 class SyncHint extends StatefulWidget {
   final bool active;
 
@@ -76,53 +85,94 @@ class SyncHint extends StatefulWidget {
   State<SyncHint> createState() => _SyncHintState();
 }
 
-class _SyncHintState extends State<SyncHint>
-    with SingleTickerProviderStateMixin {
-  // The first half of the fade-in shows nothing: that is the delay.
-  late final AnimationController _fade = AnimationController(
-    vsync: this,
-    duration: const Duration(milliseconds: 600),
-    value: widget.active ? 1 : 0,
-  );
-  late final CurvedAnimation _opacity = CurvedAnimation(
-    parent: _fade,
-    curve: const Interval(0.5, 1, curve: Curves.easeOut),
-  );
+class _SyncHintState extends State<SyncHint> {
+  /// The hint's fade in: a local alias of [Motion.pressOut] (same 150 ms)
+  /// until WP-1/WP-17 add a token named for it (`Motion.hintIn`).
+  static const _hintIn = Motion.pressOut;
+
+  Timer? _delay;
+
+  /// Past the delay and still active.
+  bool _shown = false;
+
+  /// Still on screen: shown, or fading out.
+  bool _mounted = false;
+
+  @override
+  void initState() {
+    super.initState();
+    if (widget.active) _wait();
+  }
 
   @override
   void didUpdateWidget(SyncHint old) {
     super.didUpdateWidget(old);
-    if (widget.active != old.active) {
-      widget.active ? _fade.forward() : _fade.reverse();
+    if (widget.active == old.active) return;
+    if (widget.active) {
+      _wait();
+    } else {
+      _delay?.cancel();
+      _delay = null;
+      if (_shown) setState(() => _shown = false);
     }
+  }
+
+  void _wait() {
+    _delay?.cancel();
+    _delay = Timer(Motion.syncHintDelay, () {
+      _delay = null;
+      if (!mounted) return;
+      setState(() {
+        _shown = true;
+        _mounted = true;
+      });
+    });
   }
 
   @override
   void dispose() {
-    _opacity.dispose();
-    _fade.dispose();
+    _delay?.cancel();
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
     final c = context.nok;
-    return AnimatedBuilder(
-      animation: _fade,
-      builder: (context, _) {
-        // Not even mounted while idle: an indeterminate indicator ticks for
-        // as long as it exists.
-        if (_fade.value == 0) return const SizedBox(height: 2);
-        return Opacity(
-          opacity: _opacity.value,
-          child: LinearProgressIndicator(
+    // Not even built while idle: an indeterminate indicator ticks for as
+    // long as it exists.
+    if (!_mounted) return const SizedBox(height: 2);
+    final reduced = Motion.reduced(context);
+    if (reduced && !_shown) return const SizedBox(height: 2);
+    final Widget line = reduced
+        ? Semantics(
+            label: context.l10n.syncUpdating,
+            child: SizedBox(
+              height: 2,
+              width: double.infinity,
+              child: ColoredBox(color: c.gold.withValues(alpha: 0.6)),
+            ),
+          )
+        : LinearProgressIndicator(
             minHeight: 2,
             color: c.gold,
             backgroundColor: Colors.transparent,
             semanticsLabel: context.l10n.syncUpdating,
-          ),
-        );
-      },
+          );
+    return RepaintBoundary(
+      child: AnimatedOpacity(
+        opacity: _shown ? 1 : 0,
+        // In 150 ms, out in 200 ms.
+        duration: reduced
+            ? Duration.zero
+            : _shown
+                ? _hintIn
+                : Motion.quick,
+        curve: _shown ? Motion.enter : Motion.exit,
+        onEnd: () {
+          if (!_shown && mounted) setState(() => _mounted = false);
+        },
+        child: line,
+      ),
     );
   }
 }

@@ -176,7 +176,9 @@ void main() {
       (tester) async {
     _smallPhone(tester, 1.0);
     await pumpFinance(tester, _api(), const SubscriptionsScreen());
-    expect(tester.getSize(find.byType(NokturnRow).first).height, 64);
+    // 64 dp at least; a meta line that wraps (up to two, §4.4) grows it.
+    expect(tester.getSize(find.byType(NokturnRow).first).height,
+        greaterThanOrEqualTo(64));
 
     await pumpFinance(tester, _api(), const FinanceScreen());
     await tester.dragUntilVisible(find.byType(AccountCard),

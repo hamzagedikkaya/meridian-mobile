@@ -1,17 +1,27 @@
 import 'package:flutter/material.dart';
 import '../../l10n/app_l10n.dart';
 import '../../theme/app_colors.dart';
+import '../../theme/app_metrics.dart';
 
-/// Destructive confirm — cancel text button + filled error button (design §4.8).
+/// The confirm dialog (design-analysis §4.16) — kept for the five cases
+/// where an action cannot be undone or reaches further than it looks
+/// (IA-20): deleting a category in use, an account with history, a list
+/// with tasks; archiving a habit that feeds a goal; deleting a habit for
+/// good. Everything else deletes at once and offers "Geri al".
 ///
-/// [confirmLabel] is a verb naming the outcome ("Sil", "Arşivle") — never a
-/// bare "Confirm" (design-analysis §4.16).
+/// [title] names the thing, [message] the outcome — with numbers ("12
+/// işlem 'Market'e taşınacak"). [confirmLabel] is a verb naming the outcome
+/// ("Sil ve taşı", "Çıkış yap") — never a bare "Onayla". "Vazgeç"
+/// ([cancelLabel]) is on the left, the verb filled on the right; a
+/// [destructive] verb is error-filled with an onError label (6.18:1).
+/// True when confirmed.
 Future<bool> showConfirmDialog(
   BuildContext context, {
   required String title,
   String? message,
   required String confirmLabel,
   bool destructive = false,
+  String? cancelLabel,
 }) async {
   final c = context.nok;
   final l = context.l10n;
@@ -23,17 +33,16 @@ Future<bool> showConfirmDialog(
       actions: [
         TextButton(
           onPressed: () => Navigator.of(context).pop(false),
-          child: Text(l.actionCancel),
+          style: TextButton.styleFrom(foregroundColor: c.inkHi),
+          child: Text(cancelLabel ?? l.actionCancel),
         ),
         FilledButton(
           onPressed: () => Navigator.of(context).pop(true),
-          style: destructive
-              ? FilledButton.styleFrom(
-                  backgroundColor: c.error,
-                  foregroundColor: c.inkHi,
-                  minimumSize: const Size(0, 44),
-                )
-              : FilledButton.styleFrom(minimumSize: const Size(0, 44)),
+          style: FilledButton.styleFrom(
+            minimumSize: const Size(64, Hit.min),
+            backgroundColor: destructive ? c.error : null,
+            foregroundColor: destructive ? c.onError : null,
+          ),
           child: Text(confirmLabel),
         ),
       ],
@@ -58,7 +67,7 @@ Future<void> showInfoDialog(
       actions: [
         FilledButton(
           onPressed: () => Navigator.of(context).pop(),
-          style: FilledButton.styleFrom(minimumSize: const Size(0, 44)),
+          style: FilledButton.styleFrom(minimumSize: const Size(64, Hit.min)),
           child: Text(l.actionDone),
         ),
       ],

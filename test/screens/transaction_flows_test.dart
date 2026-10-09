@@ -194,7 +194,7 @@ void main() {
       });
       await _openForm(tester, api, existing: existing);
       // Closed untouched: no "unsaved changes" sheet.
-      await tester.tap(find.byIcon(Icons.close));
+      await tester.tap(find.byIcon(Icons.close_rounded));
       await settleFrames(tester);
       expect(find.text('Değişiklikler kaydedilmedi'), findsNothing);
       expect(find.byType(TransactionFormScreen), findsNothing);
@@ -320,11 +320,11 @@ void main() {
       await tester.tap(find.text(','));
       await tester.pump();
       await _type(tester, '5');
-      expect(find.text('12,5 ₺'), findsOneWidget);
+      expect(find.text('₺12,5'), findsOneWidget);
       api.release('GET /accounts');
       await settleFrames(tester);
       // Gram gold has no decimals.
-      expect(find.text('12 gr'), findsOneWidget);
+      expect(find.text('12\u00A0gr'), findsOneWidget);
       await tester.tap(find.text('Kaydet'));
       await settleFrames(tester);
       final body = api.bodiesOf('POST /transactions').single as Map;
@@ -392,8 +392,8 @@ void main() {
       await tester.tap(find.text(','));
       await tester.pump();
       await _type(tester, '48');
-      expect(find.text('21.474.836,4 ₺'), findsOneWidget, reason: 'refused 8');
-      expect(find.text('En fazla 21.474.836,47 ₺ girilebilir'), findsOneWidget);
+      expect(find.text('₺21.474.836,4'), findsOneWidget, reason: 'refused 8');
+      expect(find.text('En fazla ₺21.474.836,47 girilebilir'), findsOneWidget);
     });
 
     testWidgets('closing with unsaved changes asks first; "Düzenlemeye devam" '
@@ -402,14 +402,14 @@ void main() {
       final api = FakeApi();
       await _openForm(tester, api);
       await _type(tester, '12');
-      await tester.tap(find.byIcon(Icons.close));
+      await tester.tap(find.byIcon(Icons.close_rounded));
       await settleFrames(tester);
       expect(find.text('Değişiklikler kaydedilmedi'), findsOneWidget);
       await tester.tap(find.text('Düzenlemeye devam'));
       await settleFrames(tester);
-      expect(find.text('12 ₺'), findsOneWidget);
+      expect(find.text('₺12'), findsOneWidget);
 
-      await tester.tap(find.byIcon(Icons.close));
+      await tester.tap(find.byIcon(Icons.close_rounded));
       await settleFrames(tester);
       await tester.tap(find.text('Değişiklikleri at'));
       await settleFrames(tester);
@@ -589,7 +589,7 @@ void main() {
         api,
         const TransactionsScreen(initial: TxFilters(accountId: 3)),
       );
-      expect(find.text('5 gr gelir · 12 gr gider'), findsOneWidget);
+      expect(find.text('5\u00A0gr gelir · 12\u00A0gr gider'), findsOneWidget);
     });
 
     testWidgets('the category filter offers every category and "Kategorisiz"',
@@ -708,7 +708,7 @@ void main() {
       expect(_inSheet(find.text('Bağlı işlem')), findsOneWidget);
       expect(_inSheet(find.text('Altın')), findsOneWidget);
       expect(_inSheet(find.text('Altın alımı · 2 Ekim 2026')), findsOneWidget);
-      expect(_inSheet(find.text('+2 gr')), findsOneWidget);
+      expect(_inSheet(find.text('+2\u00A0gr')), findsOneWidget);
       expect(
         _inSheet(find.text('Bu işlem silinirse bağlı işlem de silinir.')),
         findsOneWidget,
@@ -718,7 +718,7 @@ void main() {
       await settleFrames(tester);
       expect(find.text('“Kahve” silinsin mi?'), findsOneWidget);
       expect(
-        find.text('Bağlı işlem de silinecek: Altın · +2 gr · 2 Ekim 2026. '
+        find.text('Bağlı işlem de silinecek: Altın · +2\u00A0gr · 2 Ekim 2026. '
             'Bu geri alınamaz.'),
         findsOneWidget,
       );
@@ -979,11 +979,11 @@ void main() {
       await openSheet(tester, api);
       expect(_inSheet(find.text('Tümü')), findsOneWidget);
       expect(_inSheet(find.text('Alt kategoriler dahil')), findsOneWidget);
-      expect(_inSheet(find.text('−661,00 ₺')), findsOneWidget);
+      expect(_inSheet(find.text('−₺661,00')), findsOneWidget);
       expect(_inSheet(find.text('Market (genel)')), findsOneWidget);
-      expect(_inSheet(find.text('−575,50 ₺')), findsOneWidget);
+      expect(_inSheet(find.text('−₺575,50')), findsOneWidget);
       expect(_inSheet(find.text('Atıştırmalık')), findsOneWidget);
-      expect(_inSheet(find.text('−85,50 ₺')), findsOneWidget);
+      expect(_inSheet(find.text('−₺85,50')), findsOneWidget);
 
       // İşlemler cannot list Market without its subcategory: no drill.
       await tester.tap(_inSheet(find.text('Market (genel)')));

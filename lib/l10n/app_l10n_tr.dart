@@ -83,6 +83,8 @@ class AppL10nTr extends AppL10n {
   @override
   String get tabToday => 'Bugün';
   @override
+  String get tabAgenda => 'Ajanda';
+  @override
   String get tabFinance => 'Finans';
   @override
   String get tabHabits => 'Alışkanlık';
@@ -112,6 +114,17 @@ class AppL10nTr extends AppL10n {
   String get titleGoal => 'Hedef';
   @override
   String get titleJournalEntry => 'Günlük';
+  @override
+  String semAgendaOverdue(int count) => '$count gecikmiş görev';
+  @override
+  String get titleEvents => 'Etkinlikler';
+  @override
+  String get titleSearch => 'Ara';
+  @override
+  String get searchComingSoon => 'Her yerde arama yakında burada';
+  @override
+  String get subscriptionUndoFailed =>
+      'Ödeme geri alınamadı. İşlemler sayfasından silebilirsin.';
   // endregion
 
   // --- Search ----------------------------------------------------------------
@@ -1000,10 +1013,42 @@ class AppL10nTr extends AppL10n {
   String get errDeleteFailed => 'Silinemedi; geri getirildi';
   @override
   String colorSwatch(int index) => 'Renk $index';
+  @override
+  String get actionSeeAllShort => 'Tümü';
+  @override
+  String get actionHide => 'Gizle';
+  @override
+  String get captureBarSemantics => 'Hızlı ekle';
+  @override
+  String get moneyGlanceThisMonth => 'Bu ay';
+  @override
+  String moneyGlanceSemantics(String amount) =>
+      "Bu ay net $amount, Finans'ı aç";
+  @override
+  String get moneyGlanceStart => 'Nakit hesabıyla başla';
   // endregion
 
   // --- Numbers, progress, motion and celebrations ----------------------------
   // region numbers and motion (WP-3)
+  @override
+  String get dayHeaderMoveAllToToday => 'Hepsini bugüne al';
+  @override
+  String chartAverage(String amount) => 'ort. $amount';
+  @override
+  String chartPaceTooltip(String date, String amount, String? previous) =>
+      previous == null
+          ? '$date · $amount'
+          : '$date · $amount / geçen ay $previous';
+  @override
+  String lingeringFinished(int count) => '$count tamamlandı';
+  @override
+  String milestoneStreak(int days, String habit) => '$days gün · $habit';
+  @override
+  String get milestonePerfectWeek => 'İlk mükemmel hafta';
+  @override
+  String milestoneGoal(String goal) => 'Hedefe ulaştın · $goal';
+  @override
+  String get milestoneDismissHint => 'Kapatmak için dokun';
   // endregion
 
   // --- Finance: setup, accounts, menus --------------------------------------

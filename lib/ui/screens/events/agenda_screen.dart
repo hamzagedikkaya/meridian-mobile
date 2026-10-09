@@ -59,7 +59,10 @@ List<Occurrence> occurrencesIn(
 /// a year (the server's limit). A tap opens the event's sheet; "Etkinlik"
 /// adds one.
 class AgendaScreen extends ConsumerStatefulWidget {
-  const AgendaScreen({super.key});
+  /// Shown inside the Agenda tab, which has the app bar itself.
+  final bool embedded;
+
+  const AgendaScreen({super.key, this.embedded = false});
 
   @override
   ConsumerState<AgendaScreen> createState() => _AgendaScreenState();
@@ -142,7 +145,7 @@ class _AgendaScreenState extends ConsumerState<AgendaScreen> {
 
     return Scaffold(
       backgroundColor: c.bg,
-      appBar: AppBar(title: Text(l.titleAgenda)),
+      appBar: widget.embedded ? null : AppBar(title: Text(l.titleAgenda)),
       floatingActionButton: FloatingActionButton.extended(
         heroTag: null,
         onPressed: () => openEventForm(context, day: today),

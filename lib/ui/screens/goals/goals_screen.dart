@@ -18,11 +18,12 @@ import '../../widgets/offline_banner.dart';
 import '../../widgets/section_header.dart';
 import '../../widgets/skeletons.dart';
 import '../../widgets/sync_hint.dart';
-import '../shell/app_tabs.dart';
 import 'goal_card.dart';
 import 'goal_form.dart';
 import 'goal_ui.dart';
 
+/// The Hedefler page (`/goals`), pushed over the tabs — from Today's goals,
+/// the Habits menu — with the back arrow (design-analysis §6.1).
 class GoalsScreen extends ConsumerStatefulWidget {
   const GoalsScreen({super.key});
 
@@ -30,21 +31,17 @@ class GoalsScreen extends ConsumerStatefulWidget {
   ConsumerState<GoalsScreen> createState() => _GoalsScreenState();
 }
 
-class _GoalsScreenState extends ConsumerState<GoalsScreen>
-    with TabRootScroll<GoalsScreen> {
-  @override
-  AppTab get tab => AppTab.goals;
-
+class _GoalsScreenState extends ConsumerState<GoalsScreen> {
   /// Cards play their entrance only with the first data (see [Entrance]).
   bool _firstLoad = true;
 
   Future<void> _refresh() async {
     Haptics.celebrate();
-    refreshTab(ref, AppTab.goals);
+    ref.read(dataSyncProvider).refresh([goalsProvider]);
     await settleRefresh([ref.read(goalsProvider.future)]);
   }
 
-  void _retry() => refreshTab(ref, AppTab.goals);
+  void _retry() => ref.read(dataSyncProvider).refresh([goalsProvider]);
 
   void _openForm() => openGoalForm(context);
 
@@ -64,9 +61,12 @@ class _GoalsScreenState extends ConsumerState<GoalsScreen>
       });
     }
 
-    return primaryScroll(Scaffold(
+    return Scaffold(
       appBar: AppBar(title: Text(l.titleGoals, style: text.headlineLarge)),
       floatingActionButton: FloatingActionButton(
+        // Pushed from the Habits tab, whose FAB has the default tag too:
+        // only the goal ring and the account balance fly (§5.2).
+        heroTag: null,
         onPressed: _openForm,
         backgroundColor: c.gold,
         foregroundColor: c.onGold,
@@ -80,7 +80,7 @@ class _GoalsScreenState extends ConsumerState<GoalsScreen>
           child: _body(async, bundle),
         ),
       ),
-    ));
+    );
   }
 
   /// [bundle] without the goals being deleted: they leave the grid at once.
@@ -244,7 +244,7 @@ class _CollapsedGoals extends StatelessWidget {
                   ListTile(
                     // Opens like an active goal: its details, reopening,
                     // editing, deleting.
-                    onTap: () => context.push('/goals/${g.id}'),
+                    onTap: () => context.push('/goals/${g.id}', extra: g),
                     minTileHeight: 48,
                     leading: Icon(
                       achieved ? Icons.check_circle : Icons.flag_outlined,

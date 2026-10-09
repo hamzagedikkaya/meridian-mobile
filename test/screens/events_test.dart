@@ -223,7 +223,7 @@ void main() {
           ],
         });
       await pumpWithRoutes(tester, api,
-          initialLocation: '/agenda', locale: locale);
+          initialLocation: '/agenda?view=events', locale: locale);
       expect(tester.takeException(), isNull);
       await tester.tap(find.byType(FloatingActionButton));
       await tester.pumpAndSettle();
@@ -384,7 +384,8 @@ void main() {
       );
       await tester.tap(find.text('Sil'));
       await tester.pumpAndSettle();
-      await tester.tap(find.text('Yarın ve sonrakiler'));
+      // "Yarın/Bugün/… ve sonrakiler": the day is named against the clock.
+      await tester.tap(find.textContaining('ve sonrakiler'));
       await settleFrames(tester);
       expect(api.bodiesOf('PATCH /events/12'), hasLength(1));
       expect(find.text('Bu tekrar hiçbir güne denk gelmiyor'), findsNothing);
@@ -423,7 +424,7 @@ void main() {
       api.on('GET /events/14', {
         'event': eventJson(id: 14, title: 'Tatil', allDay: true, full: true),
       });
-      await pumpWithRoutes(tester, api, initialLocation: '/agenda');
+      await pumpWithRoutes(tester, api, initialLocation: '/agenda?view=events');
       expect(queries.single, {'from': '2026-10-04', 'to': '2026-11-02'});
       expect(find.text('Bugün · 4 Ekim'), findsOneWidget);
       expect(find.text('Yarın · 5 Ekim'), findsOneWidget);
@@ -451,7 +452,7 @@ void main() {
             eventJson(recurring: true, occurrences: ['2026-10-04']),
           ],
         });
-      await pumpWithRoutes(tester, api, initialLocation: '/agenda');
+      await pumpWithRoutes(tester, api, initialLocation: '/agenda?view=events');
       expect(find.text('Yoga'), findsOneWidget);
 
       api.failNetwork('GET /events');
@@ -525,7 +526,7 @@ void main() {
       Navigator.of(tester.element(find.text('Düzenle'))).pop();
       await tester.pumpAndSettle();
 
-      await tester.tap(find.text('Tümü →').first);
+      await tester.tap(find.text('Tümü').first);
       await tester.pumpAndSettle();
       expect(router.state.uri.toString(), '/agenda');
     });
@@ -592,7 +593,7 @@ void main() {
 
       await tester.tap(find.text('açık görev'));
       await tester.pumpAndSettle();
-      expect(router.state.uri.toString(), '/todos');
+      expect(router.state.uri.toString(), '/agenda');
     });
 
     testWidgets('the agenda and the todos lay out at 200% text', (

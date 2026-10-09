@@ -228,7 +228,7 @@ void main() {
     expect(find.text('Henüz alışkanlık yok — küçük başla'), findsOneWidget);
     expect(find.text('Henüz hedef yok — ilk hedefini koy'), findsOneWidget);
 
-    // Zero net still renders as signed "+0,00 ₺" (net ≥ 0, tr_TR, 2 decimals).
-    expect(find.text('+0,00 ₺'), findsOneWidget);
+    // An exact zero net is "₺0": no sign, no decimals (design-analysis D33).
+    expect(find.text('₺0'), findsOneWidget);
   });
 }

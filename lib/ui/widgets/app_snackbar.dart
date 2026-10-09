@@ -5,6 +5,9 @@ import '../../core/haptics.dart';
 import '../../data/data_scope.dart';
 import '../../data/deferred_deletes.dart';
 import '../../l10n/app_l10n.dart';
+import '../../theme/app_colors.dart';
+import '../../theme/app_metrics.dart';
+import 'capture_bar.dart';
 
 /// How long a snackbar that offers an action ("Geri al") stays: long enough
 /// to reach the action, short enough not to linger over the next screen
@@ -14,39 +17,173 @@ const actionSnackDuration = Duration(seconds: 6);
 /// How long a plain message stays (the Material default).
 const _plainSnackDuration = Duration(milliseconds: 4000);
 
-/// Shows [message] in the app's snackbar, replacing the one on screen.
+/// What a snackbar says about how things went (design-analysis §4.17).
+enum SnackTone {
+  /// A plain message, or an undo offer: no icon.
+  plain,
+
+  /// Done: `check_circle_rounded` in income.
+  success,
+
+  /// Failed: `error_rounded` in error, and the REJECT haptic.
+  error,
+}
+
+/// Where a snackbar shown from [context] floats (design-analysis §4.17).
 ///
-/// With an action ([actionLabel], [onAction]) it stays [actionSnackDuration]
-/// and then goes, like any other — Flutter would otherwise keep a snackbar
-/// with an action up until it is swiped away, over every tab, since they
-/// share the messenger. It stays until dismissed only while a screen reader
-/// or switch access is on (`MediaQuery.accessibleNavigationOf`), where
-/// reaching the action can take longer than any timeout. [duration] and
-/// [persist] override either rule.
+/// Snackbars are drawn by the outermost scaffold (the shell's, under the
+/// navigation bar) — not by a tab's own scaffold, so they cannot see its
+/// FAB or capture bar and are lifted above them here: 80 dp over a tab's
+/// FAB (16 + 56 + 8), 76 dp over the capture bar, 12 dp otherwise. A
+/// page's own outermost scaffold lifts it over its FAB by itself.
 ///
-/// Returns the snackbar's controller: its `closed` future says how it went.
+/// [context] must be the screen's: a sheet (`showNokSheet`) sits on the
+/// root navigator, outside the tab, and a sheet's context sees neither
+/// the FAB nor the capture bar — keep the screen's context and use it
+/// after the sheet closes.
+EdgeInsets snackMarginFor(BuildContext context) {
+  final scaffold = Scaffold.maybeOf(context);
+  if (scaffold != null &&
+      scaffold.hasFloatingActionButton &&
+      scaffold.context.findAncestorStateOfType<ScaffoldState>() != null) {
+    return const EdgeInsets.fromLTRB(16, 0, 16, 80);
+  }
+  if (CaptureBarScope.maybeOf(context) != null) {
+    return const EdgeInsets.fromLTRB(16, 0, 16, 76);
+  }
+  return const EdgeInsets.fromLTRB(16, 0, 16, 12);
+}
+
+/// The app's snackbar: surface3 with the overlay border, 12 dp corners,
+/// [message] in up to two lines after the [tone]'s 20 dp icon, the gold
+/// action(s) — the theme draws the rest.
+SnackBar _appSnackBar({
+  required String message,
+  required EdgeInsets margin,
+  required Duration duration,
+  bool persist = false,
+  SnackTone tone = SnackTone.plain,
+  String? actionLabel,
+  VoidCallback? onAction,
+  String? secondaryLabel,
+  VoidCallback? onSecondary,
+}) {
+  final icon = switch (tone) {
+    SnackTone.plain => null,
+    SnackTone.success => Icons.check_circle_rounded,
+    SnackTone.error => Icons.error_rounded,
+  };
+  final text = Text(message, maxLines: 2, overflow: TextOverflow.ellipsis);
+  // Two actions do not fit SnackBarAction (it takes one): both are drawn
+  // under the message, the primary last.
+  final twoActions = secondaryLabel != null && actionLabel != null;
+  return SnackBar(
+    margin: margin,
+    duration: duration,
+    persist: persist,
+    content: Builder(
+      builder: (context) {
+        final c = context.nok;
+        final line = icon == null
+            ? text
+            : Row(
+                children: [
+                  Icon(
+                    icon,
+                    size: 20,
+                    color: tone == SnackTone.error ? c.error : c.income,
+                  ),
+                  const SizedBox(width: Gap.md),
+                  Expanded(child: text),
+                ],
+              );
+        if (!twoActions) return line;
+        void act(VoidCallback? run, SnackBarClosedReason reason) {
+          run?.call();
+          ScaffoldMessenger.of(context).hideCurrentSnackBar(reason: reason);
+        }
+
+        return Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            line,
+            Row(
+              mainAxisAlignment: MainAxisAlignment.end,
+              children: [
+                TextButton(
+                  onPressed: () =>
+                      act(onSecondary, SnackBarClosedReason.hide),
+                  child: Text(secondaryLabel),
+                ),
+                TextButton(
+                  onPressed: () =>
+                      act(onAction, SnackBarClosedReason.action),
+                  child: Text(actionLabel),
+                ),
+              ],
+            ),
+          ],
+        );
+      },
+    ),
+    action: actionLabel == null || twoActions
+        ? null
+        : SnackBarAction(label: actionLabel, onPressed: onAction ?? () {}),
+  );
+}
+
+/// Shows [message] in the app's snackbar, replacing the one on screen
+/// (design-analysis §4.17).
+///
+/// * [tone]: [SnackTone.success] or [SnackTone.error] put an icon before
+///   the message; an error also plays the REJECT haptic. [isError] is the
+///   older spelling of `tone: SnackTone.error`.
+/// * One action ([actionLabel], [onAction]) — "Geri al" — or two, with
+///   [secondaryLabel] and [onSecondary] ("Düzenle" + "Geri al", quick add
+///   only), drawn under the message, both gold and 48 dp.
+/// * It floats above the screen's FAB or capture bar ([snackMarginFor]) —
+///   pass the screen's [context], never a sheet's, or it cannot see them.
+///
+/// With an action it stays [actionSnackDuration] and then goes, like any
+/// other — Flutter would otherwise keep a snackbar with an action up until
+/// it is swiped away, over every tab, since they share the messenger. It
+/// stays until dismissed only while a screen reader or switch access is on
+/// (`MediaQuery.accessibleNavigationOf`), where reaching the action can
+/// take longer than any timeout. [duration] and [persist] override either
+/// rule.
+///
+/// Returns the snackbar's controller: its `closed` future says how it went
+/// (`action` when the primary action was used).
 ScaffoldFeatureController<SnackBar, SnackBarClosedReason> showAppSnack(
   BuildContext context,
   String message, {
   String? actionLabel,
   VoidCallback? onAction,
+  String? secondaryLabel,
+  VoidCallback? onSecondary,
+  SnackTone? tone,
   bool isError = false,
   Duration? duration,
   bool? persist,
 }) {
-  if (isError) Haptics.danger();
+  final effectiveTone = tone ?? (isError ? SnackTone.error : SnackTone.plain);
+  if (effectiveTone == SnackTone.error) Haptics.danger();
   final hasAction = actionLabel != null;
   final messenger = ScaffoldMessenger.of(context)..hideCurrentSnackBar();
   return messenger.showSnackBar(
-    SnackBar(
-      content: Text(message),
+    _appSnackBar(
+      message: message,
+      margin: snackMarginFor(context),
+      tone: effectiveTone,
       duration:
           duration ?? (hasAction ? actionSnackDuration : _plainSnackDuration),
       persist: persist ??
           (hasAction && MediaQuery.accessibleNavigationOf(context)),
-      action: actionLabel == null
-          ? null
-          : SnackBarAction(label: actionLabel, onPressed: onAction ?? () {}),
+      actionLabel: actionLabel,
+      onAction: onAction,
+      secondaryLabel: secondaryLabel,
+      onSecondary: onSecondary,
     ),
   );
 }
@@ -70,6 +207,7 @@ void _sayRefused(
   AppL10n l,
   Object error, {
   required String fallback,
+  required EdgeInsets margin,
   DeleteRecovery? recover,
   DeleteRefusal? explain,
 }) {
@@ -78,15 +216,14 @@ void _sayRefused(
   final action = recover?.call(error);
   messenger
     ..hideCurrentSnackBar()
-    ..showSnackBar(SnackBar(
-      content: Text(
-        explain?.call(error) ?? failureMessage(error, l, fallback: fallback),
-      ),
+    ..showSnackBar(_appSnackBar(
+      message:
+          explain?.call(error) ?? failureMessage(error, l, fallback: fallback),
+      margin: margin,
+      tone: SnackTone.error,
       duration: action == null ? _plainSnackDuration : actionSnackDuration,
-      persist: false,
-      action: action == null
-          ? null
-          : SnackBarAction(label: action.label, onPressed: action.run),
+      actionLabel: action?.label,
+      onAction: action?.run,
     ));
 }
 
@@ -128,6 +265,7 @@ void deleteWithUndo(
 }) {
   final l = context.l10n;
   final messenger = ScaffoldMessenger.of(context);
+  final margin = snackMarginFor(context);
   deletes.stage(
     record,
     send: send,
@@ -136,11 +274,12 @@ void deleteWithUndo(
       l,
       error,
       fallback: failedMessage ?? l.errDeleteFailed,
+      margin: margin,
       recover: recover,
       explain: explain,
     ),
   );
-  Haptics.tick();
+  // Silent: deleting plays no haptic — the snackbar is the feedback.
   final snack = showAppSnack(
     context,
     message,
@@ -186,6 +325,7 @@ void deleteNow(
 }) {
   final l = context.l10n;
   final messenger = ScaffoldMessenger.of(context);
+  final margin = snackMarginFor(context);
   deletes.stage(
     record,
     send: send,
@@ -195,16 +335,21 @@ void deleteNow(
       l,
       error,
       fallback: failedMessage ?? l.errDeleteFailed,
+      margin: margin,
       recover: recover,
       explain: explain,
     ),
   );
-  Haptics.danger();
+  // Silent, like every delete: the snackbar says it went.
   deletes.commit(record).then((deleted) {
     if (deleted && messenger.mounted) {
       messenger
         ..hideCurrentSnackBar()
-        ..showSnackBar(SnackBar(content: Text(message)));
+        ..showSnackBar(_appSnackBar(
+          message: message,
+          margin: margin,
+          duration: _plainSnackDuration,
+        ));
     }
   });
 }

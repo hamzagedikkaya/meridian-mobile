@@ -14,6 +14,7 @@ import 'package:meridian_mobile/models/home.dart';
 import 'package:meridian_mobile/theme/app_theme.dart';
 import 'package:meridian_mobile/ui/screens/shell/app_scaffold.dart';
 import 'package:meridian_mobile/ui/screens/shell/app_tabs.dart';
+import 'package:meridian_mobile/ui/screens/shell/fade_through_branches.dart';
 
 import '../support/fake_api.dart';
 
@@ -32,11 +33,19 @@ class _ProbeTabState extends ConsumerState<_ProbeTab>
   @override
   AppTab get tab => widget.appTab;
 
+  /// Which list is shown: a new one replaces the old (a view switch, a
+  /// reload), its own scroll position starting at the top.
+  var _list = 0;
+
+  void swapList() => setState(() => _list++);
+
   @override
   Widget build(BuildContext context) {
     if (tab == AppTab.habits) ref.watch(habitsProvider);
+    if (tab == AppTab.agenda) ref.watch(todosProvider(const TodoQuery()));
     return primaryScroll(Scaffold(
       body: ListView.builder(
+        key: ValueKey(_list),
         primary: true,
         itemCount: 80,
         itemBuilder: (_, i) => SizedBox(height: 64, child: Text('${tab.name} $i')),
@@ -68,12 +77,21 @@ class _Harness {
         }),
       ]);
 
+  /// Reduced motion, as the system's "Remove animations" or the app's own
+  /// switch sets it.
+  bool reduceMotion = false;
+
   Widget _shell(List<Override> overrides) {
     final router = GoRouter(
       initialLocation: '/today',
       routes: [
-        StatefulShellRoute.indexedStack(
+        StatefulShellRoute(
           builder: (context, state, shell) => AppScaffold(shell: shell),
+          navigatorContainerBuilder: (context, shell, children) =>
+              FadeThroughBranches(
+            currentIndex: shell.currentIndex,
+            children: children,
+          ),
           branches: [
             for (final tab in AppTab.values)
               StatefulShellBranch(routes: [
@@ -99,6 +117,11 @@ class _Harness {
           GlobalCupertinoLocalizations.delegate,
         ],
         routerConfig: router,
+        builder: (context, child) => MediaQuery(
+          data: MediaQuery.of(context)
+              .copyWith(disableAnimations: reduceMotion),
+          child: child!,
+        ),
       ),
     );
   }
@@ -130,8 +153,9 @@ const _toForeground = [
 void main() {
   setUpAll(initializeDateFormatting);
 
-  group('re-tapping the selected tab', () {
-    testWidgets('Today: scrolls to the top and refetches', (tester) async {
+  group('re-tapping the selected tab (§5.2)', () {
+    testWidgets('Today, scrolled: back to the top, and nothing refetches',
+        (tester) async {
       final h = _Harness();
       await tester.pumpWidget(h.app());
       await tester.pumpAndSettle();
@@ -144,11 +168,23 @@ void main() {
       await tester.tap(find.text('Bugün'));
       await tester.pumpAndSettle();
       expect(_offset(tester, AppTab.today), 0);
+      expect(h.homeBuilds, 1);
+    });
+
+    testWidgets('Today, at the top: refetches', (tester) async {
+      final h = _Harness();
+      await tester.pumpWidget(h.app());
+      await tester.pumpAndSettle();
+      expect(h.homeBuilds, 1);
+
+      await tester.tap(find.text('Bugün'));
+      await tester.pumpAndSettle();
+      expect(_offset(tester, AppTab.today), 0);
       expect(h.homeBuilds, 2);
     });
 
-    testWidgets('another tab: refetches only what that tab shows',
-        (tester) async {
+    testWidgets('another tab: scrolled, back to the top; at the top, '
+        'refetches only what that tab shows', (tester) async {
       final h = _Harness();
       await tester.pumpWidget(h.app());
       await tester.pumpAndSettle();
@@ -165,8 +201,72 @@ void main() {
       await tester.tap(find.text('Alışkanlık'));
       await tester.pumpAndSettle();
       expect(_offset(tester, AppTab.habits), 0);
+      expect(h.habitsBuilds, 1, reason: 'scrolling up is all a re-tap does');
+
+      await tester.tap(find.text('Alışkanlık'));
+      await tester.pumpAndSettle();
       expect(h.habitsBuilds, 2);
       expect(h.homeBuilds, homeBefore);
+    });
+
+    testWidgets('a scrolled list replaced by one at the top: the re-tap '
+        'refetches', (tester) async {
+      final h = _Harness();
+      await tester.pumpWidget(h.app());
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Alışkanlık'));
+      await tester.pumpAndSettle();
+      await tester.drag(find.text('habits 3'), const Offset(0, -1200));
+      await tester.pumpAndSettle();
+      expect(_offset(tester, AppTab.habits), greaterThan(0));
+
+      tester
+          .state<_ProbeTabState>(find.byWidgetPredicate(
+              (w) => w is _ProbeTab && w.appTab == AppTab.habits))
+          .swapList();
+      await tester.pumpAndSettle();
+      expect(_offset(tester, AppTab.habits), 0);
+
+      await tester.tap(find.text('Alışkanlık'));
+      await tester.pumpAndSettle();
+      expect(h.habitsBuilds, 2, reason: 'at the top: a re-tap refetches');
+    });
+
+    testWidgets('far down: jumps to 1.5 screens first, so the ride stays '
+        'short', (tester) async {
+      final h = _Harness();
+      await tester.pumpWidget(h.app());
+      await tester.pumpAndSettle();
+      final scroll = tester
+          .state<_ProbeTabState>(find.byWidgetPredicate(
+              (w) => w is _ProbeTab && w.appTab == AppTab.today))
+          .tabScroll;
+      scroll.jumpTo(4000);
+      await tester.pumpAndSettle();
+      final viewport = scroll.position.viewportDimension;
+      expect(scroll.offset, greaterThan(2 * viewport));
+
+      await tester.tap(find.text('Bugün'));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 16));
+      expect(scroll.offset, lessThanOrEqualTo(1.5 * viewport));
+      expect(scroll.offset, greaterThan(0));
+      await tester.pumpAndSettle();
+      expect(scroll.offset, 0);
+    });
+
+    testWidgets('under reduced motion: straight to the top in one frame',
+        (tester) async {
+      final h = _Harness()..reduceMotion = true;
+      await tester.pumpWidget(h.app());
+      await tester.pumpAndSettle();
+      await tester.drag(find.text('today 3'), const Offset(0, -1200));
+      await tester.pumpAndSettle();
+      expect(_offset(tester, AppTab.today), greaterThan(0));
+
+      await tester.tap(find.text('Bugün'));
+      await tester.pump();
+      expect(_offset(tester, AppTab.today), 0);
     });
 
     testWidgets('switching to another tab neither scrolls nor refetches',
@@ -228,6 +328,33 @@ void main() {
       await tester.tap(find.text('Bugün'));
       await settleApi(tester);
       expect(api.gets, isEmpty);
+    });
+
+    testWidgets('a hidden tab shown again after more than a minute '
+        'refetches what it shows — the Agenda tab too', (tester) async {
+      final h = _Harness();
+      final api = FakeApi();
+      await tester.pumpWidget(h.live(api));
+      await settleApi(tester);
+
+      await tester.tap(find.text('Ajanda'));
+      await settleApi(tester);
+      expect(api.gets, contains('/todos'));
+      await tester.tap(find.text('Bugün'));
+      await settleApi(tester);
+      api.clearLog();
+
+      h.now = h.now.add(const Duration(seconds: 30));
+      await tester.tap(find.text('Ajanda'));
+      await settleApi(tester);
+      expect(api.gets, isNot(contains('/todos')), reason: 'still fresh');
+      await tester.tap(find.text('Bugün'));
+      await settleApi(tester);
+
+      h.now = h.now.add(const Duration(minutes: 2));
+      await tester.tap(find.text('Ajanda'));
+      await settleApi(tester);
+      expect(api.gets, contains('/todos'));
     });
 
     testWidgets('switching to another tab leaves /home alone, however old',

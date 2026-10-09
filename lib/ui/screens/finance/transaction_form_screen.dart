@@ -28,17 +28,25 @@ import 'finance_utils.dart';
 ///
 /// [initialAccountId] starts a new transaction on that account (an
 /// account's own screen); otherwise it starts on the account the last one
-/// was saved on, or the only one there is.
+/// was saved on, or the only one there is. [initialKind],
+/// [initialAmountCents] (in the account currency's minor units) and
+/// [initialDescription] fill a new one in (quick add, a shortcut).
 Future<Transaction?> openTransactionForm(
   BuildContext context, {
   Transaction? existing,
   int? initialAccountId,
+  String? initialKind,
+  int? initialAmountCents,
+  String? initialDescription,
 }) {
   return Navigator.of(context, rootNavigator: true).push<Transaction>(
     slideUpModalRoute(
       (_) => TransactionFormScreen(
         existing: existing,
         initialAccountId: initialAccountId,
+        initialKind: initialKind,
+        initialAmountCents: initialAmountCents,
+        initialDescription: initialDescription,
       ),
     ),
   );
@@ -51,10 +59,20 @@ class TransactionFormScreen extends ConsumerStatefulWidget {
   final Transaction? existing;
   final int? initialAccountId;
 
+  /// A new transaction's kind (`expense`, `income`, `transfer`), amount in
+  /// the account currency's minor units, and description; an edit ignores
+  /// them.
+  final String? initialKind;
+  final int? initialAmountCents;
+  final String? initialDescription;
+
   const TransactionFormScreen({
     super.key,
     this.existing,
     this.initialAccountId,
+    this.initialKind,
+    this.initialAmountCents,
+    this.initialDescription,
   });
 
   @override
@@ -65,6 +83,10 @@ class TransactionFormScreen extends ConsumerStatefulWidget {
 class _TransactionFormScreenState extends ConsumerState<TransactionFormScreen> {
   late String _kind;
   AmountDraft _amount = const AmountDraft();
+
+  /// The amount handed in ([TransactionFormScreen.initialAmountCents]), as
+  /// first read — until the user types over it.
+  AmountDraft? _prefilled;
   Account? _account;
   Account? _relatedAccount;
 
@@ -90,12 +112,21 @@ class _TransactionFormScreenState extends ConsumerState<TransactionFormScreen> {
   void initState() {
     super.initState();
     final ex = widget.existing;
-    _kind = ex?.kind ?? 'expense';
+    final kind = widget.initialKind;
+    _kind = ex?.kind ??
+        (const {'expense', 'income', 'transfer'}.contains(kind)
+            ? kind!
+            : 'expense');
+    final cents = widget.initialAmountCents;
+    if (ex == null && cents != null && cents > 0) {
+      // Read again in the account's currency once it is known (_seed).
+      _amount = _prefilled = AmountDraft.fromMinorUnits(cents, _subunit);
+    }
     // The account's today — the day the server files "today" under — not
     // necessarily this phone's date (see data/current_day.dart).
     _date = ex?.date ?? ref.read(currentDayProvider);
     _category = ex?.category;
-    _descCtrl.text = ex?.description ?? '';
+    _descCtrl.text = ex?.description ?? widget.initialDescription ?? '';
     _noteCtrl.text = ex?.note ?? '';
   }
 
@@ -189,9 +220,13 @@ class _TransactionFormScreenState extends ConsumerState<TransactionFormScreen> {
           usable(_lastAccountId()) ??
           (offered.length == 1 ? offered.single : null);
       if (picked != null) {
-        // An amount typed before the list came in is read in the
-        // account's currency (gram gold has no decimals).
-        if (picked.subunitToUnit != _subunit) {
+        final cents = widget.initialAmountCents;
+        if (cents != null && cents > 0 && identical(_amount, _prefilled)) {
+          // The amount handed in is in this account's minor units.
+          _amount = AmountDraft.fromMinorUnits(cents, picked.subunitToUnit);
+        } else if (picked.subunitToUnit != _subunit) {
+          // An amount typed before the list came in is read in the
+          // account's currency (gram gold has no decimals).
           _amount = _amount.forCurrency(picked.subunitToUnit);
         }
         _account = picked;

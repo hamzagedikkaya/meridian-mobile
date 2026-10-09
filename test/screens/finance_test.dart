@@ -335,7 +335,7 @@ void main() {
       expect(find.text('Kategoriler (bu ay)'), findsOneWidget);
       // First carousel page is the GAU account (no decimals + "gr").
       expect(find.text('Altın'), findsOneWidget);
-      expect(find.text('31 gr'), findsOneWidget);
+      expect(find.text('31\u00A0gr'), findsOneWidget);
 
       // Scroll the lazy ListView so the budgets card (incl. the limit-0 pace
       // row) and the recent rows (GAU/null-category + transfer) actually build.
@@ -345,9 +345,9 @@ void main() {
       await tester.pumpAndSettle();
       expect(find.text('Bütçeler'), findsOneWidget);
       // Over budget (limit 0): by how much, never an "exceeded" label.
-      expect(find.text('50,00 ₺ fazla'), findsOneWidget);
+      expect(find.text('₺50,00 fazla'), findsOneWidget);
       // Spent against the limit.
-      expect(find.text('900,00 ₺ / 2.000,00 ₺'), findsOneWidget);
+      expect(find.text('₺900,00 / ₺2.000,00'), findsOneWidget);
 
       await tester.dragUntilVisible(
           find.text('Restoran — Lokanta'), list, const Offset(0, -300));
@@ -512,7 +512,7 @@ void main() {
     testWidgets('the close button closes a new form: no result, no error',
         (tester) async {
       final results = await openForm(tester);
-      await tester.tap(find.byIcon(Icons.close));
+      await tester.tap(find.byIcon(Icons.close_rounded));
       await tester.pumpAndSettle();
       expect(tester.takeException(), isNull);
       expect(find.byType(TransactionFormScreen), findsNothing);
@@ -526,7 +526,7 @@ void main() {
         existing: _feed(empty: false).items.first,
       );
       expect(find.text('İşlemi Düzenle'), findsOneWidget);
-      await tester.tap(find.byIcon(Icons.close));
+      await tester.tap(find.byIcon(Icons.close_rounded));
       await tester.pumpAndSettle();
       expect(tester.takeException(), isNull);
       expect(find.byType(TransactionFormScreen), findsNothing);

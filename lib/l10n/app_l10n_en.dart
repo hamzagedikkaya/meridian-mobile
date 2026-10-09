@@ -83,6 +83,8 @@ class AppL10nEn extends AppL10n {
   @override
   String get tabToday => 'Today';
   @override
+  String get tabAgenda => 'Agenda';
+  @override
   String get tabFinance => 'Finance';
   @override
   String get tabHabits => 'Habits';
@@ -112,6 +114,18 @@ class AppL10nEn extends AppL10n {
   String get titleGoal => 'Goal';
   @override
   String get titleJournalEntry => 'Entry';
+  @override
+  String semAgendaOverdue(int count) =>
+      '$count overdue ${count == 1 ? 'task' : 'tasks'}';
+  @override
+  String get titleEvents => 'Events';
+  @override
+  String get titleSearch => 'Search';
+  @override
+  String get searchComingSoon => 'Search across everything is coming here';
+  @override
+  String get subscriptionUndoFailed =>
+      "Couldn't undo the payment. You can delete it under Transactions.";
   // endregion
 
   // --- Search ----------------------------------------------------------------
@@ -1012,10 +1026,43 @@ class AppL10nEn extends AppL10n {
   String get errDeleteFailed => 'Couldn\'t delete it; it\'s back';
   @override
   String colorSwatch(int index) => 'Color $index';
+  @override
+  String get actionSeeAllShort => 'See all';
+  @override
+  String get actionHide => 'Hide';
+  @override
+  String get captureBarSemantics => 'Quick add';
+  @override
+  String get moneyGlanceThisMonth => 'This month';
+  @override
+  String moneyGlanceSemantics(String amount) =>
+      'Net this month $amount, open Finance';
+  @override
+  String get moneyGlanceStart => 'Start with a cash account';
   // endregion
 
   // --- Numbers, progress, motion and celebrations ----------------------------
   // region numbers and motion (WP-3)
+  @override
+  String get dayHeaderMoveAllToToday => 'Move all to today';
+  @override
+  String chartAverage(String amount) => 'avg $amount';
+  @override
+  String chartPaceTooltip(String date, String amount, String? previous) =>
+      previous == null
+          ? '$date · $amount'
+          : '$date · $amount / last month $previous';
+  @override
+  String lingeringFinished(int count) => '$count done';
+  @override
+  String milestoneStreak(int days, String habit) =>
+      '${days == 1 ? '1 day' : '$days days'} · $habit';
+  @override
+  String get milestonePerfectWeek => 'First perfect week';
+  @override
+  String milestoneGoal(String goal) => 'Goal reached · $goal';
+  @override
+  String get milestoneDismissHint => 'Tap to dismiss';
   // endregion
 
   // --- Finance: setup, accounts, menus --------------------------------------

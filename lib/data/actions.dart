@@ -28,6 +28,7 @@ import '../models/habit.dart';
 import '../models/home.dart';
 import '../models/todo.dart';
 import 'current_day.dart';
+import 'lingering_todos.dart';
 import 'providers.dart';
 import 'sync.dart';
 
@@ -191,6 +192,34 @@ final class TodoActions {
 
   bool isBusy(int todoId) => _latest.containsKey(todoId);
 
+  /// A todo checked off lingers on Today and the Agenda, done, at its place
+  /// on Today's list ([LingeringTodos]); reopening takes it back out.
+  void _linger(int todoId, {required bool done, HomeSummary? home}) {
+    final lingering = _ref.read(lingeringTodosProvider.notifier);
+    if (!done) {
+      lingering.remove(todoId);
+      return;
+    }
+    final rows = home?.upcomingTodos ?? const <Todo>[];
+    var index = rows.indexWhere((t) => t.id == todoId);
+    Todo? todo = index < 0 ? null : rows[index];
+    if (todo == null) {
+      for (final instance
+          in _ref.container.allProviders(family: todosProvider).toList()) {
+        final query = instance.provider.argument;
+        if (query is! TodoQuery) continue;
+        final listed = _shown(_ref, todosProvider(query))?.todos ?? const [];
+        final at = listed.indexWhere((t) => t.id == todoId);
+        if (at >= 0) {
+          todo = listed[at];
+          index = at;
+          break;
+        }
+      }
+    }
+    if (todo != null) lingering.add(todo, index < 0 ? 0 : index);
+  }
+
   /// Marks todo [todoId] done, or open again ([done] false), on every
   /// screen that shows it at once — Today's checkbox with its open and
   /// overdue counts (the tab badge), and each todo list on screen with its
@@ -232,6 +261,7 @@ final class TodoActions {
       final home = _shown(_ref, homeProvider);
       final today = home?.today ?? _ref.read<DateTime>(currentDayProvider);
       final listed = home?.upcomingTodos.any((t) => t.id == todoId) ?? false;
+      _linger(todoId, done: done, home: home);
       // Put back on Today only what `/home` lists: open todos due within
       // the next seven days. Its counts for any other follow the refetch.
       final due = reopening ? restore.todo.dueDay : null;
@@ -260,6 +290,7 @@ final class TodoActions {
         for (final listTap in listTaps) {
           listTap.rollback();
         }
+        if (done) _ref.read(lingeringTodosProvider.notifier).remove(todoId);
         return false;
       }
       final answer = await _ref
@@ -276,6 +307,7 @@ final class TodoActions {
       for (final listTap in listTaps) {
         listTap.rollback();
       }
+      if (done) _ref.read(lingeringTodosProvider.notifier).remove(todoId);
       rethrow;
     } finally {
       outcome.complete(answered);

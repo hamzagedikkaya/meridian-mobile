@@ -6,6 +6,7 @@ import 'package:intl/date_symbol_data_local.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'core/api.dart';
+import 'core/haptics.dart';
 import 'core/locale_mode.dart';
 import 'core/reduce_motion.dart';
 import 'core/session.dart';
@@ -14,6 +15,7 @@ import 'l10n/app_l10n.dart';
 import 'router/app_router.dart';
 import 'theme/app_motion.dart';
 import 'theme/app_theme.dart';
+import 'ui/widgets/celebration_layer.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -23,6 +25,8 @@ Future<void> main() async {
   // Both shipped languages, since the user can switch at runtime.
   await initializeDateFormatting();
   final prefs = await SharedPreferences.getInstance();
+  // The Android API level picks the haptic constants (CONFIRM/REJECT: 30+).
+  await Haptics.init();
 
   runApp(
     ProviderScope(
@@ -59,7 +63,8 @@ class MeridianApp extends ConsumerWidget {
       routerConfig: router,
       builder: (context, child) => MotionPreference(
         reduce: reduceMotion,
-        child: child ?? const SizedBox.shrink(),
+        // Celebrations draw over every tab, route and sheet (§4.30).
+        child: CelebrationLayer(child: child ?? const SizedBox.shrink()),
       ),
       locale: locale,
       supportedLocales: AppL10n.supportedLocales,

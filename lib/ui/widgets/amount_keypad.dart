@@ -1,14 +1,25 @@
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
 
 import '../../core/formats.dart';
 import '../../core/haptics.dart';
 import '../../l10n/app_l10n.dart';
 import '../../theme/app_colors.dart';
+import '../../theme/app_motion.dart';
 
-/// 4×3 amount keypad (design §4.4 İşlem Ekle). 64dp keys, selectionClick per
-/// key. The decimal key carries the language's mark ("," in Turkish, "." in
-/// English) and is hidden when [showDecimal] is false (GAU accounts).
+/// The 4×3 amount keypad (design-analysis §4.11): digits in Fraunces
+/// (displaySmall 28 sp), the decimal key showing the language's mark (","
+/// in Turkish, "." in English; hidden when [showDecimal] is false — GAU and
+/// counts) and ⌫, whose long press clears the amount ([onClear]).
+///
+/// Keys are 64 dp tall — 56 dp on screens up to 780 dp high, so the save
+/// button stays in reach — with a round gold ripple. Every key plays the
+/// selection tick. Each is one screen-reader button.
+///
 /// The parent owns the amount ([AmountDraft]); this widget only emits keys.
+/// A refused digit (past the 32-bit cent ceiling) is the parent's to show:
+/// shake the amount with [RejectShake].
 class AmountKeypad extends StatelessWidget {
   final ValueChanged<String> onDigit;
   final VoidCallback onDot;
@@ -25,15 +36,20 @@ class AmountKeypad extends StatelessWidget {
     this.showDecimal = true,
   });
 
+  /// The key height on a screen [screenHeight] dp tall.
+  static double keyHeightFor(double screenHeight) =>
+      screenHeight <= 780 ? 56 : 64;
+
   @override
   Widget build(BuildContext context) {
+    final height = keyHeightFor(MediaQuery.sizeOf(context).height);
     return Column(
       mainAxisSize: MainAxisSize.min,
       children: [
-        _row(context, const ['1', '2', '3']),
-        _row(context, const ['4', '5', '6']),
-        _row(context, const ['7', '8', '9']),
-        _row(context, [showDecimal ? _dot : '', '0', _backspace]),
+        _row(context, height, const ['1', '2', '3']),
+        _row(context, height, const ['4', '5', '6']),
+        _row(context, height, const ['7', '8', '9']),
+        _row(context, height, [showDecimal ? _dot : '', '0', _backspace]),
       ],
     );
   }
@@ -41,20 +57,20 @@ class AmountKeypad extends StatelessWidget {
   static const _dot = '.';
   static const _backspace = '⌫';
 
-  Widget _row(BuildContext context, List<String> keys) {
+  Widget _row(BuildContext context, double height, List<String> keys) {
     return Row(
       children: [
-        for (final k in keys) Expanded(child: _key(context, k)),
+        for (final k in keys) Expanded(child: _key(context, height, k)),
       ],
     );
   }
 
-  Widget _key(BuildContext context, String key) {
+  Widget _key(BuildContext context, double height, String key) {
     final c = context.nok;
     final text = Theme.of(context).textTheme;
     final l = context.l10n;
 
-    if (key.isEmpty) return const SizedBox(height: 64);
+    if (key.isEmpty) return SizedBox(height: height);
 
     final isBackspace = key == _backspace;
     final isDot = key == _dot;
@@ -86,24 +102,73 @@ class AmountKeypad extends StatelessWidget {
       onLongPress: longPress,
       excludeSemantics: true,
       child: SizedBox(
-        height: 64,
-        child: InkWell(
+        height: height,
+        child: InkResponse(
           onTap: handle,
           onLongPress: longPress,
-          borderRadius: BorderRadius.circular(16),
-          splashColor: c.gold.withValues(alpha: 0.08),
+          containedInkWell: true,
+          highlightShape: BoxShape.circle,
+          customBorder: const CircleBorder(),
           child: Center(
             child: isBackspace
                 ? Icon(Icons.backspace_outlined, size: 24, color: c.inkMid)
                 : Text(
                     label,
-                    style: text.headlineMedium!.copyWith(color: c.inkHi),
+                    style: text.displaySmall!.copyWith(color: c.inkHi),
                   ),
           ),
         ),
       ),
     );
   }
+}
+
+/// Shakes [child] sideways — ±4 dp, two cycles in [Motion.shake] (240 ms)
+/// — each time [trigger] changes: a refused keypad digit
+/// (design-analysis §4.11). Still under reduced motion.
+class RejectShake extends StatefulWidget {
+  final int trigger;
+  final Widget child;
+
+  const RejectShake({super.key, required this.trigger, required this.child});
+
+  @override
+  State<RejectShake> createState() => _RejectShakeState();
+}
+
+class _RejectShakeState extends State<RejectShake>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _shake =
+      AnimationController(vsync: this, duration: Motion.shake);
+  late final Animation<Offset> _offset = _shake.drive(_ShakeTween());
+
+  @override
+  void didUpdateWidget(RejectShake old) {
+    super.didUpdateWidget(old);
+    if (widget.trigger != old.trigger && !Motion.reduced(context)) {
+      _shake.forward(from: 0);
+    }
+  }
+
+  @override
+  void dispose() {
+    _shake.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => AnimatedBuilder(
+        animation: _offset,
+        builder: (context, child) =>
+            Transform.translate(offset: _offset.value, child: child),
+        child: widget.child,
+      );
+}
+
+/// Two full sine cycles of ±4 dp.
+class _ShakeTween extends Animatable<Offset> {
+  @override
+  Offset transform(double t) => Offset(4 * math.sin(t * 2 * 2 * math.pi), 0);
 }
 
 /// Parses a Turkish-formatted amount string ("1.234,56") into integer cents

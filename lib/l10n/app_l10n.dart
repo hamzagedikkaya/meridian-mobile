@@ -92,6 +92,7 @@ abstract class AppL10n {
   // region shell (WP-4)
 
   String get tabToday;
+  String get tabAgenda;
   String get tabFinance;
   String get tabHabits;
   String get tabGoals;
@@ -107,6 +108,20 @@ abstract class AppL10n {
   String get titleAccount;
   String get titleGoal;
   String get titleJournalEntry;
+
+  /// The overdue count on the Agenda tab, read after its name: "3 gecikmiş
+  /// görev".
+  String semAgendaOverdue(int count);
+
+  /// The Agenda tab's two lists until it merges them by day (WP-7).
+  String get titleEvents;
+
+  /// The search page while search is not offered yet (WP-16).
+  String get titleSearch;
+  String get searchComingSoon;
+
+  /// "Ödendi" taken back: the payment and the due date could not be put back.
+  String get subscriptionUndoFailed;
   // endregion
 
   // --- Search ----------------------------------------------------------------
@@ -602,10 +617,52 @@ abstract class AppL10n {
 
   /// A colour swatch, for screen readers ("Renk 3").
   String colorSwatch(int index);
+
+  /// A section header's link to the whole list ("Tümü"); the chevron is an
+  /// icon beside it.
+  String get actionSeeAllShort;
+
+  /// Hides a dismissible hint card for good.
+  String get actionHide;
+
+  /// The capture bar, for screen readers.
+  String get captureBarSemantics;
+
+  /// The money chip in Today's header: its caption, the screen-reader
+  /// sentence around this month's net, and what it says with no account.
+  String get moneyGlanceThisMonth;
+  String moneyGlanceSemantics(String amount);
+  String get moneyGlanceStart;
   // endregion
 
   // --- Numbers, progress, motion and celebrations ----------------------------
   // region numbers and motion (WP-3)
+
+  /// A day group's heading "Hepsini bugüne al" (the overdue group).
+  String get dayHeaderMoveAllToToday;
+
+  /// A chart's average line label: "ort. ₺33B" / "avg ₺33K".
+  String chartAverage(String amount);
+
+  /// The pace line's scrub tooltip: "12 Eki · ₺8.420 / geçen ay ₺9.100"
+  /// ([previous] null: the first month, no reference).
+  String chartPaceTooltip(String date, String amount, String? previous);
+
+  /// The row checked-off todos collapse into: "3 tamamlandı".
+  String lingeringFinished(int count);
+
+  /// Tier-3 milestone card: a streak reached [days] on [habit]
+  /// ("30 gün · Koşu").
+  String milestoneStreak(int days, String habit);
+
+  /// Tier-3 milestone card: the first perfect week.
+  String get milestonePerfectWeek;
+
+  /// Tier-3 milestone card: a goal past 100 % ("Hedefe ulaştın · Kitap").
+  String milestoneGoal(String goal);
+
+  /// Screen readers: how to dismiss the milestone card.
+  String get milestoneDismissHint;
   // endregion
 
   // --- Finance: setup, accounts, menus --------------------------------------

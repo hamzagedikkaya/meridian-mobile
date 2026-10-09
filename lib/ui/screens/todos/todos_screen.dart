@@ -46,11 +46,16 @@ class TodosScreen extends ConsumerStatefulWidget {
   final int? initialListId;
   final bool initialUnlisted;
 
+  /// Shown inside the Agenda tab, which has the app bar (and the lists
+  /// page's button) itself.
+  final bool embedded;
+
   const TodosScreen({
     super.key,
     this.initialFilter = 'open',
     this.initialListId,
     this.initialUnlisted = false,
+    this.embedded = false,
   });
 
   @override
@@ -180,16 +185,18 @@ class _TodosScreenState extends ConsumerState<TodosScreen> {
 
     return Scaffold(
       backgroundColor: c.bg,
-      appBar: AppBar(
-        title: Text(l.titleTodos),
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.format_list_bulleted),
-            tooltip: l.todoListsManage,
-            onPressed: () => context.push('/todos/lists'),
-          ),
-        ],
-      ),
+      appBar: widget.embedded
+          ? null
+          : AppBar(
+              title: Text(l.titleTodos),
+              actions: [
+                IconButton(
+                  icon: const Icon(Icons.format_list_bulleted),
+                  tooltip: l.todoListsManage,
+                  onPressed: () => context.push('/agenda/lists'),
+                ),
+              ],
+            ),
       floatingActionButton: FloatingActionButton.extended(
         heroTag: null,
         onPressed: _add,

@@ -40,6 +40,13 @@ abstract final class Motion {
   static const roll = Duration(milliseconds: 250);
   static const rollOut = Duration(milliseconds: 180);
 
+  /// The amount being typed (`RollingNumber`, cause `typing`): a new digit
+  /// rises in [typeIn], ⌫ drops the last one in [typeDelete], a long ⌫
+  /// rolls them all out in [typeClear].
+  static const typeIn = Duration(milliseconds: 120);
+  static const typeDelete = Duration(milliseconds: 90);
+  static const typeClear = Duration(milliseconds: 150);
+
   /// Tab fade-through, entrance item, row insert, shared-axis step.
   static const standard = Duration(milliseconds: 300);
 
@@ -61,6 +68,9 @@ abstract final class Motion {
   static const staggerStep = Duration(milliseconds: 50);
   static const staggerCap = 6;
   static const entranceRise = 12.0;
+
+  /// Chart rows (category bars) fill one after another, this far apart.
+  static const barStagger = Duration(milliseconds: 40);
 
   /// First load: the skeleton appears after [skeletonDelay], stays at least
   /// [skeletonMinVisible] once shown, and cross-fades out in
@@ -86,6 +96,9 @@ abstract final class Motion {
   static const milestoneIn = Duration(milliseconds: 350);
   static const milestoneHold = Duration(milliseconds: 2500);
   static const milestoneOut = Duration(milliseconds: 250);
+
+  /// The "Hepsi tamam" pill shows this long after the burst.
+  static const pillDelay = Duration(milliseconds: 120);
 
   /// The light ↔ dark theme change (`MaterialApp.themeAnimationDuration`).
   static const themeChange = Duration(milliseconds: 250);

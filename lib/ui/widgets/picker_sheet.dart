@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../../core/haptics.dart';
 import '../../theme/app_colors.dart';
+import 'nok_sheet.dart';
 
 class PickerOption<T> {
   final T value;
@@ -29,7 +30,12 @@ class PickerOption<T> {
   });
 }
 
-/// Generic modal bottom-sheet list picker on surface3 (design §3).
+/// A list picker in a sheet (design-analysis §4.15): [title], an optional
+/// [note], and one row per option; the [selected] row turns gold with a
+/// gold check. A tap plays the selection tick and returns the option's
+/// value; dismissing returns null.
+///
+/// Rows start 20 dp in (44 dp for an [PickerOption.indent]ed one).
 Future<T?> showPickerSheet<T>(
   BuildContext context, {
   required String title,
@@ -37,101 +43,101 @@ Future<T?> showPickerSheet<T>(
   T? selected,
   String? note,
 }) {
-  final c = context.nok;
-  final text = Theme.of(context).textTheme;
-  return showModalBottomSheet<T>(
-    context: context,
-    isScrollControlled: true,
-    useSafeArea: true,
-    barrierColor: const Color(0xFF171310).withValues(alpha: 0.6),
-    builder: (context) => SafeArea(
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Padding(
-            padding: const EdgeInsets.fromLTRB(20, 0, 20, 12),
-            child: Align(
-              alignment: Alignment.centerLeft,
-              child: Text(title, style: text.titleLarge),
-            ),
-          ),
-          if (note != null)
-            Padding(
-              padding: const EdgeInsets.fromLTRB(20, 0, 20, 12),
-              child: Align(
-                alignment: Alignment.centerLeft,
-                child: Text(
-                  note,
-                  style: text.bodySmall!.copyWith(color: c.inkMid),
+  return showNokSheet<T>(
+    context,
+    title: title,
+    builder: (context) {
+      final c = context.nok;
+      final text = Theme.of(context).textTheme;
+      return SafeArea(
+        top: false,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            if (note != null)
+              Padding(
+                padding: const EdgeInsets.fromLTRB(20, 0, 20, 12),
+                child: Text(note, style: text.bodySmall),
+              ),
+            Flexible(
+              child: ListView.builder(
+                shrinkWrap: true,
+                itemCount: options.length,
+                itemBuilder: (context, i) => _PickerRow(
+                  option: options[i],
+                  selected: options[i].value == selected,
+                  colors: c,
                 ),
               ),
             ),
-          Flexible(
-            child: ListView.builder(
-              shrinkWrap: true,
-              itemCount: options.length,
-              itemBuilder: (context, i) {
-                final option = options[i];
-                final isSelected = option.value == selected;
-                final check = isSelected
-                    ? Icon(Icons.check, color: c.gold, size: 20)
-                    : null;
-                final trailing = option.trailing;
-                return ListTile(
-                  selected: isSelected,
-                  contentPadding: EdgeInsetsDirectional.only(
-                    start: option.indent ? 40 : 16,
-                    end: 16,
-                  ),
-                  leading: option.icon == null
-                      ? (option.color == null
-                          ? null
-                          : Container(
-                              width: option.indent ? 16 : 24,
-                              height: option.indent ? 16 : 24,
-                              decoration: BoxDecoration(
-                                color: option.color,
-                                shape: BoxShape.circle,
-                              ),
-                            ))
-                      : Icon(option.icon, color: option.color ?? c.inkMid),
-                  title: Text(
-                    option.label,
-                    style: option.indent ? text.bodyLarge : text.titleMedium,
-                  ),
-                  subtitle: option.subtitle == null
-                      ? null
-                      : Text(
-                          option.subtitle!,
-                          style: text.bodySmall!.copyWith(color: c.inkMid),
-                        ),
-                  trailing: trailing == null
-                      ? check
-                      : Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Text(
-                              trailing,
-                              style:
-                                  text.bodySmall!.copyWith(color: c.inkMid),
-                            ),
-                            if (check != null) ...[
-                              const SizedBox(width: 8),
-                              check,
-                            ],
-                          ],
-                        ),
-                  onTap: () {
-                    Haptics.tick();
-                    Navigator.of(context).pop(option.value);
-                  },
-                );
-              },
-            ),
-          ),
-          const SizedBox(height: 8),
-        ],
-      ),
-    ),
+            const SizedBox(height: 8),
+          ],
+        ),
+      );
+    },
   );
+}
+
+class _PickerRow<T> extends StatelessWidget {
+  const _PickerRow({
+    required this.option,
+    required this.selected,
+    required this.colors,
+  });
+
+  final PickerOption<T> option;
+  final bool selected;
+  final NokturnColors colors;
+
+  @override
+  Widget build(BuildContext context) {
+    final c = colors;
+    final text = Theme.of(context).textTheme;
+    final check =
+        selected ? Icon(Icons.check_rounded, color: c.gold, size: 20) : null;
+    final trailing = option.trailing;
+    final dot = option.indent ? 16.0 : 24.0;
+    return ListTile(
+      selected: selected,
+      selectedColor: c.gold,
+      contentPadding: EdgeInsetsDirectional.only(
+        start: option.indent ? 44 : 20,
+        end: 20,
+      ),
+      leading: option.icon == null
+          ? (option.color == null
+              ? null
+              : Container(
+                  width: dot,
+                  height: dot,
+                  decoration: BoxDecoration(
+                    color: option.color,
+                    shape: BoxShape.circle,
+                  ),
+                ))
+          : Icon(option.icon, color: option.color ?? c.inkMid),
+      title: Text(
+        option.label,
+        style: (option.indent ? text.bodyLarge : text.titleMedium)!
+            .copyWith(color: selected ? c.gold : null),
+      ),
+      subtitle: option.subtitle == null
+          ? null
+          : Text(option.subtitle!, style: text.bodySmall),
+      trailing: trailing == null
+          ? check
+          : Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(trailing, style: text.bodySmall),
+                if (check != null) ...[const SizedBox(width: 8), check],
+              ],
+            ),
+      onTap: () {
+        Haptics.tick();
+        Navigator.of(context).pop(option.value);
+      },
+    );
+  }
 }

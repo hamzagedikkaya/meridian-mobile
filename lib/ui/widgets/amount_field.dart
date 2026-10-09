@@ -4,8 +4,12 @@ import '../../core/formats.dart';
 import '../../core/haptics.dart';
 import '../../l10n/app_l10n.dart';
 import '../../theme/app_colors.dart';
+import '../../theme/app_metrics.dart';
 import '../../theme/app_typography.dart';
 import 'amount_keypad.dart';
+import 'form_scaffold.dart';
+import 'nok_sheet.dart';
+import 'primary_button.dart';
 
 /// A money field of a form: its label and the amount as money. A tap opens
 /// the keypad in a sheet — money is never typed on the system keyboard,
@@ -14,6 +18,10 @@ import 'amount_keypad.dart';
 ///
 /// [minorUnits] null shows nothing typed yet. With [allowDebt] the sheet
 /// has a "Borç" (debt) switch and the amount may be negative.
+///
+/// The label sits before the amount on one line; above 1.3× text it goes
+/// above it, so the amount keeps the whole width and grows with the text
+/// rather than shrinking to fit beside the label.
 class AmountField extends StatelessWidget {
   final String label;
   final int? minorUnits;
@@ -58,6 +66,24 @@ class AmountField extends StatelessWidget {
         : formatMoney(value, currency, subunitToUnit);
     final error = errorText;
     final note = error ?? helperText;
+    final large = MediaQuery.textScalerOf(context).scale(1) > 1.3;
+    final labelText =
+        Text(label, style: text.bodyMedium!.copyWith(color: c.inkMid));
+    final amount = FittedBox(
+      fit: BoxFit.scaleDown,
+      alignment: large
+          ? AlignmentDirectional.centerStart
+          : AlignmentDirectional.centerEnd,
+      child: Text(
+        shown,
+        maxLines: 1,
+        style: text.titleSmall!.copyWith(
+          fontFeatures: tabularFigures,
+          color: value == null ? c.inkLow : c.inkHi,
+        ),
+      ),
+    );
+    final keypadIcon = Icon(Icons.dialpad_rounded, size: 20, color: c.inkLow);
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -70,47 +96,31 @@ class AmountField extends StatelessWidget {
           label: '$label, $shown',
           onTap: () => _edit(context),
           excludeSemantics: true,
-          child: Material(
-            color: c.surface2,
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(12),
-              side: BorderSide(color: error == null ? c.hairline : c.error),
-            ),
-            child: InkWell(
-              onTap: () => _edit(context),
-              borderRadius: BorderRadius.circular(12),
-              child: Padding(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                child: Row(
-                  children: [
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(label,
-                              style:
-                                  text.bodySmall!.copyWith(color: c.inkMid)),
-                          const SizedBox(height: 2),
-                          FittedBox(
-                            fit: BoxFit.scaleDown,
-                            alignment: Alignment.centerLeft,
-                            child: Text(
-                              shown,
-                              style: text.titleLarge!.copyWith(
-                                fontFeatures: tabularFigures,
-                                color: value == null ? c.inkLow : c.inkHi,
-                              ),
-                            ),
-                          ),
-                        ],
+          child: FormFieldBox(
+            onTap: () => _edit(context),
+            hasError: error != null,
+            child: large
+                ? Row(
+                    children: [
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [labelText, amount],
+                        ),
                       ),
-                    ),
-                    Icon(Icons.dialpad, size: 20, color: c.inkLow),
-                  ],
-                ),
-              ),
-            ),
+                      const SizedBox(width: Gap.xs),
+                      keypadIcon,
+                    ],
+                  )
+                : Row(
+                    children: [
+                      labelText,
+                      const SizedBox(width: Gap.md),
+                      Expanded(child: amount),
+                      const SizedBox(width: Gap.xs),
+                      keypadIcon,
+                    ],
+                  ),
           ),
         ),
         // A node of its own, outside the field's (as a text field's helper
@@ -144,11 +154,10 @@ Future<int?> showAmountSheet(
   required int subunitToUnit,
   bool allowDebt = false,
 }) {
-  return showModalBottomSheet<int>(
-    context: context,
-    isScrollControlled: true,
-    useSafeArea: true,
-    barrierColor: const Color(0xFF171310).withValues(alpha: 0.6),
+  return showNokSheet<int>(
+    context,
+    title: title,
+    showClose: true,
     builder: (_) => _AmountSheet(
       title: title,
       initial: initial,
@@ -186,10 +195,15 @@ class _AmountSheetState extends State<_AmountSheet> {
   late bool _debt = widget.allowDebt && (widget.initial ?? 0) < 0;
   bool _atLimit = false;
 
+  /// Counts refused digits; each one shakes the amount once.
+  int _refused = 0;
+
   void _digit(String d) {
     final limit = _draft.wouldPassLimit(d, widget.subunitToUnit);
+    if (limit) Haptics.danger();
     setState(() {
       _atLimit = limit;
+      if (limit) _refused++;
       _draft = _draft.withDigit(d, widget.subunitToUnit);
     });
   }
@@ -216,33 +230,55 @@ class _AmountSheetState extends State<_AmountSheet> {
                   mainAxisSize: MainAxisSize.min,
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
-                    Text(widget.title, style: text.titleLarge),
-                    const SizedBox(height: 16),
                     Semantics(
                       liveRegion: true,
-                      child: FittedBox(
-                        fit: BoxFit.scaleDown,
-                        child: Text(
-                          _draft.display(widget.currency, negative: _debt),
-                          style: text.displayLarge!.copyWith(
-                            fontFeatures: tabularFigures,
-                            color: _draft.isEmpty ? c.inkLow : c.inkHi,
+                      child: RejectShake(
+                        trigger: _refused,
+                        child: FittedBox(
+                          fit: BoxFit.scaleDown,
+                          child: Text(
+                            _draft.display(widget.currency, negative: _debt),
+                            style: text.displayLarge!.copyWith(
+                              color: _draft.isEmpty ? c.inkLow : c.inkHi,
+                            ),
                           ),
                         ),
                       ),
                     ),
-                    if (_atLimit)
-                      Padding(
-                        padding: const EdgeInsets.only(top: 4),
-                        child: Text(
-                          l.amountTooLarge(formatMoney(
-                              AmountDraft.maxMinorUnits,
-                              widget.currency,
-                              widget.subunitToUnit)),
+                    // The limit note has its lines kept free — measured at
+                    // this width and text size — so the keypad never moves
+                    // when it shows.
+                    LayoutBuilder(
+                      builder: (context, constraints) {
+                        final style =
+                            text.bodySmall!.copyWith(color: c.warning);
+                        final note = l.amountTooLarge(formatMoney(
+                            AmountDraft.maxMinorUnits,
+                            widget.currency,
+                            widget.subunitToUnit));
+                        final painter = TextPainter(
+                          text: TextSpan(text: note, style: style),
                           textAlign: TextAlign.center,
-                          style: text.bodySmall!.copyWith(color: c.warning),
-                        ),
-                      ),
+                          textDirection: Directionality.of(context),
+                          textScaler: MediaQuery.textScalerOf(context),
+                        )..layout(maxWidth: constraints.maxWidth);
+                        final reserved = 4 + painter.height;
+                        painter.dispose();
+                        return SizedBox(
+                          height: reserved,
+                          child: _atLimit
+                              ? Padding(
+                                  padding: const EdgeInsets.only(top: 4),
+                                  child: Text(
+                                    note,
+                                    textAlign: TextAlign.center,
+                                    style: style,
+                                  ),
+                                )
+                              : null,
+                        );
+                      },
+                    ),
                     if (widget.allowDebt) ...[
                       const SizedBox(height: 8),
                       SwitchListTile.adaptive(
@@ -274,11 +310,11 @@ class _AmountSheetState extends State<_AmountSheet> {
                 ),
               ),
             ),
-            const SizedBox(height: 12),
-            FilledButton(
+            const SizedBox(height: Gap.md),
+            PrimaryButton(
+              label: l.actionDone,
               onPressed: () =>
                   Navigator.of(context).pop(_debt ? -cents : cents),
-              child: Text(l.actionDone),
             ),
           ],
         ),

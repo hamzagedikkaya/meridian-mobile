@@ -108,17 +108,17 @@ void main() {
     expect(find.text('Koşu'), findsOneWidget);
     expect(find.byType(CircularProgressIndicator), findsNothing);
 
-    // The hint waits before it shows, so a quick refresh never flashes it.
-    await tester.pump(const Duration(milliseconds: 100));
+    // The hint waits a full second before it shows (a real timer), so a
+    // quick refresh never flashes it.
     final hint = find.byType(LinearProgressIndicator);
+    await tester.pump(const Duration(milliseconds: 900));
+    expect(hint, findsNothing);
+    await tester.pump(const Duration(milliseconds: 100));
+    await tester.pump(const Duration(milliseconds: 150));
+    expect(hint, findsOneWidget);
     expect(
-      tester.widget<Opacity>(find.ancestor(of: hint, matching: find.byType(Opacity)).first).opacity,
-      0,
-    );
-    await tester.pump(const Duration(milliseconds: 600));
-    expect(
-      tester.widget<Opacity>(find.ancestor(of: hint, matching: find.byType(Opacity)).first).opacity,
-      greaterThan(0),
+      tester.widget<AnimatedOpacity>(find.ancestor(of: hint, matching: find.byType(AnimatedOpacity)).first).opacity,
+      1,
     );
 
     gate.complete();
@@ -391,7 +391,7 @@ void main() {
     await tester.pump();
 
     // Closed while saving.
-    await tester.tap(find.byIcon(Icons.close));
+    await tester.tap(find.byIcon(Icons.close_rounded));
     await tester.pumpAndSettle();
     expect(find.byType(HabitFormScreen), findsNothing);
     api.clearLog();

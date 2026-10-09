@@ -95,8 +95,8 @@ void main() {
       ..on('GET /finance/dashboard', _dashboard(budgets: [budgetJson()]));
     await pumpFinance(tester, api, const FinanceScreen());
     await _toBudgets(tester);
-    expect(find.text('661,00 ₺ / 3.000,00 ₺'), findsOneWidget);
-    expect(find.text('kalan 2.339,00 ₺'), findsOneWidget);
+    expect(find.text('₺661,00 / ₺3.000,00'), findsOneWidget);
+    expect(find.text('kalan ₺2.339,00'), findsOneWidget);
 
     await tester.tap(find.text('Market'));
     await settleFrames(tester);
@@ -118,7 +118,7 @@ void main() {
       ));
     await pumpFinance(tester, api, const FinanceScreen());
     await _toBudgets(tester);
-    expect(find.text('340,00 ₺ fazla'), findsOneWidget);
+    expect(find.text('₺340,00 fazla'), findsOneWidget);
   });
 
   testWidgets('removing a budget goes with "Geri al"', (tester) async {
@@ -132,7 +132,7 @@ void main() {
     await tester.tap(_inSheet(find.text('Bütçeyi kaldır')));
     await settleFrames(tester);
     expect(find.text('“Market” bütçesi kaldırıldı'), findsOneWidget);
-    expect(find.text('661,00 ₺ / 3.000,00 ₺'), findsNothing, reason: 'off');
+    expect(find.text('₺661,00 / ₺3.000,00'), findsNothing, reason: 'off');
     expect(api.requests, isNot(contains('DELETE /budgets/2')));
     await letUndoRunOut(tester);
     expect(api.requests, contains('DELETE /budgets/2'));

@@ -85,13 +85,13 @@ void main() {
       tester.semantics.tap(find.semantics.byLabel(key));
       await tester.pump();
     }
-    expect(find.text('125 ₺'), findsOneWidget);
+    expect(find.text('₺125'), findsOneWidget);
     tester.semantics.tap(find.semantics.byLabel('Son rakamı sil'));
     await tester.pump();
-    expect(find.text('12 ₺'), findsOneWidget);
+    expect(find.text('₺12'), findsOneWidget);
     tester.semantics.longPress(find.semantics.byLabel('Son rakamı sil'));
     await tester.pump();
-    expect(find.text('0 ₺'), findsOneWidget);
+    expect(find.text('₺0'), findsOneWidget);
 
     for (final key in ['4', 'Ondalık virgül', '5']) {
       tester.semantics.tap(find.semantics.byLabel(key));
@@ -171,14 +171,14 @@ void main() {
     expect(_selected('Nakit'), isTrue);
     expect(_canTap('Nakit'), isFalse);
     expect(_canTap('Banka'), isTrue);
-    expect(_canTap('Renk 3'), isTrue);
+    expect(_canTap('Toz mavisi'), isTrue);
 
     await _doubleTap(tester, 'Banka');
     await _doubleTap(tester, 'USD · ABD doları');
-    await _doubleTap(tester, 'Renk 3');
+    await _doubleTap(tester, 'Toz mavisi');
     expect(_selected('Banka'), isTrue);
     expect(_selected('USD · ABD doları'), isTrue);
-    expect(_selected('Renk 3'), isTrue);
+    expect(_selected('Toz mavisi'), isTrue);
 
     await tester.tap(find.text('Hesabı oluştur'));
     await settleFrames(tester);
@@ -219,7 +219,7 @@ void main() {
     final handle = tester.ensureSemantics();
     final api = FakeApi();
     await _open(tester, api, (context) => openSubscriptionForm(context));
-    expect(_canTap('Tutar, 0 ₺'), isTrue);
+    expect(_canTap('Tutar, ₺0'), isTrue);
 
     await tester.enterText(find.byType(TextField).first, 'Spotify');
     await tester.tap(find.text('Kaydet'));
@@ -227,14 +227,14 @@ void main() {
     final error = _node('Sıfırdan büyük bir tutar gir');
     expect(error.flagsCollection.isLiveRegion, isTrue);
 
-    await _doubleTap(tester, 'Tutar, 0 ₺');
+    await _doubleTap(tester, 'Tutar, ₺0');
     expect(find.text('Tamam'), findsOneWidget, reason: 'the keypad sheet');
     for (final key in ['5', '0']) {
       tester.semantics.tap(find.semantics.byLabel(key));
       await tester.pump();
     }
     await _doubleTap(tester, 'Tamam');
-    expect(_canTap('Tutar, 50,00 ₺'), isTrue);
+    expect(_canTap('Tutar, ₺50,00'), isTrue);
     expect(find.semantics.byLabel('Sıfırdan büyük bir tutar gir'),
         findsNothing);
 
@@ -253,7 +253,7 @@ void main() {
     tallPhone(tester);
     final handle = tester.ensureSemantics();
     await _open(tester, FakeApi(), (context) => openAccountForm(context));
-    expect(_canTap('Açılış bakiyesi, 0,00 ₺'), isTrue);
+    expect(_canTap('Açılış bakiyesi, ₺0'), isTrue);
     expect(
       find.semantics.byLabel(
           'Hesapta bugün duran tutar. Kredi kartı borcunu “Borç” ile gir.'),

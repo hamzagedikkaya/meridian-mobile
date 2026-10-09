@@ -8,7 +8,7 @@ import 'package:meridian_mobile/core/session.dart';
 import 'package:meridian_mobile/data/current_day.dart';
 import 'package:meridian_mobile/l10n/app_l10n.dart';
 import 'package:meridian_mobile/theme/app_theme.dart';
-import 'package:meridian_mobile/ui/screens/events/agenda_screen.dart';
+import 'package:meridian_mobile/ui/screens/agenda/agenda_screen.dart';
 import 'package:meridian_mobile/ui/screens/todos/todo_lists_screen.dart';
 import 'package:meridian_mobile/ui/screens/todos/todos_screen.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -21,8 +21,8 @@ final fixtureNow = DateTime(2026, 10, 4, 12, 30);
 
 /// [home] at `/` in the app's theme and languages, with [api] behind the
 /// real repository, DataSync and read models, the clock at [fixtureNow],
-/// and the pages Today opens — `/todos`, `/todos/lists`, `/agenda` — as
-/// the app routes them.
+/// and the pages Today opens — `/todos`, the Agenda tab (`/agenda`, its
+/// events at `?view=events`) and `/agenda/lists` — as the app routes them.
 Future<GoRouter> pumpWithRoutes(
   WidgetTester tester,
   FakeApi api, {
@@ -57,7 +57,17 @@ Future<GoRouter> pumpWithRoutes(
         path: '/todos/lists',
         builder: (_, _) => const TodoListsScreen(),
       ),
-      GoRoute(path: '/agenda', builder: (_, _) => const AgendaScreen()),
+      GoRoute(
+        path: '/agenda',
+        builder: (_, state) => AgendaTabScreen(
+          view: state.uri.queryParameters['view'],
+          list: state.uri.queryParameters['list'],
+        ),
+      ),
+      GoRoute(
+        path: '/agenda/lists',
+        builder: (_, _) => const TodoListsScreen(),
+      ),
     ],
   );
   addTearDown(router.dispose);

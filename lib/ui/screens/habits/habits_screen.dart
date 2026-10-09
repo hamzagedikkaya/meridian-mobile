@@ -163,10 +163,19 @@ class _HabitsScreenState extends ConsumerState<HabitsScreen>
           ),
           PopupMenuButton<String>(
             tooltip: MaterialLocalizations.of(context).moreButtonTooltip,
-            onSelected: (_) => context.push('/habits/archived'),
+            onSelected: (path) => context.push(path),
             itemBuilder: (_) => [
+              // Goals left the bar; the habits they track lead there.
               PopupMenuItem(
-                value: 'archived',
+                value: '/goals',
+                child: ListTile(
+                  contentPadding: EdgeInsets.zero,
+                  leading: const Icon(Icons.flag_outlined),
+                  title: Text(l.titleGoals),
+                ),
+              ),
+              PopupMenuItem(
+                value: '/habits/archived',
                 child: ListTile(
                   contentPadding: EdgeInsets.zero,
                   leading: const Icon(Icons.archive_outlined),

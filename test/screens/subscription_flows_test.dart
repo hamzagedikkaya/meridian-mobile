@@ -50,8 +50,8 @@ void main() {
       (tester) async {
     tallPhone(tester);
     await pumpFinance(tester, _api(), const SubscriptionsScreen());
-    expect(find.text('Aylık sabit giderin 229,99 ₺'), findsOneWidget);
-    expect(find.text('yılda 2.759,88 ₺'), findsOneWidget);
+    expect(find.text('Aylık sabit giderin ₺229,99'), findsOneWidget);
+    expect(find.text('yılda ₺2.759,88'), findsOneWidget);
     expect(find.text('Aktif'), findsOneWidget);
     expect(find.text('Netflix'), findsOneWidget);
     expect(find.text('Duraklatılmış'), findsOneWidget);
@@ -165,12 +165,12 @@ void main() {
     }
     await tester.tap(_inSheet(find.text('Tamam')));
     await settleFrames(tester);
-    expect(find.text('5,50 ₺'), findsOneWidget);
+    expect(find.text('₺5,50'), findsOneWidget);
 
     api.release('GET /accounts');
     await settleFrames(tester);
     expect(find.text('Altın'), findsOneWidget);
-    expect(find.text('5 gr'), findsOneWidget);
+    expect(find.text('5\u00A0gr'), findsOneWidget);
     await tester.tap(find.text('Kaydet'));
     await settleFrames(tester);
     final body = api.bodiesOf('POST /subscriptions').single as Map;
@@ -185,7 +185,7 @@ void main() {
     await tester.tap(_inSheet(find.text('Ödendi olarak kaydet')));
     await settleFrames(tester);
     expect(api.requests, contains('POST /subscriptions/6/charge'));
-    expect(find.text('Ödeme kaydedildi · 229,99 ₺'), findsOneWidget);
+    expect(find.text('Ödeme kaydedildi · ₺229,99'), findsOneWidget);
   });
 
   testWidgets('a payment refused because it was paused elsewhere says so in '
@@ -228,7 +228,7 @@ void main() {
     api.release(_charge);
     await settleFrames(tester);
     expect(find.byType(BottomSheet), findsNothing);
-    expect(find.text('Ödeme kaydedildi · 229,99 ₺'), findsOneWidget);
+    expect(find.text('Ödeme kaydedildi · ₺229,99'), findsOneWidget);
     expect(api.requests.where((r) => r == _charge), hasLength(1));
   });
 

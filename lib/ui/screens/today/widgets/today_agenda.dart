@@ -106,7 +106,7 @@ class TodayAgenda extends ConsumerWidget {
     }
     if (more > 0) {
       rows.add(InkWell(
-        onTap: () => context.push('/agenda'),
+        onTap: () => context.go('/agenda?view=events'),
         child: ConstrainedBox(
           constraints: const BoxConstraints(minHeight: 48),
           child: Padding(
@@ -133,7 +133,7 @@ class TodayAgenda extends ConsumerWidget {
             tooltip: l.eventNewTitle,
             onPressed: () => openEventForm(context, day: day),
           ),
-          onSeeAll: () => context.push('/agenda'),
+          onSeeAll: () => context.go('/agenda?view=events'),
         ),
         NokturnCard(
           padding: const EdgeInsets.only(bottom: 8),

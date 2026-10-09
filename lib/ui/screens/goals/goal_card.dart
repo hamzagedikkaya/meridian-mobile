@@ -25,7 +25,9 @@ class GoalCard extends StatelessWidget {
 
     return NokturnCard(
       padding: const EdgeInsets.all(16),
-      onTap: () => context.push('/goals/${goal.id}'),
+      // The goal goes along, so the detail draws its ring — the hero's
+      // landing spot — in its first frame.
+      onTap: () => context.push('/goals/${goal.id}', extra: goal),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         mainAxisSize: MainAxisSize.min,

@@ -151,7 +151,7 @@ void main() {
       await _open(tester, api);
       await _send(tester, '-1.250,50 market');
       expect(
-        find.text('Harcama eklendi · −1.250,50 ₺ · market'),
+        find.text('Harcama eklendi · −₺1.250,50 · market'),
         findsOneWidget,
       );
       expect(
@@ -177,7 +177,7 @@ void main() {
         }, status: 201);
       await _open(tester, api, locale: const Locale('en'));
       await _send(tester, '+1500 maaş');
-      expect(find.text('Income added · +1,500.00 ₺ · maaş'), findsOneWidget);
+      expect(find.text('Income added · +₺1,500.00 · maaş'), findsOneWidget);
     });
 
     testWidgets('a habit check-in', (tester) async {

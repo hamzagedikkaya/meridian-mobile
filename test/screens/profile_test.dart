@@ -728,7 +728,7 @@ void main() {
       await _settle(tester);
       expect(find.text('USD kullanılsın mı?'), findsOneWidget);
       expect(
-        find.textContaining('5.000,00 ₺, 5.000,00 \$ olur'),
+        find.textContaining('₺5.000,00, \$5.000,00 olur'),
         findsOneWidget,
       );
       await tester.tap(find.widgetWithText(FilledButton, 'Değiştir'));
@@ -744,7 +744,7 @@ void main() {
       await _openRow(tester, 'Para birimi');
       await tester.tap(find.text('Gram altın (GAU)'));
       await _settle(tester);
-      expect(find.textContaining('500.000 gr'), findsOneWidget);
+      expect(find.textContaining('500.000\u00A0gr'), findsOneWidget);
       await tester.tap(find.text('Vazgeç'));
       await _settle(tester);
       expect(h.api.bodiesOf('PATCH /me'), isEmpty);

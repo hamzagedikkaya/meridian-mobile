@@ -7,6 +7,8 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:meridian_mobile/core/session.dart';
 import 'package:meridian_mobile/main.dart';
 import 'package:meridian_mobile/ui/screens/goals/goal_detail_screen.dart';
+import 'package:meridian_mobile/ui/screens/goals/goals_screen.dart';
+import 'package:meridian_mobile/ui/widgets/section_header.dart';
 
 import '../support/fake_api.dart';
 
@@ -52,22 +54,47 @@ void main() {
     ));
     await _settle(tester);
 
-    // Two tabs with a FAB visited: both stay mounted, one of them offstage.
+    // Two tabs with a FAB visited: both stay mounted, offstage.
     await tester.tap(find.text('Alışkanlık'));
     await _settle(tester);
-    await tester.tap(find.text('Hedefler'));
+    await tester.tap(find.text('Günlük'));
+    await _settle(tester);
+    await tester.tap(find.text('Bugün'));
     await _settle(tester);
 
+    // Goals is a page pushed over the tabs, from Today's goals.
+    await tester.tap(find.descendant(
+      of: find.widgetWithText(SectionHeader, 'Hedefler'),
+      matching: find.textContaining('Tümü'),
+    ));
+    await _settle(tester);
+    expect(find.byType(GoalsScreen), findsOneWidget);
+
+    // The goal tapped comes along, so the ring the hero lands on is there
+    // in the detail's first frame — before /goals/3 has answered.
     await tester.tap(find.text('Kitap').first);
+    // The push lands a frame after the tap (go_router parses it first).
+    for (var i = 0; i < 3 && find.byType(GoalDetailScreen).evaluate().isEmpty;
+        i++) {
+      await tester.pump();
+    }
+    expect(
+      find.descendant(
+        of: find.byType(GoalDetailScreen),
+        matching: find.byWidgetPredicate(
+            (w) => w is Hero && w.tag == 'goal-ring-3'),
+      ),
+      findsOneWidget,
+    );
     await _settle(tester);
     expect(tester.takeException(), isNull);
     expect(find.byType(GoalDetailScreen), findsOneWidget);
 
-    // Back, and the same goal opened from Today, with Goals and Habits
-    // hidden behind it.
+    // Back to Today, and the same goal opened from there, with Habits and
+    // Journal hidden behind it.
     await tester.tap(find.byType(BackButton));
     await _settle(tester);
-    await tester.tap(find.text('Bugün'));
+    await tester.tap(find.byType(BackButton));
     await _settle(tester);
     await tester.tap(find.text('Kitap').first);
     await _settle(tester);

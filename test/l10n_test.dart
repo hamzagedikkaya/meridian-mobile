@@ -73,11 +73,11 @@ void main() {
     });
 
     test('money grouping and decimals', () {
-      expect(formatMoney(123456789, 'TRY', 100, locale: 'tr'), '1.234.567,89 ₺');
-      expect(formatMoney(123456789, 'TRY', 100, locale: 'en'), '1,234,567.89 ₺');
+      expect(formatMoney(123456789, 'TRY', 100, locale: 'tr'), '₺1.234.567,89');
+      expect(formatMoney(123456789, 'TRY', 100, locale: 'en'), '₺1,234,567.89');
       // Gram-gold has a subunit of 1 in both languages — never 4,12.
-      expect(formatMoney(412, 'GAU', 1, locale: 'tr'), '412 gr');
-      expect(formatMoney(412, 'GAU', 1, locale: 'en'), '412 gr');
+      expect(formatMoney(412, 'GAU', 1, locale: 'tr'), '412\u00A0gr');
+      expect(formatMoney(412, 'GAU', 1, locale: 'en'), '412\u00A0g');
     });
 
     test('chart axis abbreviations', () {

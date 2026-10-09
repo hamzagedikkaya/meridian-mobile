@@ -26,7 +26,11 @@ import 'goal_ui.dart';
 class GoalDetailScreen extends ConsumerStatefulWidget {
   final int goalId;
 
-  const GoalDetailScreen({super.key, required this.goalId});
+  /// The goal as the list that opened it shows it (`extra`): drawn until
+  /// the detail lands, so the ring's hero has somewhere to land at once.
+  final Goal? preview;
+
+  const GoalDetailScreen({super.key, required this.goalId, this.preview});
 
   @override
   ConsumerState<GoalDetailScreen> createState() => _GoalDetailScreenState();
@@ -42,6 +46,9 @@ class GoalDetailScreen extends ConsumerStatefulWidget {
 /// the server answers. A goal deleted elsewhere says so and goes back.
 class _GoalDetailScreenState extends ConsumerState<GoalDetailScreen> {
   bool _busy = false;
+
+  /// Only [GoalDetailScreen.preview] is drawn: the detail is on its way.
+  bool _previewOnly = false;
   bool _recalcLoading = false;
 
   /// The goal was found deleted (a 404) while this screen was open.
@@ -281,7 +288,13 @@ class _GoalDetailScreenState extends ConsumerState<GoalDetailScreen> {
     });
     final isCurrent = ModalRoute.isCurrentOf(context) ?? true;
     if (_goneSeen && !_goneHandled && isCurrent) _leave(l);
-    final goal = async.isGone ? null : async.value?.data;
+    final loaded = async.isGone ? null : async.value?.data;
+    final preview = widget.preview?.id == widget.goalId ? widget.preview : null;
+    final goal = loaded ??
+        (async.isGone || async.hasFailed ? null : preview);
+    // Until the detail lands, the preview is only looked at: its actions
+    // would build on the list's numbers.
+    _previewOnly = loaded == null;
 
     void retry() =>
         ref.read(dataSyncProvider).refresh([goalDetailProvider(widget.goalId)]);
@@ -336,23 +349,23 @@ class _GoalDetailScreenState extends ConsumerState<GoalDetailScreen> {
       appBar: AppBar(
         title: Text(l.titleGoal, style: text.headlineMedium),
         actions: [
-          if (goal != null) ...[
+          if (loaded != null) ...[
             IconButton(
               tooltip: l.actionEdit,
               icon: const Icon(Icons.edit_outlined),
-              onPressed: _busy ? null : () => _edit(goal),
+              onPressed: _busy ? null : () => _edit(loaded),
             ),
             PopupMenuButton<String>(
               tooltip: l.goalsMore,
               enabled: !_busy,
-              onSelected: (action) => _menu(goal, action),
+              onSelected: (action) => _menu(loaded, action),
               itemBuilder: (_) => [
-                if (goal.isActive && goal.isManual)
+                if (loaded.isActive && loaded.isManual)
                   _menuItem('achieved', Icons.check_circle_outline,
                       l.goalsMarkAchieved),
-                if (goal.isActive)
+                if (loaded.isActive)
                   _menuItem('abandon', Icons.flag_outlined, l.goalsAbandonAction),
-                if (!goal.isActive)
+                if (!loaded.isActive)
                   _menuItem('reopen', Icons.replay, l.goalsReopen),
                 _menuItem('delete', Icons.delete_outline, l.goalsDelete,
                     destructive: true),
@@ -453,7 +466,19 @@ class _GoalDetailScreenState extends ConsumerState<GoalDetailScreen> {
           _statusCard(goal),
         ],
         const SizedBox(height: 24),
-        _actionCard(goal),
+        // Until the goal is read, its actions would act on the list's
+        // numbers: not tappable, not offered to a screen reader, and dimmed
+        // so they do not look it either.
+        IgnorePointer(
+          ignoring: _previewOnly,
+          child: ExcludeSemantics(
+            excluding: _previewOnly,
+            child: Opacity(
+              opacity: _previewOnly ? 0.38 : 1,
+              child: _actionCard(goal),
+            ),
+          ),
+        ),
       ],
     );
   }

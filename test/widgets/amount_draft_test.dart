@@ -71,12 +71,12 @@ void main() {
     });
 
     test('shown as money in the language, as far as it is typed', () {
-      expect(_typed('1250,5').display('TRY'), '1.250,5 ₺');
-      expect(_typed('12,').display('TRY'), '12, ₺');
-      expect(const AmountDraft().display('TRY'), '0 ₺');
-      expect(_typed('1234').display('USD', negative: true), '−1.234 \$');
+      expect(_typed('1250,5').display('TRY'), '₺1.250,5');
+      expect(_typed('12,').display('TRY'), '₺12,');
+      expect(const AmountDraft().display('TRY'), '₺0');
+      expect(_typed('1234').display('USD', negative: true), '−\$1.234');
       Intl.defaultLocale = 'en';
-      expect(_typed('1250,5').display('TRY'), '1,250.5 ₺');
+      expect(_typed('1250,5').display('TRY'), '₺1,250.5');
     });
   });
 
@@ -85,11 +85,11 @@ void main() {
       expect(decimalsFor(100), 2);
       expect(decimalsFor(1), 0);
       expect(decimalsFor(1000), 3);
-      expect(formatMoney(1234567, 'KWD', 1000, locale: 'tr'), '1.234,567 KWD');
+      expect(formatMoney(1234567, 'KWD', 1000, locale: 'tr'), 'KWD\u00A01.234,567');
     });
 
     test('the pound has its symbol', () {
-      expect(formatMoney(999, 'GBP', 100, locale: 'en'), '9.99 £');
+      expect(formatMoney(999, 'GBP', 100, locale: 'en'), '£9.99');
     });
 
     test('the keypad\'s decimal key follows the language', () {
