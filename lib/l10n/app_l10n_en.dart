@@ -480,6 +480,69 @@ class AppL10nEn extends AppL10n {
   @override
   String todayZoneNotice(String zone, String offset) =>
       'Days and times follow your account\'s time zone: $zone (UTC$offset)';
+
+  @override
+  String todayDateLine(DateTime day) =>
+      '${formatWeekday(day, locale: 'en')}, ${formatDate(day, locale: 'en')}';
+  @override
+  String todayGreeting(String greeting, String firstName) =>
+      firstName.isEmpty ? greeting : '$greeting, $firstName';
+  @override
+  String get todayCaptureLabel => 'Add a task, expense, event…';
+  @override
+  String get todayCaptureTransaction => 'Add transaction';
+  @override
+  String todayNextUpNow(String title) => 'Now · $title';
+  @override
+  String todayNextUpSoon(String time, String title, int minutes) =>
+      '$time · $title · $minutes min';
+  @override
+  String get todayAddForToday => 'Add a task for today';
+  @override
+  String todayEventsPassed(int count) => '+$count earlier';
+  @override
+  String todayMoreRows(int count) => '+$count more';
+  @override
+  String get todayShowFinished => 'Show finished';
+  @override
+  String get todayHideFinished => 'Hide finished';
+  @override
+  String get todaySetGoal => 'Set a goal';
+  @override
+  String get todayJournalWrite => 'Write';
+  @override
+  String get todayJournalWritten => 'You wrote today';
+  @override
+  String todayNudgeYesterday(String habit) =>
+      'Forgot to mark yesterday? · $habit';
+  @override
+  String todayNudgeLate(String name, String amount) =>
+      '$name payment is overdue · $amount';
+  @override
+  String get todayNudgePaid => 'Paid';
+  @override
+  String todayStartTitle(int done, int total) => 'Let\'s begin · $done/$total';
+  @override
+  String get todayStartCash => 'Open a cash account';
+  @override
+  String get todayStartHabit => 'Pick a habit';
+  @override
+  String get todayStartTodo => 'Add your first task';
+  @override
+  String get todayStartJournal => 'Write about today';
+  @override
+  String get todayStartHabitTitle => 'Start with a habit';
+  @override
+  String get todayStartHabitOwn => 'Your own';
+  @override
+  List<String> get todayHabitStarters => const [
+        'Drink water',
+        'Walk',
+        'Read',
+        'Meditate',
+        'Wake up early',
+        'Stretch',
+      ];
   // endregion
 
   // --- Quick capture --------------------------------------------------------
@@ -955,10 +1018,6 @@ class AppL10nEn extends AppL10n {
   // region finance (WP-8)
 
   @override
-  String get financeScopeMonth => 'Month';
-  @override
-  String get financeScopeYear => 'Year';
-  @override
   String get financeIncome => 'Income';
   @override
   String get financeExpense => 'Expense';
@@ -977,7 +1036,7 @@ class AppL10nEn extends AppL10n {
   @override
   String financeMonthEndEstimate(String amount) => 'Month-end estimate: $amount';
   @override
-  String get financeUpcomingSubscriptions => 'Upcoming subscriptions';
+  String get financeUpcomingSubscriptions => 'Upcoming payments';
   @override
   String get financeRecentTransactions => 'Recent transactions';
   @override
@@ -1005,6 +1064,65 @@ class AppL10nEn extends AppL10n {
         'yearly' => 'Yearly',
         _ => frequency,
       };
+  @override
+  String get financeMonthNet => 'THIS MONTH NET';
+  @override
+  String financeYearNet(String amount) => 'This year $amount';
+  @override
+  String financeInsightVsLastMonth(String amount, {required bool less}) =>
+      'You have spent $amount ${less ? 'less' : 'more'} than by this day '
+      'last month';
+  @override
+  String financeInsightProjection(
+    String amount,
+    int percent, {
+    required bool below,
+  }) =>
+      percent == 0
+          ? 'At this pace the month ends at $amount spent, level with your '
+              '5-month average'
+          : 'At this pace the month ends at $amount spent, $percent% '
+              '${below ? 'below' : 'above'} your 5-month average';
+  @override
+  String financeInsightSpent(String amount, String perDay) =>
+      'You have spent $amount this month · $perDay a day on average';
+  @override
+  String get financeCurrencyNoteMixed =>
+      'This total adds other currencies without converting them';
+  @override
+  String get financeCurrencyNoteExcluded =>
+      'Other currencies are not in this total';
+  @override
+  String financeSixMonthInsight(int percent, {required bool below}) =>
+      percent == 0
+          ? 'This month\'s spending is level with the 6-month average'
+          : 'This month\'s spending is $percent% '
+              '${below ? 'below' : 'above'} the 6-month average';
+  @override
+  String financeCategoriesInsight(String name, String amount) =>
+      'Biggest: $name · $amount';
+  @override
+  String get financeSearch => 'Search transactions';
+  @override
+  String get financeMenuAddBudget => 'Add budget';
+  @override
+  String financeSetupTitle(int done, int total) => 'Setup $done/$total';
+  @override
+  String get financeSetupAccount => 'Open an account';
+  @override
+  String get financeSetupBudget => 'Set a budget';
+  @override
+  String get financeSetupSubscription => 'Add a regular payment';
+  @override
+  String get financePaid => 'Paid';
+  @override
+  String financeSubscriptionsMonthly(String amount) => '$amount a month';
+  @override
+  String financeBudgetPerDay(String amount, int daysLeft) => daysLeft <= 1
+      ? '$amount today · last day'
+      : '$amount a day · $daysLeft days left';
+  @override
+  String get financeBudgetEditLimit => 'Edit limit';
   // endregion
 
   // --- Transactions feed ----------------------------------------------------
@@ -1197,8 +1315,6 @@ class AppL10nEn extends AppL10n {
   @override
   String get financeAccounts => 'Accounts';
   @override
-  String accountsCarouselPage(int page, int count) => 'Page $page of $count';
-  @override
   String get financeAddTransactionFab => 'Transaction';
   @override
   String get financeMenuCategories => 'Categories';
@@ -1245,7 +1361,7 @@ class AppL10nEn extends AppL10n {
   String financeSliceDirect(String name) => '$name (direct)';
   @override
   String get financeBudgetsEmpty =>
-      'Set a monthly limit on a category and see the month\'s end coming.';
+      'Set a monthly limit on a category — see the month\'s end coming';
   @override
   String financeBudgetSpentOf(String spent, String limit) => '$spent of $limit';
   @override
@@ -1257,6 +1373,51 @@ class AppL10nEn extends AppL10n {
   @override
   String get financeSubscriptionsEmpty =>
       'Add your regular payments and see your fixed costs as one number.';
+  @override
+  String get financeSubscriptionsGhost => 'Add your regular payments';
+  @override
+  String accountsTotal(String totals) => 'Total $totals';
+  @override
+  String get accountsTotalsTitle => 'Totals by currency';
+  @override
+  String get accountFab => 'Account';
+  @override
+  String accountTileSemantics(String name, String type, String balance) =>
+      '$name, $type, $balance';
+  @override
+  String accountTypeOverline(String type) => switch (type) {
+        'cash' => 'CASH',
+        'bank' => 'BANK',
+        'credit_card' => 'CREDIT CARD',
+        'savings' => 'SAVINGS',
+        'crypto' => 'CRYPTO',
+        _ => 'ACCOUNT',
+      };
+  @override
+  String accountMonthSummary(String? income, String? expense) =>
+      'This month ${[
+        if (income != null) '$income in',
+        if (expense != null) '$expense out',
+      ].join(' · ')}';
+  @override
+  String get accountReconcile => 'Reconcile balance';
+  @override
+  String accountLinkedGoals(int count) => 'Linked goals ($count)';
+  @override
+  String get reconcileTitle => 'Actual balance';
+  @override
+  String reconcileNowAndDifference(String now, String? difference) =>
+      difference == null
+          ? 'Now: $now'
+          : 'Now: $now · Difference: $difference';
+  @override
+  String get reconcileDone => 'Balance reconciled';
+  @override
+  String get reconcileFailed => 'Could not reconcile the balance';
+  @override
+  String get reconcileUndoFailed => 'Could not go back to the old balance';
+  @override
+  String get accountDefaultBadge => 'Default';
   // endregion
 
   // --- Account form, archive, delete ----------------------------------------
@@ -1361,6 +1522,11 @@ class AppL10nEn extends AppL10n {
   @override
   String get archivedAccountsBody =>
       'Accounts you archive wait here; restore one whenever you like.';
+  @override
+  String get accountFormDefault => 'Default account';
+  @override
+  String get accountFormDefaultHint =>
+      'New transactions start on it · on this device';
   // endregion
 
   // --- Finance categories ----------------------------------------------------

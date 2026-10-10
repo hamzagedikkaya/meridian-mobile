@@ -470,6 +470,69 @@ class AppL10nTr extends AppL10n {
   @override
   String todayZoneNotice(String zone, String offset) =>
       'Günler ve saatler hesabının saat dilimine göre: $zone (UTC$offset)';
+
+  @override
+  String todayDateLine(DateTime day) =>
+      '${formatWeekday(day, locale: 'tr')}, ${formatDate(day, locale: 'tr')}';
+  @override
+  String todayGreeting(String greeting, String firstName) =>
+      firstName.isEmpty ? greeting : '$greeting, $firstName';
+  @override
+  String get todayCaptureLabel => 'Ekle: görev, harcama, etkinlik…';
+  @override
+  String get todayCaptureTransaction => 'İşlem ekle';
+  @override
+  String todayNextUpNow(String title) => 'Şimdi · $title';
+  @override
+  String todayNextUpSoon(String time, String title, int minutes) =>
+      '$time · $title · $minutes dk';
+  @override
+  String get todayAddForToday => 'Bugün için görev ekle';
+  @override
+  String todayEventsPassed(int count) => '+$count geçti';
+  @override
+  String todayMoreRows(int count) => '+$count daha';
+  @override
+  String get todayShowFinished => 'Tamamlananları göster';
+  @override
+  String get todayHideFinished => 'Tamamlananları gizle';
+  @override
+  String get todaySetGoal => 'Bir hedef koy';
+  @override
+  String get todayJournalWrite => 'Yaz';
+  @override
+  String get todayJournalWritten => 'Bugün yazdın';
+  @override
+  String todayNudgeYesterday(String habit) =>
+      'Dünü işaretlemeyi unuttun mu? · $habit';
+  @override
+  String todayNudgeLate(String name, String amount) =>
+      '$name ödemesi gecikti · $amount';
+  @override
+  String get todayNudgePaid => 'Ödendi';
+  @override
+  String todayStartTitle(int done, int total) => 'Başlayalım · $done/$total';
+  @override
+  String get todayStartCash => 'Nakit hesabı aç';
+  @override
+  String get todayStartHabit => 'Bir alışkanlık seç';
+  @override
+  String get todayStartTodo => 'İlk görevini ekle';
+  @override
+  String get todayStartJournal => 'Bugünü yaz';
+  @override
+  String get todayStartHabitTitle => 'Bir alışkanlıkla başla';
+  @override
+  String get todayStartHabitOwn => 'Kendin yaz';
+  @override
+  List<String> get todayHabitStarters => const [
+        'Su iç',
+        'Yürüyüş',
+        'Kitap oku',
+        'Meditasyon',
+        'Erken kalk',
+        'Esneme',
+      ];
   // endregion
 
   // --- Quick capture --------------------------------------------------------
@@ -940,10 +1003,6 @@ class AppL10nTr extends AppL10n {
   // region finance (WP-8)
 
   @override
-  String get financeScopeMonth => 'Ay';
-  @override
-  String get financeScopeYear => 'Yıl';
-  @override
   String get financeIncome => 'Gelir';
   @override
   String get financeExpense => 'Gider';
@@ -962,7 +1021,7 @@ class AppL10nTr extends AppL10n {
   @override
   String financeMonthEndEstimate(String amount) => 'Ay sonu tahmini: $amount';
   @override
-  String get financeUpcomingSubscriptions => 'Yaklaşan abonelikler';
+  String get financeUpcomingSubscriptions => 'Yaklaşan ödemeler';
   @override
   String get financeRecentTransactions => 'Son işlemler';
   @override
@@ -976,7 +1035,7 @@ class AppL10nTr extends AppL10n {
   String accountType(String type) => switch (type) {
         'cash' => 'Nakit',
         'bank' => 'Banka',
-        'credit_card' => 'Kredi Kartı',
+        'credit_card' => 'Kredi kartı',
         'savings' => 'Birikim',
         'crypto' => 'Kripto',
         _ => 'Hesap',
@@ -990,6 +1049,64 @@ class AppL10nTr extends AppL10n {
         'yearly' => 'Yıllık',
         _ => frequency,
       };
+  @override
+  String get financeMonthNet => 'BU AY NET';
+  @override
+  String financeYearNet(String amount) => 'Bu yıl $amount';
+  @override
+  String financeInsightVsLastMonth(String amount, {required bool less}) =>
+      'Geçen ayın aynı gününe göre $amount daha ${less ? 'az' : 'fazla'} '
+      'harcadın';
+  @override
+  String financeInsightProjection(
+    String amount,
+    int percent, {
+    required bool below,
+  }) =>
+      percent == 0
+          ? 'Bu tempoyla ay sonu gider $amount, 5 aylık ortalamayla aynı'
+          : 'Bu tempoyla ay sonu gider $amount, 5 aylık ortalamanın '
+              '%$percent ${below ? 'altında' : 'üstünde'}';
+  @override
+  String financeInsightSpent(String amount, String perDay) =>
+      'Bu ay $amount harcadın · günde ortalama $perDay';
+  @override
+  String get financeCurrencyNoteMixed =>
+      'Bu toplam farklı para birimlerini dönüştürmeden içerir';
+  @override
+  String get financeCurrencyNoteExcluded =>
+      'Diğer para birimleri bu toplama dahil değil';
+  @override
+  String financeSixMonthInsight(int percent, {required bool below}) =>
+      percent == 0
+          ? 'Bu ay gider 6 ay ortalamasında'
+          : 'Bu ay gider 6 ay ortalamasının %$percent '
+              '${below ? 'altında' : 'üstünde'}';
+  @override
+  String financeCategoriesInsight(String name, String amount) =>
+      'En büyük kalem $name · $amount';
+  @override
+  String get financeSearch => 'İşlemlerde ara';
+  @override
+  String get financeMenuAddBudget => 'Bütçe ekle';
+  @override
+  String financeSetupTitle(int done, int total) => 'Kurulum $done/$total';
+  @override
+  String get financeSetupAccount => 'Hesap aç';
+  @override
+  String get financeSetupBudget => 'Bütçe koy';
+  @override
+  String get financeSetupSubscription => 'Düzenli ödemeni ekle';
+  @override
+  String get financePaid => 'Ödendi';
+  @override
+  String financeSubscriptionsMonthly(String amount) => 'aylık $amount';
+  @override
+  String financeBudgetPerDay(String amount, int daysLeft) => daysLeft <= 1
+      ? 'Bugün $amount · son gün'
+      : 'Günde $amount · $daysLeft gün kaldı';
+  @override
+  String get financeBudgetEditLimit => 'Limiti düzenle';
   // endregion
 
   // --- Transactions feed ----------------------------------------------------
@@ -1180,8 +1297,6 @@ class AppL10nTr extends AppL10n {
   @override
   String get financeAccounts => 'Hesaplar';
   @override
-  String accountsCarouselPage(int page, int count) => 'Sayfa $page / $count';
-  @override
   String get financeAddTransactionFab => 'İşlem';
   @override
   String get financeMenuCategories => 'Kategoriler';
@@ -1228,7 +1343,7 @@ class AppL10nTr extends AppL10n {
   String financeSliceDirect(String name) => '$name (genel)';
   @override
   String get financeBudgetsEmpty =>
-      'Bir kategoriye aylık sınır koy, ay sonunu önceden gör.';
+      'Bir kategoriye aylık sınır koy — ay sonunu önceden gör';
   @override
   String financeBudgetSpentOf(String spent, String limit) => '$spent / $limit';
   @override
@@ -1240,6 +1355,50 @@ class AppL10nTr extends AppL10n {
   @override
   String get financeSubscriptionsEmpty =>
       'Düzenli ödemelerini ekle, sabit giderini tek bir sayıda gör.';
+  @override
+  String get financeSubscriptionsGhost => 'Düzenli ödemelerini ekle';
+  @override
+  String accountsTotal(String totals) => 'Toplam $totals';
+  @override
+  String get accountsTotalsTitle => 'Para birimine göre toplam';
+  @override
+  String get accountFab => 'Hesap';
+  @override
+  String accountTileSemantics(String name, String type, String balance) =>
+      '$name, $type, $balance';
+  @override
+  String accountTypeOverline(String type) => switch (type) {
+        'cash' => 'NAKİT',
+        'bank' => 'BANKA',
+        'credit_card' => 'KREDİ KARTI',
+        'savings' => 'BİRİKİM',
+        'crypto' => 'KRİPTO',
+        _ => 'HESAP',
+      };
+  @override
+  String accountMonthSummary(String? income, String? expense) => 'Bu ay ${[
+        if (income != null) '$income gelir',
+        if (expense != null) '$expense gider',
+      ].join(' · ')}';
+  @override
+  String get accountReconcile => 'Bakiyeyi eşitle';
+  @override
+  String accountLinkedGoals(int count) => 'Bağlı hedefler ($count)';
+  @override
+  String get reconcileTitle => 'Gerçek bakiye';
+  @override
+  String reconcileNowAndDifference(String now, String? difference) =>
+      difference == null
+          ? 'Şu anki: $now'
+          : 'Şu anki: $now · Fark: $difference';
+  @override
+  String get reconcileDone => 'Bakiye eşitlendi';
+  @override
+  String get reconcileFailed => 'Bakiye eşitlenemedi';
+  @override
+  String get reconcileUndoFailed => 'Eski bakiyeye dönülemedi';
+  @override
+  String get accountDefaultBadge => 'Varsayılan';
   // endregion
 
   // --- Account form, archive, delete ----------------------------------------
@@ -1333,6 +1492,11 @@ class AppL10nTr extends AppL10n {
   @override
   String get archivedAccountsBody =>
       'Arşivlediğin hesaplar burada durur; istediğinde geri yükle.';
+  @override
+  String get accountFormDefault => 'Varsayılan hesap';
+  @override
+  String get accountFormDefaultHint =>
+      'Yeni işlemler bu hesapla başlar · bu cihazda';
   // endregion
 
   // --- Finance categories ----------------------------------------------------

@@ -17,6 +17,7 @@ import '../../widgets/choice_wrap.dart';
 import '../../widgets/color_swatches.dart';
 import '../../widgets/form_scaffold.dart';
 import '../../widgets/slide_up_route.dart';
+import 'finance_utils.dart';
 
 /// The longest account name the server takes.
 const accountNameMaxLength = 60;
@@ -81,6 +82,10 @@ class _AccountFormScreenState extends ConsumerState<AccountFormScreen> {
   late String? _currency = widget.existing?.currency;
   late int _balance = widget.existing?.initialBalanceCents ?? 0;
   String? _color;
+
+  /// "Varsayılan hesap": new transactions start on it (on this device).
+  /// Null until the user flips it: then it is what the device says.
+  bool? _isDefault;
 
   bool _saving = false;
   String? _nameError;
@@ -196,7 +201,21 @@ class _AccountFormScreenState extends ConsumerState<AccountFormScreen> {
       final name = _name.text.trim();
       return (name.isNotEmpty && name != _suggestedName) || _balance != 0;
     }
-    return _input(currency, color).changesFrom(existing).isNotEmpty;
+    return _input(currency, color).changesFrom(existing).isNotEmpty ||
+        (_isDefault != null && _isDefault != _wasDefault());
+  }
+
+  /// Whether the account is the device's default now.
+  bool _wasDefault() {
+    final existing = widget.existing;
+    return existing != null && defaultAccountId(ref) == existing.id;
+  }
+
+  /// Remembers the "Varsayılan hesap" switch for [id], when it was flipped.
+  void _applyDefault(int id) {
+    final wanted = _isDefault;
+    if (wanted == null || wanted == _wasDefault()) return;
+    setDefaultAccountId(ref, wanted ? id : null, unless: id);
   }
 
   Future<void> _save(String currency, String color) async {
@@ -210,6 +229,7 @@ class _AccountFormScreenState extends ConsumerState<AccountFormScreen> {
     final input = _input(currency, color);
     final existing = widget.existing;
     if (existing != null && input.changesFrom(existing).isEmpty) {
+      _applyDefault(existing.id);
       Navigator.of(context).pop();
       return;
     }
@@ -225,6 +245,7 @@ class _AccountFormScreenState extends ConsumerState<AccountFormScreen> {
           ? await repo.createAccount(input)
           : await repo.updateAccount(existing, input);
       if (!mounted) return;
+      _applyDefault(saved.id);
       Haptics.success();
       Navigator.of(context).pop(saved);
       showAppSnack(
@@ -308,6 +329,9 @@ class _AccountFormScreenState extends ConsumerState<AccountFormScreen> {
         const SizedBox(height: 20),
         TextField(
           controller: _name,
+          // A new account is named after its type; the name is the first
+          // thing to make its own.
+          autofocus: !_isEdit,
           maxLength: accountNameMaxLength,
           textCapitalization: TextCapitalization.sentences,
           textInputAction: TextInputAction.done,
@@ -356,6 +380,8 @@ class _AccountFormScreenState extends ConsumerState<AccountFormScreen> {
           currency: currency,
           subunitToUnit: subunit,
           allowDebt: true,
+          // A credit card starts in debt (§7.6).
+          debtByDefault: _type == 'credit_card',
           helperText: l.accountFormOpeningBalanceHint,
           errorText: _balanceError,
           onChanged: (value) => setState(() {
@@ -368,6 +394,17 @@ class _AccountFormScreenState extends ConsumerState<AccountFormScreen> {
         ColorSwatchRow(
           selected: color,
           onChanged: (hex) => setState(() => _color = hex),
+        ),
+        const SizedBox(height: 12),
+        SwitchListTile.adaptive(
+          value: _isDefault ?? _wasDefault(),
+          onChanged: (v) => setState(() => _isDefault = v),
+          contentPadding: EdgeInsets.zero,
+          title: Text(l.accountFormDefault, style: text.titleSmall),
+          subtitle: Text(
+            l.accountFormDefaultHint,
+            style: text.bodySmall!.copyWith(color: c.inkMid),
+          ),
         ),
         if (_formError != null)
           Padding(

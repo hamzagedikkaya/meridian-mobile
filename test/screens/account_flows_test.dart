@@ -8,7 +8,11 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
 import 'package:intl/date_symbol_data_local.dart';
+import 'package:meridian_mobile/models/account.dart';
+import 'package:meridian_mobile/ui/screens/finance/account_card.dart';
 import 'package:meridian_mobile/ui/screens/finance/finance_screen.dart';
+import 'package:meridian_mobile/ui/screens/finance/reconcile_sheet.dart';
+import 'package:meridian_mobile/ui/screens/finance/transaction_form_screen.dart';
 import 'package:meridian_mobile/ui/screens/goals/goal_form.dart';
 
 import '../support/fake_api.dart';
@@ -83,9 +87,9 @@ void main() {
       // Named after its type until the user names it.
       expect(find.widgetWithText(TextField, 'Nakit'), findsOneWidget);
 
-      await tester.tap(find.text('Kredi Kartı'));
+      await tester.tap(find.text('Kredi kartı'));
       await settleFrames(tester);
-      expect(find.widgetWithText(TextField, 'Kredi Kartı'), findsOneWidget);
+      expect(find.widgetWithText(TextField, 'Kredi kartı'), findsOneWidget);
       await tester.tap(find.text('USD · ABD doları'));
       await settleFrames(tester);
 
@@ -96,8 +100,9 @@ void main() {
         await tester.tap(find.text(digit).last);
         await tester.pump();
       }
-      await tester.tap(find.byType(Switch));
-      await tester.pump();
+      // A credit card starts in debt: the sheet's "Borç" switch is already
+      // on (the form's own "Varsayılan hesap" one is under the sheet).
+      expect(tester.widget<Switch>(find.byType(Switch).last).value, isTrue);
       expect(find.text('−\$1.234'), findsOneWidget);
       await tester.tap(find.text('Tamam'));
       await settleFrames(tester);
@@ -106,7 +111,7 @@ void main() {
       await tester.tap(find.text('Hesabı oluştur'));
       await settleFrames(tester);
       expect(api.bodiesOf('POST /accounts').single, {
-        'name': 'Kredi Kartı',
+        'name': 'Kredi kartı',
         'account_type': 'credit_card',
         'currency': 'USD',
         'initial_balance_cents': -123400,
@@ -433,7 +438,168 @@ void main() {
     });
   });
 
-  testWidgets('the archive page restores an archived account', (tester) async {
+  group('reconcile: the real balance', () {
+    test('moves the opening balance by the difference', () {
+      final card = Account.fromJson(accountJson(
+        type: 'credit_card',
+        initial: 150000,
+        balance: -428550,
+      ));
+      // −₺4.285,50 on the phone, −₺4.000 on the statement: ₺285,50 less
+      // debt, so the opening balance rises by that much.
+      expect(reconciledInitialBalance(card, -400000), 178550);
+      expect(reconciledInitialBalance(card, -428550), 150000,
+          reason: 'already right: nothing moves');
+      final wallet = Account.fromJson(accountJson(balance: 500000));
+      expect(reconciledInitialBalance(wallet, 512000), 12000);
+      expect(
+        reconcileInput(wallet, 12000).changesFrom(wallet),
+        {'initial_balance_cents': 12000},
+        reason: 'only the opening balance is sent',
+      );
+    });
+
+    testWidgets('"Bakiyeyi eşitle": type the real balance, see the '
+        'difference, save — and "Geri al" puts the old opening balance back',
+        (tester) async {
+      tallPhone(tester);
+      final api = FakeApi()
+        ..on('PATCH /accounts/1', {
+          'account': accountJson(initial: 12000, balance: 512000),
+        });
+      await _openAccount(tester, api);
+      await tester.tap(find.text('Bakiyeyi eşitle'));
+      await settleFrames(tester);
+      expect(find.text('Gerçek bakiye'), findsOneWidget);
+      expect(find.text('Şu anki: ₺5.000,00'), findsOneWidget);
+      for (final digit in ['5', '1', '2', '0']) {
+        await tester.tap(find.text(digit).last);
+        await tester.pump();
+      }
+      expect(find.text('Şu anki: ₺5.000,00 · Fark: +₺120,00'), findsOneWidget);
+      await tester.tap(find.text('Kaydet'));
+      await settleFrames(tester);
+      expect(api.bodiesOf('PATCH /accounts/1').single,
+          {'initial_balance_cents': 12000});
+      expect(find.text('Gerçek bakiye'), findsNothing, reason: 'closed');
+      expect(find.text('Bakiye eşitlendi'), findsOneWidget);
+
+      await tester.tap(find.text('Geri al'));
+      await settleFrames(tester);
+      expect(api.bodiesOf('PATCH /accounts/1').last,
+          {'initial_balance_cents': 0});
+    });
+  });
+
+  group('an account\'s header', () {
+    testWidgets('its type, its balance, and what can be done — the FAB '
+        'waits until "+ İşlem" has scrolled away', (tester) async {
+      tallPhone(tester);
+      final api = FakeApi();
+      await _openAccount(tester, api);
+      expect(find.text('NAKİT'), findsOneWidget);
+      expect(find.text('₺5.000,00'), findsWidgets);
+      expect(find.text('Transfer'), findsOneWidget);
+      expect(find.text('Bakiyeyi eşitle'), findsOneWidget);
+      final fab = find.byType(FloatingActionButton);
+      expect(fab.hitTestable(), findsNothing, reason: 'the chip is on screen');
+      expect(find.text('Bağlı hedefler (2)'), findsNothing);
+
+      await tester.tap(find.text('Transfer'));
+      await settleFrames(tester);
+      final form = tester.widget<TransactionFormScreen>(
+          find.byType(TransactionFormScreen));
+      expect(form.initialKind, 'transfer');
+      expect(form.initialAccountId, 1, reason: 'out of this account');
+    });
+
+    testWidgets('scrolled past the header, the FAB comes back', (tester) async {
+      tallPhone(tester);
+      final api = FakeApi()
+        ..on('GET /transactions', {
+          'transactions': [
+            for (var i = 0; i < 30; i++) transactionJson(id: 1000 + i),
+          ],
+          'meta': const {
+            'total_count': 30,
+            'page': 1,
+            'page_limit': 50,
+            'filtered_income_cents': 0,
+            'filtered_expense_cents': 416220,
+          },
+        });
+      await _openAccount(tester, api);
+      final fab = find.byType(FloatingActionButton);
+      expect(fab.hitTestable(), findsNothing, reason: 'the chip is on screen');
+
+      await tester.drag(
+          find.byType(CustomScrollView).first, const Offset(0, -700));
+      await settleFrames(tester);
+      expect(find.text('Bakiyeyi eşitle').hitTestable(), findsNothing,
+          reason: 'the header has scrolled away');
+      expect(fab.hitTestable(), findsOneWidget);
+
+      // Back up to the chips: the FAB steps aside again.
+      await tester.drag(
+          find.byType(CustomScrollView).first, const Offset(0, 2000));
+      await settleFrames(tester);
+      expect(fab.hitTestable(), findsNothing);
+    });
+
+    testWidgets('linked goals are a tap away', (tester) async {
+      tallPhone(tester);
+      final api = FakeApi()
+        ..on('GET /accounts/1', {'account': accountDetailJson(goals: 2)});
+      await _openAccount(tester, api);
+      expect(find.text('Bağlı hedefler (2)'), findsOneWidget);
+    });
+
+    testWidgets('the balance flies from its Finance tile — not under '
+        'reduced motion', (tester) async {
+      tallPhone(tester);
+      await pumpFinance(tester, FakeApi(), const FinanceScreen());
+      HeroMode modeOf(Finder hero) => tester.widget<HeroMode>(
+          find.ancestor(of: hero, matching: find.byType(HeroMode)).first);
+      final tileHero = find.byWidgetPredicate(
+          (w) => w is Hero && w.tag == accountBalanceHeroTag(1));
+      expect(tileHero, findsOneWidget);
+      expect(modeOf(tileHero).enabled, isTrue);
+
+      await tester.tap(find.byType(AccountTile));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 100));
+      // Mid-flight: the shuttle is in the overlay, scaling the balance.
+      expect(
+        find.descendant(
+          of: find.byType(Overlay).first,
+          matching: find.byWidgetPredicate(
+              (w) => w is FittedBox && w.fit == BoxFit.contain),
+        ),
+        findsOneWidget,
+      );
+      await settleFrames(tester);
+      expect(find.text('NAKİT'), findsOneWidget);
+    });
+
+    testWidgets('reduced motion: no flight', (tester) async {
+      tallPhone(tester);
+      tester.platformDispatcher.accessibilityFeaturesTestValue =
+          const FakeAccessibilityFeatures(disableAnimations: true);
+      addTearDown(tester.platformDispatcher.clearAccessibilityFeaturesTestValue);
+      await pumpFinance(tester, FakeApi(), const FinanceScreen());
+      final mode = tester.widget<HeroMode>(find
+          .ancestor(
+            of: find.byWidgetPredicate(
+                (w) => w is Hero && w.tag == accountBalanceHeroTag(1)),
+            matching: find.byType(HeroMode),
+          )
+          .first);
+      expect(mode.enabled, isFalse);
+    });
+  });
+
+  testWidgets('the old archive link opens Hesaplar with its archive open, '
+      'which restores an archived account', (tester) async {
     tallPhone(tester);
     final api = FakeApi()
       ..on('GET /accounts', {
@@ -446,14 +612,60 @@ void main() {
     await pumpFinance(tester, api, _launcher('/finance/accounts/archived'));
     await tester.tap(find.text('open'));
     await settleFrames(tester);
-    expect(find.text('Arşivlenmiş hesaplar'), findsOneWidget);
+    expect(find.text('Arşivlenmiş hesaplar (1)'), findsOneWidget);
     expect(find.text('Eski kart'), findsOneWidget);
-    expect(find.text('Cüzdan'), findsNothing, reason: 'active ones are not');
 
     await tester.tap(find.text('Geri yükle'));
     await settleFrames(tester);
     expect(api.requests, contains('PATCH /accounts/4/unarchive'));
     expect(find.text('“Eski kart” geri yüklendi'), findsOneWidget);
+  });
+
+  group('Hesaplar', () {
+    testWidgets('totals per currency — never added across them — and the '
+        'accounts grouped by type; a row opens its account', (tester) async {
+      tallPhone(tester);
+      final api = FakeApi()
+        ..on('GET /accounts', {
+          'accounts': [
+            accountJson(balance: 325000),
+            accountJson(id: 2, name: 'Banka', type: 'bank', balance: 3300000),
+            accountJson(
+                id: 3, name: 'Altın', type: 'savings', currency: 'GAU',
+                subunit: 1, balance: 412),
+          ],
+        });
+      await pumpFinance(tester, api, _launcher('/finance/accounts'));
+      await tester.tap(find.text('open'));
+      await settleFrames(tester);
+      expect(find.text('Hesaplar'), findsOneWidget);
+      expect(find.text('TRY'), findsOneWidget);
+      expect(find.text('₺36.250,00'), findsOneWidget);
+      expect(find.text('GAU'), findsOneWidget);
+      expect(find.text('412\u00A0gr'), findsWidgets);
+      // Groups in their order: Nakit, Banka, Birikim.
+      final cash = tester.getTopLeft(find.text('Nakit').first).dy;
+      final bank = tester.getTopLeft(find.text('Banka').first).dy;
+      final savings = tester.getTopLeft(find.text('Birikim').first).dy;
+      expect(cash, lessThan(bank));
+      expect(bank, lessThan(savings));
+      expect(find.text('Arşivlenmiş hesaplar (0)'), findsNothing);
+
+      await tester.tap(find.text('Cüzdan'));
+      await settleFrames(tester);
+      expect(find.text('NAKİT'), findsOneWidget, reason: 'its page');
+    });
+
+    testWidgets('"Hesap" opens the account form', (tester) async {
+      tallPhone(tester);
+      final api = FakeApi();
+      await pumpFinance(tester, api, _launcher('/finance/accounts'));
+      await tester.tap(find.text('open'));
+      await settleFrames(tester);
+      await tester.tap(find.widgetWithText(FloatingActionButton, 'Hesap'));
+      await settleFrames(tester);
+      expect(find.text('Yeni hesap'), findsOneWidget);
+    });
   });
 
   testWidgets('a savings goal with no account yet: the account form opens '

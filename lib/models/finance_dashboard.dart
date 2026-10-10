@@ -27,6 +27,31 @@ class MonthTotals {
   }
 }
 
+/// One currency's totals (WP-15 `totals_by_currency[]`): nothing converted,
+/// each in its own currency's minor units. Transfers are left out.
+class CurrencyTotals {
+  final String currency;
+  final int subunitToUnit;
+  final MonthTotals month;
+  final MonthTotals year;
+
+  const CurrencyTotals({
+    required this.currency,
+    required this.subunitToUnit,
+    required this.month,
+    required this.year,
+  });
+
+  factory CurrencyTotals.fromJson(Map<String, dynamic> json) => CurrencyTotals(
+        currency: ((json['currency'] as String?) ?? 'TRY').toUpperCase(),
+        subunitToUnit: readInt(json['subunit_to_unit'], fallback: 100),
+        month: MonthTotals.fromJson(
+            (json['month'] as Map<String, dynamic>?) ?? const {}),
+        year: MonthTotals.fromJson(
+            (json['year'] as Map<String, dynamic>?) ?? const {}),
+      );
+}
+
 class SixMonthSeries {
   final List<String> labels;
   final List<int> incomeCents;
@@ -221,6 +246,20 @@ class FinanceDashboard {
   final List<SubscriptionItem> upcomingSubscriptions;
   final List<Transaction> recentTransactions;
 
+  /// Per-currency totals, the user's currency first (WP-15). Null from a
+  /// server without it — whose [month] and [year] then add every currency's
+  /// minor units unconverted; with it, they count the user's currency only.
+  final List<CurrencyTotals>? totalsByCurrency;
+
+  /// This month's expenses, cumulative day by day up to today (WP-15); its
+  /// last element is the month's expense. Null from an older server: no
+  /// pace line then.
+  final List<int>? spendCumulativeCents;
+
+  /// Last month's expenses, cumulative for each of its days (WP-15); null
+  /// from an older server.
+  final List<int>? referenceCumulativeCents;
+
   const FinanceDashboard({
     required this.currency,
     required this.subunitToUnit,
@@ -231,6 +270,9 @@ class FinanceDashboard {
     required this.budgets,
     required this.upcomingSubscriptions,
     required this.recentTransactions,
+    this.totalsByCurrency,
+    this.spendCumulativeCents,
+    this.referenceCumulativeCents,
   });
 
   factory FinanceDashboard.fromJson(Map<String, dynamic> json) =>
@@ -256,5 +298,19 @@ class FinanceDashboard {
         recentTransactions: ((json['recent_transactions'] as List?) ?? const [])
             .map((e) => Transaction.fromJson(e as Map<String, dynamic>))
             .toList(),
+        totalsByCurrency: switch (json['totals_by_currency']) {
+          final List list => [
+              for (final e in list)
+                if (e is Map<String, dynamic>) CurrencyTotals.fromJson(e),
+            ],
+          _ => null,
+        },
+        spendCumulativeCents: _intsOrNull(json['spend_cumulative_cents']),
+        referenceCumulativeCents:
+            _intsOrNull(json['reference_cumulative_cents']),
       );
 }
+
+/// A list of integers, or null when the key is absent (an older server).
+List<int>? _intsOrNull(Object? raw) =>
+    raw is List ? [for (final e in raw) readInt(e)] : null;

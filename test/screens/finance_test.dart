@@ -8,8 +8,11 @@ import 'package:meridian_mobile/core/session.dart';
 import 'package:meridian_mobile/data/providers.dart';
 import 'package:meridian_mobile/models/account.dart';
 import 'package:meridian_mobile/models/finance_dashboard.dart';
+import 'package:meridian_mobile/models/subscription.dart';
 import 'package:meridian_mobile/models/transaction.dart';
 import 'package:meridian_mobile/l10n/app_l10n.dart';
+import 'package:meridian_mobile/l10n/app_l10n_tr.dart';
+import 'package:meridian_mobile/ui/widgets/pace_line.dart';
 import 'package:meridian_mobile/theme/app_theme.dart';
 import 'package:meridian_mobile/ui/screens/finance/transaction_form_screen.dart';
 import 'package:meridian_mobile/ui/screens/finance/transactions_screen.dart';
@@ -111,6 +114,7 @@ FinanceDashboard _dashboard() => FinanceDashboard.fromJson({
         },
         {
           // Edge: limit 0 — pace/percent come pre-computed, projected > limit.
+          'id': 2,
           'category': {'id': 34, 'name': 'Market'},
           'color': '#D4915A',
           'limit_cents': 0,
@@ -317,7 +321,8 @@ void main() {
   setUpAll(() => initializeDateFormatting());
 
   group('FinanceScreen', () {
-    testWidgets('renders populated dashboard without exceptions', (tester) async {
+    testWidgets('renders populated dashboard without exceptions, now first',
+        (tester) async {
       _phone(tester);
       await tester.pumpWidget(_host(
         const FinanceScreen(),
@@ -329,36 +334,60 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(tester.takeException(), isNull);
-      // Top-of-screen content.
+      // Top-of-screen content: the month's net, no month/year switch.
       expect(find.text('BU AY NET'), findsOneWidget);
-      expect(find.text('Son 6 ay'), findsOneWidget);
-      expect(find.text('Kategoriler (bu ay)'), findsOneWidget);
-      // First carousel page is the GAU account (no decimals + "gr").
+      expect(find.text('Yıl'), findsNothing);
+      expect(find.text('Ay'), findsNothing);
+      // The year is one line under it.
+      expect(find.text('Bu yıl +₺89.317,79'), findsOneWidget);
+      // The first tile is the GAU account (no decimals + "gr").
       expect(find.text('Altın'), findsOneWidget);
-      expect(find.text('31\u00A0gr'), findsOneWidget);
+      expect(find.text('31\u00A0gr'), findsWidgets);
 
-      // Scroll the lazy ListView so the budgets card (incl. the limit-0 pace
-      // row) and the recent rows (GAU/null-category + transfer) actually build.
-      final list = find.byType(ListView);
-      await tester.dragUntilVisible(
-          find.text('Bütçeler'), list, const Offset(0, -300));
-      await tester.pumpAndSettle();
-      expect(find.text('Bütçeler'), findsOneWidget);
-      // Over budget (limit 0): by how much, never an "exceeded" label.
-      expect(find.text('₺50,00 fazla'), findsOneWidget);
-      // Spent against the limit.
-      expect(find.text('₺900,00 / ₺2.000,00'), findsOneWidget);
+      // Scroll the lazy ListView so every section builds, in its order.
+      final list = find.byType(ListView).first;
+      final order = <String>[
+        'Yaklaşan ödemeler',
+        'Bütçeler',
+        'Son işlemler',
+        'Kategoriler (bu ay)',
+        'Son 6 ay',
+      ];
+      for (final title in order) {
+        await tester.dragUntilVisible(
+            find.text(title), list, const Offset(0, -200));
+        await tester.pumpAndSettle();
+        expect(find.text(title), findsOneWidget, reason: title);
+        if (title == 'Bütçeler') {
+          // Over budget (limit 0): by how much, never an "exceeded" label,
+          // and a way to change the limit.
+          expect(find.text('₺50 fazla'), findsOneWidget);
+          expect(find.text('Limiti düzenle'), findsOneWidget);
+          // Spent against the limit.
+          expect(find.text('₺900 / ₺2.000'), findsOneWidget);
+        }
+        if (title == 'Yaklaşan ödemeler') {
+          // Netflix's date has passed: it can be marked paid.
+          expect(find.text('Netflix'), findsOneWidget);
+          expect(find.text('Ödendi'), findsOneWidget);
+        }
+      }
 
       await tester.dragUntilVisible(
-          find.text('Restoran — Lokanta'), list, const Offset(0, -300));
+          find.text('Restoran — Lokanta'), list, const Offset(0, 200));
       await tester.pumpAndSettle();
       expect(find.text('Restoran — Lokanta'), findsOneWidget);
 
       expect(tester.takeException(), isNull);
     });
 
-    testWidgets('year scope with large totals does not overflow', (tester) async {
-      _phone(tester);
+    testWidgets('the sections stand in §7.5\'s order, top to bottom',
+        (tester) async {
+      // Tall enough for every section to be laid out at once.
+      tester.view.physicalSize = const Size(390, 6000);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
       await tester.pumpWidget(_host(
         const FinanceScreen(),
         [
@@ -367,12 +396,26 @@ void main() {
         ],
       ));
       await tester.pumpAndSettle();
-
-      await tester.tap(find.text('Yıl'));
-      await tester.pumpAndSettle();
-
       expect(tester.takeException(), isNull);
-      expect(find.text('BU YIL NET'), findsOneWidget);
+
+      final order = <Finder>[
+        find.text('BU AY NET'),
+        find.text('Altın'), // the first account tile
+        find.text('Yaklaşan ödemeler'),
+        find.text('Bütçeler'),
+        find.text('Son işlemler'),
+        find.text('Kategoriler (bu ay)'),
+        find.text('Son 6 ay'),
+      ];
+      double? above;
+      for (final section in order) {
+        expect(section, findsOneWidget, reason: '$section');
+        final top = tester.getTopLeft(section).dy;
+        if (above != null) {
+          expect(top, greaterThan(above), reason: '$section');
+        }
+        above = top;
+      }
     });
 
     testWidgets('first run: no account at all — one calm card, one step',
@@ -393,15 +436,21 @@ void main() {
       expect(find.text('İlk hesabını oluştur'), findsOneWidget);
       expect(find.text('Nakit hesabıyla başla'), findsOneWidget);
       expect(find.text('Başka bir hesap ekle'), findsOneWidget);
-      // Nothing else competes with it: no empty charts, no transaction FAB
-      // (it would need an account first).
+      // Nothing else competes with it: no empty charts, no zero hero, no
+      // transaction FAB (it would need an account first).
+      expect(find.text('BU AY NET'), findsNothing);
       expect(find.text('Bu ay harcama yok'), findsNothing);
       expect(find.byType(FloatingActionButton), findsNothing);
     });
 
-    testWidgets('an account but no transaction yet: the next step is the '
-        'first transaction', (tester) async {
-      _phone(tester);
+    testWidgets('an account but no transaction yet: the setup card is the '
+        'next step, and the only "add a transaction" on screen', (tester) async {
+      // Wide: the test font draws every glyph a full em wide, and the empty
+      // cards' two buttons sit beside their message.
+      tester.view.physicalSize = const Size(600, 1400);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
       await tester.pumpWidget(_host(
         const FinanceScreen(),
         [
@@ -409,16 +458,178 @@ void main() {
               .overrideWith((ref) => Fetched(_emptyDashboard(), _at)),
           accountsProvider.overrideWith(
               (ref) => Fetched(_accounts().take(1).toList(), _at)),
+          subscriptionsProvider.overrideWith((ref) => Fetched(
+              const SubscriptionsBundle(active: [], inactive: [], totals: []),
+              _at)),
         ],
       ));
       await tester.pumpAndSettle();
 
       expect(tester.takeException(), isNull);
+      // Zero is "₺0", never "+₺0,00".
+      expect(find.text('₺0'), findsWidgets);
+      expect(find.textContaining('+₺0'), findsNothing);
+      expect(find.text('Kurulum 1/4'), findsOneWidget);
       expect(find.text('İlk işlemini ekle'), findsOneWidget);
-      expect(find.text('İşlem ekle'), findsOneWidget);
-      expect(find.byType(FloatingActionButton), findsOneWidget);
-      // The accounts carousel says how to add another.
-      expect(find.byTooltip('Yeni hesap'), findsOneWidget);
+      // The FAB stays out while the card offers the same thing.
+      final fab = find.byType(FloatingActionButton);
+      expect(fab.hitTestable(), findsNothing);
+      // The card carries the budget and subscription steps: their own
+      // empty cards wait.
+      expect(find.text('Bütçe ekle'), findsNothing);
+      // The tiles end with "+ Hesap".
+      expect(find.text('Hesap'), findsOneWidget);
+
+      // "Gizle" puts the card away: the FAB is back, and so are the empty
+      // budgets and subscriptions cards.
+      await tester.tap(find.text('Gizle').first);
+      await tester.pumpAndSettle();
+      expect(find.text('Kurulum 1/4'), findsNothing);
+      expect(fab.hitTestable(), findsOneWidget);
+      await tester.dragUntilVisible(find.text('Bütçe ekle'),
+          find.byType(ListView).first, const Offset(0, -200));
+      expect(find.text('Bütçe ekle'), findsOneWidget);
+      expect(find.text('Abonelik ekle'), findsOneWidget);
+    });
+  });
+
+  group('the hero\'s sentence (§4.24)', () {
+    const l = AppL10nTr();
+    FinanceDashboard dash(Map<String, dynamic> extra) =>
+        FinanceDashboard.fromJson({
+          'currency': 'TRY',
+          'subunit_to_unit': 100,
+          'month': {'income_cents': 0, 'expense_cents': 800000, 'net_cents': -800000},
+          'year': {'income_cents': 0, 'expense_cents': 800000},
+          'six_month_series': {
+            'labels': ['2026-05', '2026-06', '2026-07', '2026-08', '2026-09', '2026-10'],
+            'income_cents': [0, 0, 0, 0, 0, 0],
+            'expense_cents': [0, 0, 0, 0, 0, 800000],
+          },
+          ...extra,
+        });
+    final oct10 = DateTime(2026, 10, 10);
+
+    test('against the same day last month, with its series', () {
+      final d = dash({
+        'spend_cumulative_cents': [for (var i = 1; i <= 10; i++) i * 80000],
+        'reference_cumulative_cents': [for (var i = 1; i <= 30; i++) i * 100000],
+      });
+      expect(financeInsight(l, d, oct10),
+          'Geçen ayın aynı gününe göre ₺2.000 daha az harcadın');
+    });
+
+    test('a short month: the same day is its last', () {
+      final d = dash({
+        'spend_cumulative_cents': [for (var i = 1; i <= 31; i++) 900000],
+        'reference_cumulative_cents': [for (var i = 1; i <= 28; i++) 800000],
+      });
+      expect(financeInsight(l, d, DateTime(2026, 3, 31)),
+          'Geçen ayın aynı gününe göre ₺1.000 daha fazla harcadın');
+    });
+
+    test('nothing spent last month: no comparison', () {
+      final d = dash({
+        'spend_cumulative_cents': [for (var i = 1; i <= 10; i++) i * 80000],
+        'reference_cumulative_cents': List.filled(30, 0),
+      });
+      expect(financeInsight(l, d, oct10),
+          'Bu ay ₺8.000 harcadın · günde ortalama ₺800');
+    });
+
+    test('without the series (an older server): the pace against the five '
+        'months before', () {
+      final d = FinanceDashboard.fromJson({
+        'currency': 'TRY',
+        'subunit_to_unit': 100,
+        'month': {'income_cents': 0, 'expense_cents': 1000000, 'net_cents': -1000000},
+        'year': {'income_cents': 0, 'expense_cents': 1000000},
+        'six_month_series': {
+          'labels': ['2026-05', '2026-06', '2026-07', '2026-08', '2026-09', '2026-10'],
+          'income_cents': [0, 0, 0, 0, 0, 0],
+          'expense_cents': [3000000, 0, 3000000, 3000000, 3000000, 1000000],
+        },
+      });
+      // ₺10.000 in 10 days → ₺31.000 by the 31st, against the five
+      // months' ₺24.000 (the month without spending counts as zero).
+      expect(financeInsight(l, d, oct10),
+          'Bu tempoyla ay sonu gider ₺31.000, 5 aylık ortalamanın %29 üstünde');
+    });
+
+    test('nothing spent yet', () {
+      final d = FinanceDashboard.fromJson({
+        'currency': 'TRY',
+        'subunit_to_unit': 100,
+        'month': {'income_cents': 0, 'expense_cents': 0, 'net_cents': 0},
+        'year': {'income_cents': 0, 'expense_cents': 0},
+      });
+      expect(financeInsight(l, d, oct10), 'Bu ay harcama yok');
+      expect(d.spendCumulativeCents, isNull);
+      expect(d.totalsByCurrency, isNull);
+    });
+  });
+
+  group('the hero\'s chart and notes', () {
+    Future<void> pump(WidgetTester tester, Map<String, dynamic> extra,
+        {List<Account>? accounts}) async {
+      _phone(tester);
+      final json = {
+        'currency': 'TRY',
+        'subunit_to_unit': 100,
+        'month': {'income_cents': 0, 'expense_cents': 49750, 'net_cents': -49750},
+        'year': {'income_cents': 0, 'expense_cents': 174750},
+        ...extra,
+      };
+      // A fresh scope each time: the overrides are read once.
+      await tester.pumpWidget(const SizedBox());
+      await tester.pumpWidget(_host(
+        const FinanceScreen(),
+        [
+          financeDashboardProvider.overrideWith(
+              (ref) => Fetched(FinanceDashboard.fromJson(json), _at)),
+          accountsProvider
+              .overrideWith((ref) => Fetched(accounts ?? _accounts(), _at)),
+          subscriptionsProvider.overrideWith((ref) => Fetched(
+              const SubscriptionsBundle(active: [], inactive: [], totals: []),
+              _at)),
+        ],
+      ));
+      await tester.pumpAndSettle();
+      expect(tester.takeException(), isNull);
+    }
+
+    testWidgets('the pace line needs the cumulative series', (tester) async {
+      await pump(tester, const {});
+      expect(find.byType(PaceLine), findsNothing);
+      await pump(tester, {
+        'spend_cumulative_cents': [41250, 41250, 49750, 49750],
+        'reference_cumulative_cents': List.filled(30, 100000),
+      });
+      expect(find.byType(PaceLine), findsOneWidget);
+    });
+
+    testWidgets('accounts in another currency: what the totals do with them',
+        (tester) async {
+      // An older server adds them unconverted…
+      await pump(tester, const {});
+      expect(find.text('Bu toplam farklı para birimlerini dönüştürmeden içerir'),
+          findsOneWidget);
+      // …WP-15 leaves them out (and says so with `totals_by_currency`).
+      await pump(tester, {
+        'totals_by_currency': [
+          {'currency': 'TRY', 'subunit_to_unit': 100,
+            'month': {'income_cents': 0, 'expense_cents': 49750, 'net_cents': -49750},
+            'year': {'income_cents': 0, 'expense_cents': 174750}},
+          {'currency': 'GAU', 'subunit_to_unit': 1,
+            'month': {'income_cents': 2, 'expense_cents': 0, 'net_cents': 2},
+            'year': {'income_cents': 2, 'expense_cents': 0}},
+        ],
+      });
+      expect(find.text('Diğer para birimleri bu toplama dahil değil'),
+          findsOneWidget);
+      // One currency only: no note.
+      await pump(tester, const {}, accounts: _accounts().skip(1).toList());
+      expect(find.textContaining('para birim'), findsNothing);
     });
   });
 

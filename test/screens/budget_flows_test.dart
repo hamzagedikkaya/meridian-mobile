@@ -59,12 +59,10 @@ void main() {
       })
       ..on('GET /budgets', budgetsJson(budgets: const [], budgetable: [5]));
     await pumpFinance(tester, api, const FinanceScreen());
-    await _toBudgets(tester);
-    expect(
-      find.text('Bir kategoriye aylık sınır koy, ay sonunu önceden gör.'),
-      findsOneWidget,
-    );
-    await tester.tap(find.text('Ekle'));
+    // No budget yet: the setup card offers one (it carries the budgets'
+    // empty card while it shows).
+    expect(find.text('Kurulum 3/4'), findsOneWidget);
+    await tester.tap(find.text('Bütçe koy'));
     await settleFrames(tester);
     expect(_inSheet(find.text('Yeni bütçe')), findsOneWidget);
     expect(_inSheet(find.text('Market')), findsOneWidget);
@@ -95,8 +93,9 @@ void main() {
       ..on('GET /finance/dashboard', _dashboard(budgets: [budgetJson()]));
     await pumpFinance(tester, api, const FinanceScreen());
     await _toBudgets(tester);
-    expect(find.text('₺661,00 / ₺3.000,00'), findsOneWidget);
-    expect(find.text('kalan ₺2.339,00'), findsOneWidget);
+    expect(find.text('₺661 / ₺3.000'), findsOneWidget);
+    // What may still go out each day.
+    expect(find.textContaining(RegExp('gün kaldı|son gün')), findsOneWidget);
 
     await tester.tap(find.text('Market'));
     await settleFrames(tester);
@@ -118,7 +117,8 @@ void main() {
       ));
     await pumpFinance(tester, api, const FinanceScreen());
     await _toBudgets(tester);
-    expect(find.text('₺340,00 fazla'), findsOneWidget);
+    expect(find.text('₺340 fazla'), findsOneWidget);
+    expect(find.text('Limiti düzenle'), findsOneWidget);
   });
 
   testWidgets('removing a budget goes with "Geri al"', (tester) async {
@@ -132,7 +132,7 @@ void main() {
     await tester.tap(_inSheet(find.text('Bütçeyi kaldır')));
     await settleFrames(tester);
     expect(find.text('“Market” bütçesi kaldırıldı'), findsOneWidget);
-    expect(find.text('₺661,00 / ₺3.000,00'), findsNothing, reason: 'off');
+    expect(find.text('₺661 / ₺3.000'), findsNothing, reason: 'off');
     expect(api.requests, isNot(contains('DELETE /budgets/2')));
     await letUndoRunOut(tester);
     expect(api.requests, contains('DELETE /budgets/2'));
@@ -145,8 +145,7 @@ void main() {
       ..on('GET /finance/dashboard', _dashboard())
       ..on('GET /budgets', budgetsJson(budgets: const []));
     await pumpFinance(tester, api, const FinanceScreen());
-    await _toBudgets(tester);
-    await tester.tap(find.text('Ekle'));
+    await tester.tap(find.text('Bütçe koy'));
     await settleFrames(tester);
     expect(
       _inSheet(find.text('Bütçe konabilecek bir gider kategorisi kalmadı. '

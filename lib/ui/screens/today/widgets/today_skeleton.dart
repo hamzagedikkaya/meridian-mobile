@@ -1,116 +1,100 @@
 import 'package:flutter/material.dart';
 
-import '../../../../l10n/app_l10n.dart';
-import '../../../../theme/app_colors.dart';
+import '../../../../theme/app_metrics.dart';
 import '../../../../ui/widgets/nokturn_card.dart';
 import '../../../../ui/widgets/skeletons.dart';
 
-/// First-load skeleton mirroring the Today layout (design §4.3).
+/// Today's first-load skeleton (design-analysis §7.2, §4.26): the header,
+/// the chip, and the bones of five habit rows — the layout the content
+/// takes, so the cross-fade does not jump.
 class TodaySkeleton extends StatelessWidget {
   const TodaySkeleton({super.key});
 
   @override
   Widget build(BuildContext context) {
-    final c = context.nok;
-    final text = Theme.of(context).textTheme;
-
-    Widget bone(double w, double h, [double r = 6]) => Container(
-          width: w,
-          height: h,
-          decoration: BoxDecoration(
-            color: c.skeletonBone,
-            borderRadius: BorderRadius.circular(r),
-          ),
-        );
-
-    return NokSkeleton(
-      enabled: true,
-      child: ListView(
-        padding: EdgeInsets.zero,
-        physics: const NeverScrollableScrollPhysics(),
-        children: [
-          // App bar
-          Padding(
-            padding: const EdgeInsets.fromLTRB(20, 16, 20, 0),
-            child: Row(
-              children: [
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      bone(90, 14),
-                      const SizedBox(height: 8),
-                      bone(170, 26),
-                    ],
-                  ),
+    return ListView(
+      padding: EdgeInsets.only(top: MediaQuery.paddingOf(context).top),
+      physics: const NeverScrollableScrollPhysics(),
+      children: [
+        // Header: the date over the greeting, the avatar.
+        const Padding(
+          padding: EdgeInsets.fromLTRB(Gap.xl, Gap.md, Gap.sm, 0),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Bone.text(width: 110),
+                    SizedBox(height: Gap.xs),
+                    Bone.text(width: 200, lineHeight: 40),
+                  ],
                 ),
-                bone(32, 32, 16),
-              ],
-            ),
-          ),
-          const SizedBox(height: 20),
-          // Hero
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 20),
-            child: NokturnCard(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  bone(70, 12),
-                  const SizedBox(height: 12),
-                  bone(200, 40),
-                  const SizedBox(height: 16),
-                  bone(double.infinity, 48),
-                ],
               ),
+              SizedBox.square(
+                dimension: Hit.min,
+                child: Center(child: Bone.circle(size: 40)),
+              ),
+            ],
+          ),
+        ),
+        // The money chip.
+        const Padding(
+          padding: EdgeInsets.fromLTRB(Gap.xl, Gap.sm + 6, Gap.xl, 6),
+          child: Align(
+            alignment: AlignmentDirectional.centerStart,
+            child: Bone(width: 150, height: 36, shape: BoneShape.block),
+          ),
+        ),
+        const SizedBox(height: Gap.lg),
+        // Habits: the section header and five rows.
+        const Padding(
+          padding: EdgeInsets.symmetric(horizontal: Gap.xl),
+          child: SizedBox(
+            height: Hit.min,
+            child: Align(
+              alignment: AlignmentDirectional.centerStart,
+              child: Bone.text(width: 120, lineHeight: 22),
             ),
           ),
-          const SizedBox(height: 12),
-          // Stat strip
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 20),
-            child: Row(
-              children: [
-                for (var i = 0; i < 3; i++) ...[
-                  if (i > 0) const SizedBox(width: 12),
-                  Expanded(child: bone(double.infinity, 62, 12)),
-                ],
-              ],
-            ),
-          ),
-          const SizedBox(height: 32),
-          // Today section
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 20),
+        ),
+        const SizedBox(height: Gap.xs),
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: Gap.xl),
+          child: NokturnCard(
+            variant: NokCardVariant.list,
             child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(context.l10n.titleToday, style: text.titleMedium),
-                const SizedBox(height: 12),
-                NokturnCard(
-                  padding: const EdgeInsets.symmetric(vertical: 8),
-                  child: Column(
-                    children: [
-                      for (var i = 0; i < 4; i++)
-                        Padding(
-                          padding: const EdgeInsets.symmetric(
-                              horizontal: 20, vertical: 10),
-                          child: Row(
-                            children: [
-                              bone(24, 24, 7),
-                              const SizedBox(width: 12),
-                              Expanded(child: bone(160, 16)),
-                            ],
+                for (var i = 0; i < 5; i++)
+                  Padding(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: Insets.rowH,
+                      vertical: Gap.sm,
+                    ),
+                    child: Row(
+                      children: [
+                        Expanded(
+                          child: Align(
+                            alignment: AlignmentDirectional.centerStart,
+                            child: Bone.text(
+                              width: 120.0 + (i * 37) % 80,
+                              lineHeight: 22,
+                            ),
                           ),
                         ),
-                    ],
+                        const SizedBox.square(
+                          dimension: Hit.min,
+                          child: Center(child: Bone.circle(size: 40)),
+                        ),
+                      ],
+                    ),
                   ),
-                ),
               ],
             ),
           ),
-        ],
-      ),
+        ),
+      ],
     );
   }
 }

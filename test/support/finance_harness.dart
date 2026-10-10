@@ -8,7 +8,7 @@ import 'package:meridian_mobile/core/session.dart';
 import 'package:meridian_mobile/l10n/app_l10n.dart';
 import 'package:meridian_mobile/theme/app_theme.dart';
 import 'package:meridian_mobile/ui/screens/finance/account_detail_screen.dart';
-import 'package:meridian_mobile/ui/screens/finance/archived_accounts_screen.dart';
+import 'package:meridian_mobile/ui/screens/finance/accounts_screen.dart';
 import 'package:meridian_mobile/ui/screens/finance/categories_screen.dart';
 import 'package:meridian_mobile/ui/screens/finance/finance_utils.dart';
 import 'package:meridian_mobile/ui/screens/finance/subscriptions_screen.dart';
@@ -51,8 +51,14 @@ Future<GoRouter> pumpFinance(
         ),
       ),
       GoRoute(
+        path: '/finance/accounts',
+        builder: (_, state) => AccountsScreen(
+          showArchived: state.uri.queryParameters['archived'] == '1',
+        ),
+      ),
+      GoRoute(
         path: '/finance/accounts/archived',
-        builder: (_, _) => const ArchivedAccountsScreen(),
+        redirect: (_, _) => '/finance/accounts?archived=1',
       ),
       GoRoute(
         path: '/finance/categories',

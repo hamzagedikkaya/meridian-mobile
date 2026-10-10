@@ -1,5 +1,5 @@
 /// The finance controls answer a screen reader (design-research §6.2): one
-/// stop per key, pill, chip, swatch, amount field and page dot — and that
+/// stop per key, pill, chip, swatch, amount field and account tile — and that
 /// stop operates the control. Each leaves its own detector out of the
 /// semantics tree, so a double-tap (TalkBack's ACTION_CLICK, which is
 /// `SemanticsAction.tap`; Switch Access and Voice Access the same) does
@@ -262,40 +262,30 @@ void main() {
     handle.dispose();
   });
 
-  testWidgets('the carousel\'s page dots: 48 dp targets that show their '
-      'page, one stop each for a screen reader', (tester) async {
+  testWidgets('the account tiles: one stop each that names the account, '
+      'its type and its balance, and opens it; "+ Hesap" adds one',
+      (tester) async {
     tallPhone(tester);
     final handle = tester.ensureSemantics();
     final api = FakeApi()
       ..on('GET /accounts', {
         'accounts': [
-          accountJson(),
+          accountJson(balance: 325000),
           accountJson(id: 2, name: 'Banka', type: 'bank'),
         ],
       });
     await pumpFinance(tester, api, const FinanceScreen());
-    final pages = tester.widget<PageView>(find.byType(PageView)).controller!;
-    const dots = ['Sayfa 1 / 3', 'Sayfa 2 / 3', 'Sayfa 3 / 3'];
-    for (final dot in dots) {
-      final size = tester.getSize(find.bySemanticsLabel(dot));
-      expect(size.width, greaterThanOrEqualTo(48), reason: dot);
-      expect(size.height, greaterThanOrEqualTo(48), reason: dot);
-    }
-    expect(_selected(dots[0]), isTrue);
-    expect(_canTap(dots[0]), isFalse, reason: 'the page shown');
-    expect(_canTap(dots[1]), isTrue);
+    const tile = 'Cüzdan, Nakit, ₺3.250';
+    expect(_canTap(tile), isTrue);
+    expect(_node(tile).hasAction(SemanticsAction.longPress), isTrue,
+        reason: 'its actions (edit, archive)');
+    final size = tester.getSize(find.bySemanticsLabel(tile));
+    expect(size.width, greaterThanOrEqualTo(48));
+    expect(size.height, greaterThanOrEqualTo(48));
+    expect(_canTap('Yeni hesap'), isTrue);
 
-    tester.semantics.tap(find.semantics.byLabel(dots[1]));
-    await tester.pump(const Duration(milliseconds: 400));
-    await settleFrames(tester);
-    expect(pages.page, 1);
-    expect(_selected(dots[1]), isTrue);
-
-    // A finger's tap on a dot does the same.
-    await tester.tap(find.bySemanticsLabel(dots[2]));
-    await tester.pump(const Duration(milliseconds: 400));
-    await settleFrames(tester);
-    expect(pages.page, 2);
+    await _doubleTap(tester, tile);
+    expect(find.text('NAKİT'), findsOneWidget, reason: 'its page');
     handle.dispose();
   });
 

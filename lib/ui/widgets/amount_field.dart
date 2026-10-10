@@ -17,7 +17,9 @@ import 'primary_button.dart';
 /// (design-research §4.5).
 ///
 /// [minorUnits] null shows nothing typed yet. With [allowDebt] the sheet
-/// has a "Borç" (debt) switch and the amount may be negative.
+/// has a "Borç" (debt) switch and the amount may be negative; with
+/// [debtByDefault] that switch starts on while no amount is set (a credit
+/// card's opening balance, §7.6).
 ///
 /// The label sits before the amount on one line; above 1.3× text it goes
 /// above it, so the amount keeps the whole width and grows with the text
@@ -29,6 +31,7 @@ class AmountField extends StatelessWidget {
   final int subunitToUnit;
   final ValueChanged<int> onChanged;
   final bool allowDebt;
+  final bool debtByDefault;
   final String? helperText;
   final String? errorText;
 
@@ -40,6 +43,7 @@ class AmountField extends StatelessWidget {
     required this.subunitToUnit,
     required this.onChanged,
     this.allowDebt = false,
+    this.debtByDefault = false,
     this.helperText,
     this.errorText,
   });
@@ -52,6 +56,7 @@ class AmountField extends StatelessWidget {
       currency: currency,
       subunitToUnit: subunitToUnit,
       allowDebt: allowDebt,
+      debtByDefault: debtByDefault,
     );
     if (value != null) onChanged(value);
   }
@@ -153,6 +158,7 @@ Future<int?> showAmountSheet(
   required String currency,
   required int subunitToUnit,
   bool allowDebt = false,
+  bool debtByDefault = false,
 }) {
   return showNokSheet<int>(
     context,
@@ -164,6 +170,7 @@ Future<int?> showAmountSheet(
       currency: currency,
       subunitToUnit: subunitToUnit,
       allowDebt: allowDebt,
+      debtByDefault: debtByDefault,
     ),
   );
 }
@@ -174,6 +181,7 @@ class _AmountSheet extends StatefulWidget {
   final String currency;
   final int subunitToUnit;
   final bool allowDebt;
+  final bool debtByDefault;
 
   const _AmountSheet({
     required this.title,
@@ -181,6 +189,7 @@ class _AmountSheet extends StatefulWidget {
     required this.currency,
     required this.subunitToUnit,
     required this.allowDebt,
+    this.debtByDefault = false,
   });
 
   @override
@@ -192,7 +201,9 @@ class _AmountSheetState extends State<_AmountSheet> {
     widget.initial ?? 0,
     widget.subunitToUnit,
   );
-  late bool _debt = widget.allowDebt && (widget.initial ?? 0) < 0;
+  late bool _debt = widget.allowDebt &&
+      ((widget.initial ?? 0) < 0 ||
+          (widget.debtByDefault && (widget.initial ?? 0) == 0));
   bool _atLimit = false;
 
   /// Counts refused digits; each one shakes the amount once.

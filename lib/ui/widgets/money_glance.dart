@@ -29,6 +29,12 @@ class MoneyGlance extends StatelessWidget {
   /// Opens a cash account; used when [netCents] is null.
   final VoidCallback? onStart;
 
+  /// Whether the net keeps ",00" ([MoneyDecimals.auto] drops it from a
+  /// whole amount, as a chip should — §3.7).
+  // TODO(WP-2): §3.7 makes auto the chip's default; WP-5 passes it from
+  // Today until then.
+  final MoneyDecimals decimals;
+
   const MoneyGlance({
     super.key,
     required this.netCents,
@@ -36,6 +42,7 @@ class MoneyGlance extends StatelessWidget {
     required this.subunitToUnit,
     required this.onTap,
     this.onStart,
+    this.decimals = MoneyDecimals.always,
   });
 
   @override
@@ -62,17 +69,36 @@ class MoneyGlance extends StatelessWidget {
       semantics = l.moneyGlanceStart;
       tap = onStart;
     } else {
-      final amount = formatMoney(net, currency, subunitToUnit, signed: net > 0);
+      final amount = formatMoney(
+        net,
+        currency,
+        subunitToUnit,
+        signed: net > 0,
+        decimals: decimals,
+      );
       parts = [
-        Text(l.moneyGlanceThisMonth, style: text.bodySmall),
-        const SizedBox(width: 6),
-        MoneyText(
-          net,
-          currency: currency,
-          subunitToUnit: subunitToUnit,
-          signed: net > 0,
-          positiveGreen: true,
-          color: net == 0 ? c.inkMid : null,
+        // An amount is never cut (§3.7): given less room than it needs, the
+        // words shrink to fit — the pill and its 48 dp target do not.
+        Flexible(
+          child: FittedBox(
+            fit: BoxFit.scaleDown,
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(l.moneyGlanceThisMonth, style: text.bodySmall),
+                const SizedBox(width: 6),
+                MoneyText(
+                  net,
+                  currency: currency,
+                  subunitToUnit: subunitToUnit,
+                  signed: net > 0,
+                  positiveGreen: true,
+                  color: net == 0 ? c.inkMid : null,
+                  decimals: decimals,
+                ),
+              ],
+            ),
+          ),
         ),
       ];
       semantics = l.moneyGlanceSemantics(amount);

@@ -138,7 +138,13 @@ void main() {
       expect(find.text('“Faturayı öde” tamamlandı'), findsOneWidget);
       await _settle(tester);
       expect(api.bodiesOf(_toggle).single, {'done': true});
-      expect(_todo(tester), isNull, reason: 'the refetch dropped it');
+      // The refetch dropped it; it lingers, done, where it was, for 4 s
+      // after the last tick, then folds into "1 tamamlandı".
+      expect(_todo(tester)!.done, isTrue, reason: 'lingering');
+      await tester.pump(const Duration(seconds: 4));
+      await _settle(tester);
+      expect(_todo(tester), isNull, reason: 'folded away');
+      expect(find.text('1 tamamlandı'), findsOneWidget);
 
       api.on('GET /home', homeJson());
       await tester.tap(find.text('Geri al'));
@@ -225,6 +231,9 @@ void main() {
         'resets', (tester) async {
       final api = FakeApi()..on('GET /home', _homeWithSuAt(3));
       await _openToday(tester, api);
+      // A habit done today folds into "1 tamamlandı", which opens on a tap.
+      await tester.tap(find.text('1 tamamlandı'));
+      await tester.pumpAndSettle();
       await tester.tap(_ring(8));
       await tester.pumpAndSettle();
       expect(find.text('Bugünün kaydı'), findsOneWidget);
@@ -239,7 +248,9 @@ void main() {
       // "Kaydet" writes the count shown, once.
       await tester.tap(find.text('Ayarla'));
       await tester.pump();
-      await tester.tap(find.text('2'));
+      await tester.tap(
+        find.descendant(of: find.byType(BottomSheet), matching: find.text('2')),
+      );
       await tester.pump();
       expect(find.text('2 / 3'), findsOneWidget, reason: 'at once');
       await tester.tap(find.text('Sıfırla'));
@@ -265,10 +276,12 @@ void main() {
       expect(find.text('Bugünün kaydı'), findsOneWidget);
       expect(find.text('Bugün henüz yapılmadı'), findsOneWidget);
       api.on('GET /home', homeJson(habit7Done: true));
-      await tester.tap(find.descendant(
-        of: find.byType(BottomSheet),
-        matching: find.byType(CheckPop),
-      ));
+      await tester.tap(
+        find.descendant(
+          of: find.byType(BottomSheet),
+          matching: find.byType(CheckPop),
+        ),
+      );
       await tester.pump();
       expect(find.text('Bugün tamamlandı'), findsOneWidget);
       await tester.tap(find.text('Kaydet'));
@@ -276,6 +289,9 @@ void main() {
       expect(api.bodiesOf(_logRun).single, {'count': 1});
       await tester.pumpAndSettle();
       expect(find.text('Bugünün kaydı'), findsNothing, reason: 'saved');
+      // Done today, it folds into "1 tamamlandı"; opened, its ring is ticked.
+      await tester.tap(find.text('1 tamamlandı'));
+      await tester.pumpAndSettle();
       expect(tester.widget<CheckPop>(_ring(7)).checked, isTrue);
     });
 
@@ -292,10 +308,12 @@ void main() {
       await _openToday(tester, api);
       await tester.longPress(_ring(7));
       await tester.pumpAndSettle();
-      await tester.tap(find.descendant(
-        of: find.byType(BottomSheet),
-        matching: find.byType(CheckPop),
-      ));
+      await tester.tap(
+        find.descendant(
+          of: find.byType(BottomSheet),
+          matching: find.byType(CheckPop),
+        ),
+      );
       await tester.tap(find.text('Kaydet'));
       await _settle(tester);
       expect(find.text('Arşivlenmiş alışkanlık işaretlenemez'), findsOneWidget);
@@ -342,10 +360,16 @@ void main() {
       final api = FakeApi();
       await _openToday(tester, api);
       final row = tester.getSemantics(find.byKey(const ValueKey('todo-39')));
-      expect(row.label, startsWith('Faturayı öde'));
-      expect(row.getSemanticsData().hasAction(SemanticsAction.tap), isTrue);
-      expect(row.childrenCount, 0,
-          reason: 'the checkbox is not a stop of its own');
+      final data = row.getSemanticsData();
+      expect(data.label, startsWith('Faturayı öde'));
+      expect(data.hasAction(SemanticsAction.tap), isTrue);
+      // One stop: the row (and its swipes) merged, the checkbox no stop of
+      // its own.
+      expect(row.mergeAllDescendantsIntoThisNode, isTrue);
+      expect(
+        customActionLabels(row),
+        containsAll(['Tamamla', 'Yarına ertele']),
+      );
 
       performCustomAction(row, 'Tamamla');
       await _settle(tester);
@@ -353,8 +377,11 @@ void main() {
 
       tester.semantics.tap(find.semantics.byLabel(RegExp('^Faturayı öde')));
       await tester.pumpAndSettle();
-      expect(find.text('Görevi düzenle'), findsOneWidget,
-          reason: 'a tap opens the todo for editing');
+      expect(
+        find.text('Görevi düzenle'),
+        findsOneWidget,
+        reason: 'a tap opens the todo for editing',
+      );
       handle.dispose();
     });
   });
@@ -492,6 +519,8 @@ void main() {
       await tester.pump();
       expect(find.text(notice), findsNothing);
       expect(prefs.getString(PrefKeys.zoneNoticeDismissed), '180|-240');
+      // The slot moves on to the next nudge's data.
+      await _settle(tester);
     });
 
     testWidgets('nothing to say when the zones agree', (tester) async {

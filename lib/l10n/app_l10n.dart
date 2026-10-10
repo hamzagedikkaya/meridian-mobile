@@ -289,6 +289,58 @@ abstract class AppL10n {
   /// the account: days and times follow the account ([zone], [offset] like
   /// `+03:00`), not the phone.
   String todayZoneNotice(String zone, String offset);
+
+  /// Today's header: the date over the greeting ("Pazar, 4 Ekim").
+  String todayDateLine(DateTime day);
+
+  /// Today's greeting with the user's first name ("İyi günler, Hamza").
+  String todayGreeting(String greeting, String firstName);
+
+  /// Today's capture bar, and its secondary "add a transaction" icon.
+  String get todayCaptureLabel;
+  String get todayCaptureTransaction;
+
+  /// The header's next-up chip: an event under way ("Şimdi · Takım
+  /// toplantısı"), or one starting within two hours ("09:30 · Takım
+  /// toplantısı · 25 dk").
+  String todayNextUpNow(String title);
+  String todayNextUpSoon(String time, String title, int minutes);
+
+  /// The Today card: its inline add row, finished events folded into one
+  /// row ("+2 geçti"), and the rows past the sixth ("+3 daha").
+  String get todayAddForToday;
+  String todayEventsPassed(int count);
+  String todayMoreRows(int count);
+
+  /// The finished habits row, for screen readers: what a tap does.
+  String get todayShowFinished;
+  String get todayHideFinished;
+
+  /// The goals card's ghost row with no goal yet.
+  String get todaySetGoal;
+
+  /// The journal card: write today's entry, or today's entry written.
+  String get todayJournalWrite;
+  String get todayJournalWritten;
+
+  /// The nudge slot: yesterday's daily habit left unmarked, a subscription
+  /// payment past due ("Spotify ödemesi gecikti · ₺99,99") and its button.
+  String todayNudgeYesterday(String habit);
+  String todayNudgeLate(String name, String amount);
+  String get todayNudgePaid;
+
+  /// The first-run card ("Başlayalım · 1/4") and its four steps.
+  String todayStartTitle(int done, int total);
+  String get todayStartCash;
+  String get todayStartHabit;
+  String get todayStartTodo;
+  String get todayStartJournal;
+
+  /// The starter sheet the first-run card's habit step opens, and its
+  /// ready-made habit names.
+  String get todayStartHabitTitle;
+  String get todayStartHabitOwn;
+  List<String> get todayHabitStarters;
   // endregion
 
   // --- Quick capture --------------------------------------------------------
@@ -596,8 +648,6 @@ abstract class AppL10n {
   // --- Finance --------------------------------------------------------------
   // region finance (WP-8)
 
-  String get financeScopeMonth;
-  String get financeScopeYear;
   String get financeIncome;
   String get financeExpense;
   String get financeTransfer;
@@ -618,6 +668,59 @@ abstract class AppL10n {
 
   /// Subscription cadence, by API `frequency`.
   String subscriptionFrequency(String frequency);
+  /// The Finance hero's overline ("BU AY NET"), already uppercase.
+  String get financeMonthNet;
+
+  /// The hero's year line: "Bu yıl +₺21.200".
+  String financeYearNet(String amount);
+
+  /// The hero's sentence (§4.24), first choice: against the same day of
+  /// last month. [less]: spent less than then.
+  String financeInsightVsLastMonth(String amount, {required bool less});
+
+  /// Second choice: this month's pace against the five months before it
+  /// ([percent] 0: the same).
+  String financeInsightProjection(
+    String amount,
+    int percent, {
+    required bool below,
+  });
+
+  /// Last choice: what was spent so far and per day.
+  String financeInsightSpent(String amount, String perDay);
+
+  /// Under the hero when there are accounts in other currencies: the
+  /// totals add them unconverted (an older server) …
+  String get financeCurrencyNoteMixed;
+
+  /// … or leave them out (`totals_by_currency` present).
+  String get financeCurrencyNoteExcluded;
+
+  /// The six-month chart's sentence: this month against the average.
+  String financeSixMonthInsight(int percent, {required bool below});
+
+  /// The categories chart's sentence: the biggest one.
+  String financeCategoriesInsight(String name, String amount);
+
+  /// The search button's tooltip.
+  String get financeSearch;
+  String get financeMenuAddBudget;
+
+  /// The setup card: "Kurulum 2/4" and its steps.
+  String financeSetupTitle(int done, int total);
+  String get financeSetupAccount;
+  String get financeSetupBudget;
+  String get financeSetupSubscription;
+
+  /// An upcoming payment's "Ödendi" button.
+  String get financePaid;
+
+  /// The subscriptions row when nothing is due soon: "aylık ₺229,99".
+  String financeSubscriptionsMonthly(String amount);
+
+  /// A budget's daily allowance for the rest of the month.
+  String financeBudgetPerDay(String amount, int daysLeft);
+  String get financeBudgetEditLimit;
   // endregion
 
   // --- Transactions feed ----------------------------------------------------
@@ -775,9 +878,6 @@ abstract class AppL10n {
 
   String get financeAccounts;
 
-  /// A page dot of the accounts carousel, for screen readers ("Sayfa 2 / 4").
-  String accountsCarouselPage(int page, int count);
-
   /// The label of the Finance FAB (it adds a transaction).
   String get financeAddTransactionFab;
   String get financeMenuCategories;
@@ -822,6 +922,42 @@ abstract class AppL10n {
   String get financeNoUpcomingPayments;
   String get financeAddSubscription;
   String get financeSubscriptionsEmpty;
+
+  /// Finance's ghost card when there is no subscription (§7.5).
+  String get financeSubscriptionsGhost;
+  /// The accounts' totals, one per currency, never added across them:
+  /// "Toplam ₺36.250 · 412 gr".
+  String accountsTotal(String totals);
+
+  /// The Hesaplar page's totals card.
+  String get accountsTotalsTitle;
+
+  /// The FAB and the last tile: add an account.
+  String get accountFab;
+
+  /// A tile for screen readers: "Cüzdan, Nakit, ₺3.250".
+  String accountTileSemantics(String name, String type, String balance);
+
+  /// An account's type as its page's overline, uppercase ("KREDİ KARTI").
+  String accountTypeOverline(String type);
+
+  /// An account page's month line: "Bu ay +₺X gelir · −₺Y gider" — a
+  /// part with nothing in it (null) is left out.
+  String accountMonthSummary(String? income, String? expense);
+  String get accountReconcile;
+  String accountLinkedGoals(int count);
+
+  /// The reconcile sheet.
+  String get reconcileTitle;
+  /// Under the typed balance: the current one, and — once something is
+  /// typed — the difference ("Şu anki: ₺3.250,00 · Fark: +₺120,00").
+  String reconcileNowAndDifference(String now, String? difference);
+  String get reconcileDone;
+  String get reconcileFailed;
+  String get reconcileUndoFailed;
+
+  /// The pill on the account new transactions start on.
+  String get accountDefaultBadge;
   // endregion
 
   // --- Account form, archive, delete ----------------------------------------
@@ -871,6 +1007,9 @@ abstract class AppL10n {
   String get titleArchivedAccounts;
   String get archivedAccountsEmpty;
   String get archivedAccountsBody;
+  /// The form's "default account" switch (kept on this device).
+  String get accountFormDefault;
+  String get accountFormDefaultHint;
   // endregion
 
   // --- Finance categories ----------------------------------------------------

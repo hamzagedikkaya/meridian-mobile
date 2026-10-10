@@ -748,6 +748,34 @@ Map<String, dynamic> captureTodoJson({int id = 40, String title = 'süt al'}) =>
 // endregion
 
 // region finance (WP-8)
+/// GET /finance/dashboard: a quiet month (nothing spent yet), with WP-15's
+/// per-currency totals and the cumulative series (4 October: four days of
+/// this month, the 30 of September).
+Map<String, dynamic> financeDashboardJson() => {
+      'currency': 'TRY',
+      'subunit_to_unit': 100,
+      'month': const {'income_cents': 0, 'expense_cents': 0, 'net_cents': 0},
+      'year': const {'income_cents': 0, 'expense_cents': 0},
+      'totals_by_currency': const [
+        {
+          'currency': 'TRY',
+          'subunit_to_unit': 100,
+          'month': {'income_cents': 0, 'expense_cents': 0, 'net_cents': 0},
+          'year': {'income_cents': 0, 'expense_cents': 0},
+        },
+      ],
+      'spend_cumulative_cents': const [0, 0, 0, 0],
+      'reference_cumulative_cents': List.filled(30, 0),
+      'six_month_series': const {
+        'labels': [],
+        'income_cents': [],
+        'expense_cents': [],
+      },
+      'pie': const [],
+      'budgets': const [],
+      'upcoming_subscriptions': const [],
+      'recent_transactions': const [],
+    };
 // endregion
 
 // region transactions (WP-9)
@@ -816,17 +844,6 @@ final Map<String, _Route> _defaults = {
   }),
   'GET /accounts/1': _Route(body: {'account': accountDetailJson()}),
   'GET /currencies': _Route(body: currenciesJson()),
-  'GET /finance/dashboard': const _Route(body: {
-    'currency': 'TRY',
-    'subunit_to_unit': 100,
-    'month': {'income_cents': 0, 'expense_cents': 0, 'net_cents': 0},
-    'year': {'income_cents': 0, 'expense_cents': 0},
-    'six_month_series': {'labels': [], 'income_cents': [], 'expense_cents': []},
-    'pie': [],
-    'budgets': [],
-    'upcoming_subscriptions': [],
-    'recent_transactions': [],
-  }),
   'GET /finance_categories': _Route(body: {
     'categories': [categoryJson()],
   }),
@@ -897,6 +914,7 @@ final Map<String, _Route> _defaults = {
   // endregion
 
   // region finance (WP-8)
+  'GET /finance/dashboard': _Route(body: financeDashboardJson()),
   // endregion
 
   // region transactions (WP-9)

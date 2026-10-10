@@ -963,6 +963,19 @@ void main() {
         '${today.year}-${today.month.toString().padLeft(2, '0')}');
     expect(dash.sixMonthSeries.expenseCents.last, dash.month.expenseCents);
 
+    // WP-15: totals per currency (the user's first) and the cumulative
+    // series behind Finance's pace line (contract §13.3).
+    final totals = dash.totalsByCurrency;
+    expect(totals, isNotNull);
+    expect(totals!.first.currency, dash.currency);
+    expect(totals.first.month.expenseCents, dash.month.expenseCents);
+    final spend = dash.spendCumulativeCents!;
+    expect(spend, hasLength(today.day));
+    expect(spend.last, dash.month.expenseCents);
+    final reference = dash.referenceCumulativeCents!;
+    expect(reference, hasLength(DateTime(today.year, today.month, 0).day));
+    expect(reference.last, dash.sixMonthSeries.expenseCents[4]);
+
     // The pie covers the whole month, uncategorized spending included.
     final pieTotal = dash.pie.fold<int>(0, (sum, s) => sum + s.amountCents);
     expect(pieTotal, dash.month.expenseCents);

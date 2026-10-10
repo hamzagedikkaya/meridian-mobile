@@ -180,6 +180,9 @@ void main() {
         'never turns it into the skeleton and back', (tester) async {
       final api = await openToday(tester, FakeApi()..failNetwork('GET /home'));
       await tester.pump(const Duration(milliseconds: 100));
+      expect(find.byType(TodaySkeleton), findsNothing,
+          reason: 'the first 400 ms show the frame only');
+      await tester.pump(const Duration(milliseconds: 400));
       expect(find.byType(TodaySkeleton), findsOneWidget,
           reason: 'the first load, its quick retry pending');
       await tester.pump(const Duration(seconds: 1));

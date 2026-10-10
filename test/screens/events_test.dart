@@ -498,8 +498,8 @@ void main() {
   });
 
   group('Today', () {
-    testWidgets('the agenda: today, tomorrow and this week from /events — '
-        'each with a sheet — and the way to the full agenda', (tester) async {
+    testWidgets('the Today card: today\'s events from /events — each with '
+        'a sheet — and the way to the full agenda', (tester) async {
       final api = FakeApi();
       final queries = <Map<String, dynamic>>[];
       api.onRequest('GET /events', (RequestOptions request) {
@@ -519,23 +519,17 @@ void main() {
           ],
         };
       });
-      api.on('GET /events/15', {
-        'event': eventJson(id: 15, title: 'Standup', full: true),
-      });
       final router = await pumpWithRoutes(
         tester,
         api,
         home: const TodayScreen(),
       );
-      // Sunday: this week ends today, so the window runs to tomorrow.
-      expect(queries.last, {'from': '2026-10-04', 'to': '2026-10-05'});
-      expect(find.text('Ajanda'), findsOneWidget);
-      expect(find.text('BUGÜN'), findsOneWidget);
-      expect(find.text('YARIN'), findsOneWidget);
+      // Today only: tomorrow and later are the Agenda's.
+      expect(queries.last, {'from': '2026-10-04', 'to': '2026-10-04'});
       expect(find.text('Yoga'), findsOneWidget);
-      expect(find.text('Standup'), findsOneWidget);
+      expect(find.text('Standup'), findsNothing);
 
-      await tester.tap(find.text('Standup'));
+      await tester.tap(find.text('Yoga'));
       await tester.pumpAndSettle();
       expect(find.text('Düzenle'), findsOneWidget);
       Navigator.of(tester.element(find.text('Düzenle'))).pop();
@@ -546,44 +540,45 @@ void main() {
       expect(router.state.uri.toString(), '/agenda');
     });
 
-    testWidgets('under "BU HAFTA" each row says its day — on screen and to a '
-        'screen reader', (tester) async {
-      final handle = tester.ensureSemantics();
+    testWidgets('events already over fold into "+1 geçti", which opens on a '
+        'tap', (tester) async {
       final api = FakeApi()
-        ..on('GET /home', {...homeJson(), 'today': '2026-10-05'})
         ..on('GET /events', {
           'events': [
+            eventJson(recurring: true, occurrences: ['2026-10-04']),
             {
-              ...eventJson(recurring: true),
-              'occurrences': [
-                for (var d = 5; d <= 11; d++) '2026-10-${'$d'.padLeft(2, '0')}',
-              ],
+              ...eventJson(
+                id: 16,
+                title: 'Kahvaltı',
+                start: '2026-10-04T08:00:00.000+03:00',
+                end: '2026-10-04T09:00:00.000+03:00',
+              ),
+              'occurrences': ['2026-10-04'],
             },
           ],
         });
       await pumpWithRoutes(tester, api, home: const TodayScreen());
-      expect(find.text('BU HAFTA'), findsOneWidget);
-      expect(find.text('Çar 7'), findsOneWidget);
-      expect(find.text('Per 8'), findsOneWidget);
-      expect(find.text('Sal 6'), findsNothing, reason: 'tomorrow has YARIN');
-      expect(
-        find.bySemanticsLabel(RegExp('Yoga, Çarşamba, 7 Ekim, 18:00')),
-        findsOneWidget,
-      );
+      expect(find.text('Yoga'), findsOneWidget);
+      expect(find.text('Kahvaltı'), findsNothing);
+      await tester.tap(find.text('+1 geçti'));
+      await tester.pumpAndSettle();
+      expect(find.text('Kahvaltı'), findsOneWidget);
       expect(tester.takeException(), isNull);
-      handle.dispose();
     });
 
-    testWidgets('the todos: a tick on the checkbox, a tap that edits, "Görev '
-        'ekle" for today, and the open-todos chip to the Todos screen',
-        (tester) async {
-      final api = FakeApi();
-      final router = await pumpWithRoutes(
-        tester,
-        api,
-        home: const TodayScreen(),
-      );
-      expect(find.text('Görevler'), findsOneWidget);
+    testWidgets('the todos: a tick on the checkbox, and "Bugün için görev '
+        'ekle" adding one due today in place', (tester) async {
+      final milk = {
+        ...todoJson(id: 41),
+        'title': 'Süt al',
+        'priority': 'medium',
+        'due_at': null,
+        'due_time': null,
+        'overdue': false,
+      };
+      final api = FakeApi()..on('POST /todos', {'todo': milk}, status: 201);
+      await pumpWithRoutes(tester, api, home: const TodayScreen());
+      expect(find.byKey(const ValueKey('todo-39')), findsOneWidget);
 
       await tester.tap(find.descendant(
         of: find.byKey(const ValueKey('todo-39')),
@@ -593,27 +588,24 @@ void main() {
       expect(api.bodiesOf('PATCH /todos/39/toggle').single, {'done': true});
       await tester.pumpAndSettle();
 
-      await tester.tap(find.text('Görev ekle'));
+      await tester.tap(find.text('Bugün için görev ekle'));
       await tester.pumpAndSettle();
-      expect(find.text('Yeni görev'), findsOneWidget);
-      await tester.enterText(find.byType(TextField).first, 'Süt al');
-      await tester.tap(find.text('Kaydet'));
+      await tester.enterText(find.byType(TextField), 'Süt al');
+      api.on('GET /home', homeJson(todos: [todoJson(status: 'done'), milk]));
+      await tester.testTextInput.receiveAction(TextInputAction.done);
       await settleFrames(tester);
       expect(api.bodiesOf('POST /todos').single, {
         'title': 'Süt al',
         'priority': 'medium',
         'due_date': '2026-10-04',
       });
+      expect(find.text('Süt al'), findsOneWidget, reason: 'on Today');
+      expect(find.byType(TextField), findsOneWidget,
+          reason: 'the field stays for the next one');
       await tester.pumpAndSettle();
-
-      await tester.tap(find.text('açık görev'));
-      await tester.pumpAndSettle();
-      expect(router.state.uri.toString(), '/agenda');
     });
 
-    testWidgets('the agenda and the todos lay out at 200% text', (
-      tester,
-    ) async {
+    testWidgets('the Today card lays out at 200% text', (tester) async {
       tester.platformDispatcher.textScaleFactorTestValue = 2;
       addTearDown(tester.platformDispatcher.clearTextScaleFactorTestValue);
       final api = FakeApi()
@@ -622,7 +614,7 @@ void main() {
             eventJson(recurring: true, occurrences: ['2026-10-04']),
             {
               ...eventJson(id: 14, title: 'Tatil', allDay: true, end: null),
-              'occurrences': ['2026-10-05'],
+              'occurrences': ['2026-10-04'],
             },
           ],
         });
@@ -642,7 +634,7 @@ void main() {
         });
       await pumpWithRoutes(tester, api, home: const TodayScreen());
       expect(find.text('Yoga'), findsOneWidget);
-      expect(find.text('+4 etkinlik daha'), findsOneWidget,
+      expect(find.text('+4 daha'), findsOneWidget,
           reason: '/home lists four at most, and says how many there are');
     });
   });

@@ -3,27 +3,43 @@ import 'package:flutter/material.dart';
 import '../../../../l10n/app_l10n.dart';
 import '../../../../models/home.dart';
 import '../../../../theme/app_colors.dart';
+import '../../../../theme/app_metrics.dart';
 import '../../../../theme/app_typography.dart';
+import '../../../../theme/entity_color.dart';
 import '../../../widgets/check_pop.dart';
-import 'today_common.dart';
+import '../../../widgets/progress_ring.dart';
+import '../../../widgets/streak_flame.dart';
 
-/// Compact 56dp home habit row: name + streak meta + tappable completion ring.
-/// A tap shows its result at once (the write is optimistic, see
-/// `HabitActions`), so the ring never waits on the network; a long-press
-/// opens the day's log, to step a count back or undo the day.
+/// A habit on Today (design-analysis §7.2.4): at least 56 dp, padded 20 / 8.
+///
+/// * Left: the name (titleMedium, up to two lines) over its meta — the
+///   streak's flame and days (only above zero) and, for a habit counted
+///   several times a day, "5/8".
+/// * Right: the 40 dp check in a 48 dp target. A habit done or not is a
+///   [CheckPop]; a counted one shows its day as a segmented ring until the
+///   tap that completes it plays the full check.
+///
+/// A tap on the row opens the habit ([onOpen]); a tap on the ring logs it
+/// ([onToggle], with the ring's global centre — where the day's confetti
+/// starts); a long press opens the day's log ([onLongPress]). A tap shows
+/// its result at once (the write is optimistic, see `HabitActions`).
 class HomeHabitRow extends StatelessWidget {
   final HomeHabit habit;
 
   /// Whether the day is a count (`2/3` until done) rather than done or not.
   final bool counts;
-  final VoidCallback onTap;
+
+  /// The ring was tapped; the ring's centre, in global coordinates.
+  final ValueChanged<Offset> onToggle;
+  final VoidCallback onOpen;
   final VoidCallback onLongPress;
 
   const HomeHabitRow({
     super.key,
     required this.habit,
     required this.counts,
-    required this.onTap,
+    required this.onToggle,
+    required this.onOpen,
     required this.onLongPress,
   });
 
@@ -31,74 +47,63 @@ class HomeHabitRow extends StatelessWidget {
   Widget build(BuildContext context) {
     final c = context.nok;
     final text = Theme.of(context).textTheme;
-    final l = context.l10n;
-    final color = hexColor(habit.color, fallback: c.gold);
+    final tone = entityTone(habit.color, c);
+    final large = MediaQuery.textScalerOf(context).scale(1) > 1.3;
 
-    final metaParts = <String>[];
-    if (habit.currentStreak > 0) metaParts.add('🔥 ${habit.currentStreak}');
-    if (counts) metaParts.add('${habit.todayCount}/${habit.targetCount}');
-    final meta = metaParts.join(' · ');
+    final meta = <Widget>[
+      if (habit.currentStreak > 0) StreakFlame(days: habit.currentStreak),
+      if (counts)
+        Text(
+          '${habit.todayCount}/${habit.targetCount}',
+          style: context.nokText.numMeta.copyWith(color: c.inkMid),
+        ),
+    ];
 
-    return ConstrainedBox(
-      constraints: const BoxConstraints(minHeight: 56),
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 4),
-        child: Row(
-          children: [
-            Expanded(
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    habit.name,
-                    style: text.titleMedium,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                  if (meta.isNotEmpty)
+    return InkWell(
+      onTap: onOpen,
+      onLongPress: onLongPress,
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(minHeight: 56),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(
+            horizontal: Insets.rowH,
+            vertical: Gap.sm,
+          ),
+          child: Row(
+            children: [
+              Expanded(
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
                     Text(
-                      meta,
-                      style: text.bodySmall!.copyWith(color: c.inkMid),
-                      maxLines: 1,
+                      habit.name,
+                      style: text.titleMedium,
+                      maxLines: large ? 3 : 2,
                       overflow: TextOverflow.ellipsis,
                     ),
-                ],
-              ),
-            ),
-            const SizedBox(width: 12),
-            // One stop for a screen reader: the habit and its day, a
-            // double-tap logs it like a tap, and a long-press opens the
-            // day's log. The ring's own detectors are left out of the tree —
-            // each would be a stop of its own (the tap one unlabelled), and
-            // this node would then answer a double-tap with nothing.
-            Semantics(
-              label: l.habitLogSemantics(
-                habit.name,
-                count: habit.todayCount,
-                target: counts ? habit.targetCount : 1,
-                done: habit.completedToday,
-              ),
-              hint: l.habitLogHint,
-              button: true,
-              checked: habit.completedToday,
-              onTap: onTap,
-              onLongPress: onLongPress,
-              child: ExcludeSemantics(
-                child: GestureDetector(
-                  onLongPress: onLongPress,
-                  child: _HabitRing(
-                    color: color,
-                    done: habit.completedToday,
-                    counts: counts,
-                    targetCount: habit.targetCount,
-                    todayCount: habit.todayCount,
-                    onTap: onTap,
-                  ),
+                    if (meta.isNotEmpty)
+                      Padding(
+                        padding: const EdgeInsets.only(top: Gap.xxs),
+                        child: Wrap(
+                          spacing: Gap.sm,
+                          crossAxisAlignment: WrapCrossAlignment.center,
+                          children: meta,
+                        ),
+                      ),
+                  ],
                 ),
               ),
-            ),
-          ],
+              const SizedBox(width: Gap.md),
+              _HabitRing(
+                habit: habit,
+                counts: counts,
+                tone: tone,
+                onToggle: onToggle,
+                onLongPress: onLongPress,
+              ),
+            ],
+          ),
         ),
       ),
     );
@@ -106,48 +111,90 @@ class HomeHabitRow extends StatelessWidget {
 }
 
 class _HabitRing extends StatelessWidget {
-  final Color color;
-  final bool done;
-  final bool counts;
-  final int targetCount;
-  final int todayCount;
-  final VoidCallback onTap;
-
   const _HabitRing({
-    required this.color,
-    required this.done,
+    required this.habit,
     required this.counts,
-    required this.targetCount,
-    required this.todayCount,
-    required this.onTap,
+    required this.tone,
+    required this.onToggle,
+    required this.onLongPress,
   });
+
+  final HomeHabit habit;
+  final bool counts;
+  final EntityTone tone;
+  final ValueChanged<Offset> onToggle;
+  final VoidCallback onLongPress;
 
   @override
   Widget build(BuildContext context) {
-    final text = Theme.of(context).textTheme;
-    // A counted habit goes up one per tap; it shows its progress until
-    // complete, then the CheckPop fill/overshoot lands on the completing tap.
-    // Uncheck is plain.
+    final l = context.l10n;
+    final done = habit.completedToday;
+    // A counted habit fills a segment per tap; the completing tap lands the
+    // CheckPop's fill and pop.
     final showCount = counts && !done;
 
-    return SizedBox(
-      width: 48,
-      height: 48,
-      child: Stack(
-        alignment: Alignment.center,
-        children: [
-          CheckPop(checked: done, color: color, size: 40, onTap: onTap),
-          if (showCount)
-            IgnorePointer(
-              child: Text(
-                '$todayCount/$targetCount',
-                style: text.labelSmall!.copyWith(
-                  color: color,
-                  fontFeatures: tabularFigures,
+    void tap() {
+      final box = context.findRenderObject() as RenderBox?;
+      final origin = box == null || !box.hasSize
+          ? Offset.zero
+          : box.localToGlobal(box.size.center(Offset.zero));
+      onToggle(origin);
+    }
+
+    // One stop for a screen reader: the habit and its day, a double-tap
+    // logs it like a tap, and a long-press opens the day's log. The ring's
+    // own detectors are left out of the tree — each would be a stop of its
+    // own (the tap one unlabelled), and this node would then answer a
+    // double-tap with nothing.
+    return Semantics(
+      label: l.habitLogSemantics(
+        habit.name,
+        count: habit.todayCount,
+        target: counts ? habit.targetCount : 1,
+        done: done,
+      ),
+      hint: l.habitLogHint,
+      button: true,
+      checked: done,
+      onTap: tap,
+      onLongPress: onLongPress,
+      child: ExcludeSemantics(
+        child: GestureDetector(
+          onLongPress: onLongPress,
+          child: SizedBox.square(
+            dimension: Hit.min,
+            child: Stack(
+              alignment: Alignment.center,
+              children: [
+                // Under the count's ring the check's own outline would show
+                // through the gaps between segments: it stays out of sight
+                // (and still takes the tap) until the day is done.
+                Opacity(
+                  opacity: showCount ? 0 : 1,
+                  child: CheckPop(
+                    checked: done,
+                    tone: tone,
+                    size: 40,
+                    onTap: tap,
+                  ),
                 ),
-              ),
+                if (showCount)
+                  IgnorePointer(
+                    child: ProgressRing(
+                      value: habit.targetCount <= 0
+                          ? 0
+                          : habit.todayCount / habit.targetCount,
+                      color: tone.fill,
+                      size: 40,
+                      strokeWidth: 3,
+                      segments: habit.targetCount,
+                      semanticsValue: '',
+                    ),
+                  ),
+              ],
             ),
-        ],
+          ),
+        ),
       ),
     );
   }

@@ -43,10 +43,17 @@ IconData _weatherIcon(String? weather, AppL10n l) {
 /// entry, or [entry] to edit — the full entry (`GET /journal_entries/:id`);
 /// given a list item, the editor loads the full one first. Completes with
 /// true once something was saved (an entry deleted elsewhere meanwhile may
-/// have been saved as a new one).
-Future<bool?> openJournalEditor(BuildContext context, {JournalEntry? entry}) {
+/// have been saved as a new one). [initialMood] starts a new entry with that
+/// mood picked (Today's mood buttons).
+Future<bool?> openJournalEditor(
+  BuildContext context, {
+  JournalEntry? entry,
+  String? initialMood,
+}) {
   return Navigator.of(context, rootNavigator: true).push<bool>(
-    slideUpModalRoute((_) => JournalEditorScreen(editEntry: entry)),
+    slideUpModalRoute(
+      (_) => JournalEditorScreen(editEntry: entry, initialMood: initialMood),
+    ),
   );
 }
 
@@ -70,7 +77,10 @@ const journalDraftInterval = Duration(seconds: 5);
 ///   and its text, which can be saved as a new entry.
 class JournalEditorScreen extends ConsumerStatefulWidget {
   final JournalEntry? editEntry;
-  const JournalEditorScreen({super.key, this.editEntry});
+
+  /// A new entry's mood, already picked (Today's mood buttons).
+  final String? initialMood;
+  const JournalEditorScreen({super.key, this.editEntry, this.initialMood});
 
   @override
   ConsumerState<JournalEditorScreen> createState() =>
@@ -144,6 +154,8 @@ class _JournalEditorScreenState extends ConsumerState<JournalEditorScreen> {
       // The account's today (see data/current_day.dart).
       _date = ref.read(currentDayProvider);
       _start(showMood: true);
+      // Picked on Today: a change from the blank baseline, so it is kept.
+      if (widget.initialMood != null) _mood = widget.initialMood;
     } else if (e.isFull) {
       _fill(e);
       _start();

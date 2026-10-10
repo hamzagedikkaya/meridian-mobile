@@ -1,7 +1,11 @@
 import 'package:flutter/material.dart';
 
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+
 import '../../../core/formats.dart';
+import '../../../core/session.dart';
 import '../../../data/providers.dart' show TxFilters;
+import '../../../models/account.dart';
 import '../../../models/date_utils.dart';
 import '../../../theme/entity_color.dart';
 
@@ -61,4 +65,81 @@ String shortMonthLabel(String yyyyMm) {
   final month = int.tryParse(parts[1]);
   if (year == null || month == null || month < 1 || month > 12) return yyyyMm;
   return formatMonthShort(DateTime(year, month));
+}
+
+/// The icon of an account type (design-analysis §7.6).
+IconData accountTypeIcon(String type) => switch (type) {
+      'cash' => Icons.payments_outlined,
+      'bank' => Icons.account_balance_outlined,
+      'credit_card' => Icons.credit_card_rounded,
+      'savings' => Icons.savings_outlined,
+      'crypto' => Icons.currency_bitcoin_rounded,
+      _ => Icons.account_balance_wallet_outlined,
+    };
+
+/// One currency's sum of balances.
+typedef CurrencySum = ({String currency, int subunitToUnit, int cents});
+
+/// [accounts]' balances added up per currency — never across currencies
+/// (contract §1.7): [first] (the user's currency) leads, the rest follow by
+/// code.
+List<CurrencySum> balancesByCurrency(
+  Iterable<Account> accounts, {
+  String? first,
+}) {
+  final sums = <String, CurrencySum>{};
+  for (final a in accounts) {
+    final code = a.currency.toUpperCase();
+    final sum = sums[code];
+    sums[code] = (
+      currency: code,
+      subunitToUnit: a.subunitToUnit,
+      cents: (sum?.cents ?? 0) + a.balanceCents,
+    );
+  }
+  final lead = first?.toUpperCase();
+  return sums.values.toList()
+    ..sort((a, b) {
+      if (a.currency == lead) return -1;
+      if (b.currency == lead) return 1;
+      return a.currency.compareTo(b.currency);
+    });
+}
+
+/// [sums] in one line: "₺36.250 · 412 gr".
+String formatCurrencySums(List<CurrencySum> sums) => [
+      for (final s in sums)
+        formatMoney(
+          s.cents,
+          s.currency,
+          s.subunitToUnit,
+          decimals: MoneyDecimals.auto,
+        ),
+    ].join(' · ');
+
+/// The account new transactions start on, as this device remembers it
+/// ([PrefKeys.lastAccountId]); null without one (or without preferences, in
+/// tests).
+int? defaultAccountId(WidgetRef ref) {
+  try {
+    return ref.read(sharedPrefsProvider).getInt(PrefKeys.lastAccountId);
+  } catch (_) {
+    return null;
+  }
+}
+
+/// Makes [id] the account new transactions start on — or, with [id] null,
+/// forgets [unless] as the default when it is the one.
+void setDefaultAccountId(WidgetRef ref, int? id, {int? unless}) {
+  try {
+    final prefs = ref.read(sharedPrefsProvider);
+    if (id != null) {
+      prefs.setInt(PrefKeys.lastAccountId, id);
+    } else if (unless != null &&
+        prefs.getInt(PrefKeys.lastAccountId) == unless) {
+      prefs.remove(PrefKeys.lastAccountId);
+    }
+  } catch (_) {
+    // No preferences (a test without them): nothing to remember.
+  }
 }

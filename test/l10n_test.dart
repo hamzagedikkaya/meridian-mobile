@@ -146,7 +146,7 @@ void main() {
         expect(tr.accountType(type), isNotEmpty);
         expect(en.accountType(type), isNotEmpty);
       }
-      expect(tr.accountType('credit_card'), 'Kredi Kartı');
+      expect(tr.accountType('credit_card'), 'Kredi kartı');
       expect(en.accountType('credit_card'), 'Credit Card');
       // An unknown type still renders something sensible.
       expect(en.accountType('brokerage'), 'Account');
