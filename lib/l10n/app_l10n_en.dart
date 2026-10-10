@@ -486,16 +486,16 @@ class AppL10nEn extends AppL10n {
   // region quick capture (WP-6)
 
   @override
-  String captureSavedExpense(String amount, String description) =>
-      'Expense added · $amount · $description';
+  String captureSavedExpense(String amount, String account) =>
+      'Expense added · $amount · $account';
   @override
-  String captureSavedIncome(String amount, String description) =>
-      'Income added · $amount · $description';
+  String captureSavedIncome(String amount, String account) =>
+      'Income added · $amount · $account';
   @override
   String captureSavedHabit(String name, {required bool completed}) =>
       completed ? '“$name” done for today' : '“$name” logged';
   @override
-  String captureSavedTodo(String title) => 'Task added: $title';
+  String captureSavedTodo(String title) => 'Task added · $title';
   @override
   String captureSaved(String summary) => 'Saved: $summary';
   @override
@@ -512,9 +512,60 @@ class AppL10nEn extends AppL10n {
   @override
   String get captureAddAsEvent => 'Add as an event';
   @override
-  String get captureCreateAccount => 'Create an account';
+  String get captureCreateAccount => 'Open a cash account';
   @override
   String captureCreateHabit(String name) => 'Create the habit “$name”';
+  @override
+  String get quickAddTitle => 'Quick add';
+  @override
+  String get quickAddHint => 'What do you want to add?';
+  @override
+  String quickAddAuto(String? guess) =>
+      guess == null ? 'Auto' : 'Auto · $guess';
+  @override
+  String get quickAddKindTask => 'Task';
+  @override
+  String get quickAddKindExpense => 'Expense';
+  @override
+  String get quickAddKindIncome => 'Income';
+  @override
+  String get quickAddKindEvent => 'Event';
+  @override
+  String get quickAddKindHabit => 'Habit';
+  @override
+  String get quickAddAction => 'Add';
+  @override
+  String get quickAddActionTask => 'Add task';
+  @override
+  String get quickAddActionExpense => 'Add expense';
+  @override
+  String get quickAddActionIncome => 'Add income';
+  @override
+  String get quickAddActionEvent => 'Open as event';
+  @override
+  String get quickAddActionHabit => 'Check off habit';
+  @override
+  List<String> get quickAddExamples => const [
+        '−85 coffee',
+        '+1,500 salary',
+        'tomorrow 15:00 dentist',
+        'habit: water',
+        'buy milk',
+      ];
+  @override
+  String get quickAddPickHabit => 'Which habit?';
+  @override
+  String get quickAddNoHabits => 'No habits for today';
+  @override
+  String get quickAddNewHabit => 'Create a habit';
+  @override
+  String get quickAddHabitsFailed => 'Couldn\'t load your habits';
+  @override
+  String get quickAddHabitDone => 'Done today';
+  @override
+  String get quickAddFailed => 'Couldn\'t add that';
+  @override
+  String get quickAddUndoFailed => 'Couldn\'t undo that';
   // endregion
 
   // --- Todos and todo lists -------------------------------------------------
@@ -663,15 +714,33 @@ class AppL10nEn extends AppL10n {
   String todoListDeleteBody(int total) => total == 0
       ? 'This list is empty.'
       : 'This list has $total ${total == 1 ? 'task' : 'tasks'} (finished ones '
-          'included). They can be deleted with it, or kept without a list.';
+          'included).';
   @override
-  String get todoListDeleteKeep => 'Keep the tasks, without a list';
+  String get todoListDeleteKeep => 'Keep the tasks, unlisted';
   @override
   String get todoListDeleteAll => 'Delete with its tasks';
   @override
   String todoListDeleted(String name) => 'List “$name” deleted';
   @override
   String get todoListDeleteFailed => 'Couldn’t delete the list';
+
+  @override
+  String get todoMoreFields => 'More';
+  @override
+  String todoMovedToday(String title) => '“$title” moved to today';
+  @override
+  String todoMovedOn(String title, String day) => '“$title” moved · $day';
+  @override
+  String todosMovedToday(int count) =>
+      '$count ${count == 1 ? 'task' : 'tasks'} moved to today';
+  @override
+  String todoReopened(String title) => '“$title” reopened';
+  @override
+  String get todoListsArchived => 'Archived';
+  @override
+  String todoListArchived(String name) => 'List “$name” archived';
+  @override
+  String todoListRestored(String name) => 'List “$name” restored';
   // endregion
 
   // --- Events and agenda ----------------------------------------------------
@@ -754,8 +823,7 @@ class AppL10nEn extends AppL10n {
   String get eventEndBeforeStart => 'The end must be after the start';
   @override
   String get eventSeriesFormNote =>
-      'Recurring event: what you save changes every event in the series. '
-      'The date is the series’ first event.';
+      'This change affects every event in the series';
   @override
   String get eventSeriesNote =>
       'Recurring event: editing or deleting it changes every event in the '
@@ -771,15 +839,16 @@ class AppL10nEn extends AppL10n {
   @override
   String get eventDeleteFailed => 'Couldn’t delete the event';
   @override
-  String get eventDeleteSeriesTitle => 'Delete a recurring event';
+  String get eventDeleteSeriesTitle => 'Recurring event';
   @override
-  String eventDeleteFollowing(DateTime day) =>
-      '${relativeDay(day)} and after';
+  String eventDeleteFollowing(DateTime day) => 'Delete this and later ones';
   @override
   String eventDeleteFollowingHint(DateTime day) =>
-      'The events before this date stay.';
+      'The events before '
+      '${formatDate(day, withYear: day.year != appToday().year, locale: localeCode)} '
+      'stay.';
   @override
-  String get eventDeleteAll => 'The whole series';
+  String get eventDeleteAll => 'Delete the whole series';
   @override
   String get eventDeleteAllHint => 'Every event in the series is deleted.';
   @override
@@ -790,6 +859,51 @@ class AppL10nEn extends AppL10n {
   @override
   String eventSemantics(String title, {required String when, String? where}) =>
       [title, when, ?where].join(', ');
+
+  @override
+  String get agendaViewUpcoming => 'Upcoming';
+  @override
+  String get agendaViewInbox => 'Inbox';
+  @override
+  String get agendaViewOverdue => 'Overdue';
+  @override
+  String get agendaViewDone => 'Done';
+  @override
+  String agendaChipCount(String label, int count) => '$label · $count';
+  @override
+  String agendaListChip(String? name) => 'List: ${name ?? 'All'}';
+  @override
+  String get agendaLater => 'Later';
+  @override
+  String get agendaUpcomingEmpty => 'The days ahead are calm';
+  @override
+  String get agendaUpcomingEmptyBody =>
+      'The tasks and events you add line up here, day by day.';
+  @override
+  String get agendaTodayEmpty => 'Nothing planned for today';
+  @override
+  String get agendaInboxEmpty =>
+      'Your inbox is empty — tasks without a date gather here';
+  @override
+  String get agendaCaptureLabel => 'Add a task, event…';
+  @override
+  String get agendaAddEvent => 'Add event';
+  @override
+  String get agendaShowDone => 'Completed';
+  @override
+  String get agendaDayAddHint => 'add to this day';
+  @override
+  String get eventDate => 'Date';
+  @override
+  String get eventEndDay => 'Ends on';
+  @override
+  String get eventSameDay => 'Same day';
+  @override
+  String get eventTime => 'Time';
+  @override
+  String get eventMoreFields => 'More';
+  @override
+  String recurrenceWeeklyOn(String weekday) => 'Every week on $weekday';
   // endregion
 
   // --- Habit day log --------------------------------------------------------
@@ -823,6 +937,18 @@ class AppL10nEn extends AppL10n {
 
   @override
   String get habitLogHint => 'Long-press to adjust';
+  @override
+  String get habitLogAdd => 'Add';
+  @override
+  String get habitLogSet => 'Set';
+  @override
+  String habitLogPlus(int n) => '+$n';
+  @override
+  String get habitLogToTarget => 'Fill to target';
+  @override
+  String habitLogNow(int count) => 'Now $count';
+  @override
+  String habitLogNowPlus(int count, int add) => 'Now $count · +$add';
   // endregion
 
   // --- Finance --------------------------------------------------------------
@@ -1646,8 +1772,88 @@ class AppL10nEn extends AppL10n {
         : count > 0
             ? '$count of $target'
             : 'not done';
-    return loggable ? '$date, $state' : '$date, $state, can\'t be changed';
+    return loggable ? '$date, $state' : '$date, $state, can\'t be logged';
   }
+  @override
+  String get habitsNew => 'New';
+  @override
+  String get habitsMenuArchive => 'Archive';
+  @override
+  String habitsAddedNamed(String name) => '“$name” added';
+  @override
+  String get habitsPickFirst => 'Pick your first habit';
+  @override
+  String get habitsStarterBody =>
+      'Tap one to add it now — you can edit it later.';
+  @override
+  String get habitsStarterWater => 'Water';
+  @override
+  String get habitsStarterWaterChip => 'Water · 8 a day';
+  @override
+  String get habitsStarterWalk => 'Walk';
+  @override
+  String get habitsStarterRead => 'Reading';
+  @override
+  String get habitsStarterReadChip => 'Reading · 10 pages';
+  @override
+  String get habitsStarterSleep => 'Early bedtime';
+  @override
+  String get habitsStarterMeditate => 'Meditation';
+  @override
+  String get habitsStarterCustom => 'Custom…';
+  @override
+  String habitsDoneOfTotalRest(int total) => ' / $total done';
+  @override
+  String habitsPerfectMeta(int streak, int record) =>
+      'Perfect streak $streak · Best $record';
+  @override
+  String habitsRate30d(int rate) => '$rate% (30d)';
+  @override
+  String get habitsDayStateDone => 'done';
+  @override
+  String get habitsDayStatePartial => 'partial';
+  @override
+  String get habitsDayStateMissed => 'missed';
+  @override
+  String get habitsDayStatePending => 'pending';
+  @override
+  String get habitsDayStateNone => 'no log';
+  @override
+  String get habitsLegendToday => 'Today';
+  @override
+  String get habitsDayCannotLog => 'Can\'t be logged';
+  @override
+  String habitsStartedOn(String date) => 'Started $date';
+  @override
+  String habitsCadenceDaily(int target) =>
+      target == 1 ? 'Daily' : 'Daily · $target/day';
+  @override
+  String habitsCadenceWeekly(int target) =>
+      'Weekly · $target ${target == 1 ? 'day' : 'days'}';
+  @override
+  String habitsCadenceMonthly(int target) =>
+      'Monthly · $target ${target == 1 ? 'day' : 'days'}';
+  @override
+  String get habitsTrackingGoals => 'Goals tracking it';
+  @override
+  String get habitsSetGoal => 'Set a goal for this habit';
+  @override
+  String get habitsDeleteForever => 'Delete for good';
+  @override
+  String habitsTargetDaily(int target) =>
+      target == 1 ? 'once a day' : '$target times a day';
+  @override
+  String habitsTargetWeekly(int target) =>
+      '$target ${target == 1 ? 'day' : 'days'} a week';
+  @override
+  String habitsTargetMonthly(int target) =>
+      '$target ${target == 1 ? 'day' : 'days'} a month';
+  @override
+  String get habitsTargetTypeHint => 'Tap to type the target';
+  @override
+  String get habitsFormMore => 'More';
+  @override
+  String habitsFormStarted(String date) => 'Started: $date';
   // endregion
 
   // --- Goals ----------------------------------------------------------------

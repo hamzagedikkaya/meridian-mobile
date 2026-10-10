@@ -15,11 +15,10 @@ import 'package:meridian_mobile/models/home.dart';
 import 'package:meridian_mobile/theme/app_theme.dart';
 import 'package:meridian_mobile/ui/screens/habits/habit_form.dart';
 import 'package:meridian_mobile/ui/screens/habits/habits_screen.dart';
-import 'package:meridian_mobile/ui/screens/habits/widgets/habit_check.dart';
 import 'package:meridian_mobile/ui/screens/today/today_screen.dart';
 import 'package:meridian_mobile/ui/screens/today/widgets/today_skeleton.dart';
 import 'package:meridian_mobile/ui/screens/today/widgets/todo_row.dart';
-import 'package:meridian_mobile/ui/screens/todos/todos_screen.dart';
+import 'package:meridian_mobile/ui/screens/agenda/agenda_screen.dart';
 import 'package:meridian_mobile/ui/widgets/check_pop.dart';
 import 'package:meridian_mobile/ui/widgets/offline_banner.dart';
 
@@ -62,9 +61,9 @@ Future<void> _settle(WidgetTester tester) async {
 }
 
 bool _checked(WidgetTester tester, Finder habitCard) => tester
-    .widget<HabitCheck>(
-        find.descendant(of: habitCard, matching: find.byType(HabitCheck)))
-    .completed;
+    .widget<CheckPop>(
+        find.descendant(of: habitCard, matching: find.byType(CheckPop)))
+    .checked;
 
 /// GET /home once Su (8) is at [count] of 3.
 Map<String, dynamic> _homeWithSuAt(int count) {
@@ -141,7 +140,7 @@ void main() {
     expect(_checked(tester, card), isFalse);
 
     api.hold(_log7);
-    await tester.tap(find.descendant(of: card, matching: find.byType(HabitCheck)));
+    await tester.tap(find.descendant(of: card, matching: find.byType(CheckPop)));
     await tester.pump();
     expect(_checked(tester, card), isTrue, reason: 'optimistic');
 
@@ -150,7 +149,12 @@ void main() {
       await tester.pump(const Duration(milliseconds: 50));
       expect(_checked(tester, card), isTrue, reason: 'frame $i');
     }
-    expect(find.text('1 / 2 tamamlandı'), findsOneWidget);
+    // The hero's count rolls its number: it reads as one label.
+    expect(
+      find.byWidgetPredicate((w) =>
+          w is Semantics && w.properties.label == '1 / 2 tamamlandı'),
+      findsOneWidget,
+    );
     // The write's own answer updated the list: no GET /habits round trip.
     expect(api.gets.where((p) => p == '/habits'), hasLength(1));
     await tester.pumpAndSettle();
@@ -237,7 +241,7 @@ void main() {
     // A tick (and its answer) while the refetch is on its way.
     final card = find.byKey(const ValueKey('habit-7'));
     await tester.tap(
-        find.descendant(of: card, matching: find.byType(HabitCheck)));
+        find.descendant(of: card, matching: find.byType(CheckPop)));
     await _settle(tester);
     expect(_checked(tester, card), isTrue);
     expect(api.requests, contains(_log7));
@@ -318,11 +322,11 @@ void main() {
     await tester.pumpAndSettle();
   });
 
-  group('the Todos screen decides like every screen', () {
+  group('the Agenda decides like every screen', () {
     Future<void> open(WidgetTester tester, FakeApi api) async {
       _tallPhone(tester);
       await tester.pumpWidget(_app(
-        const TodosScreen(initialFilter: 'today'),
+        const AgendaTabScreen(),
         [
           dioProvider.overrideWithValue(api.dio),
           currentUserProvider.overrideWithValue(null),
@@ -331,7 +335,7 @@ void main() {
       ));
     }
 
-    Finder failed() => find.text('Görevler yüklenemedi');
+    Finder failed() => find.text('Sunucuya ulaşılamıyor');
 
     testWidgets('a first load that blips and heals on the quick retry shows '
         'the skeleton throughout, never the failure', (tester) async {

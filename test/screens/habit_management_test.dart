@@ -5,6 +5,7 @@
 library;
 
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart' show RenderParagraph;
 import 'package:flutter/semantics.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -21,8 +22,10 @@ import 'package:meridian_mobile/ui/screens/habits/habit_detail_sheet.dart';
 import 'package:meridian_mobile/ui/screens/habits/habit_form.dart';
 import 'package:meridian_mobile/ui/screens/habits/habits_screen.dart';
 import 'package:meridian_mobile/ui/screens/habits/widgets/habit_calendar.dart';
-import 'package:meridian_mobile/ui/screens/habits/widgets/habit_check.dart';
+import 'package:meridian_mobile/ui/widgets/celebration_layer.dart';
+import 'package:meridian_mobile/ui/widgets/check_pop.dart';
 
+import '../support/app_fonts.dart';
 import '../support/fake_api.dart';
 
 /// Koşu (7) as `GET /habits/:id` answers: started 20 September, a chain
@@ -65,8 +68,14 @@ Map<String, dynamic> _detail({
 
 final _kosu = Habit.fromJson(habitJson());
 
-Future<void> _pump(WidgetTester tester, FakeApi api, Widget home) async {
-  tester.view.physicalSize = const Size(1170, 4200);
+Future<void> _pump(
+  WidgetTester tester,
+  FakeApi api,
+  Widget home, {
+  Size size = const Size(1170, 4200),
+  double textScale = 1,
+}) async {
+  tester.view.physicalSize = size;
   tester.view.devicePixelRatio = 3.0;
   addTearDown(tester.view.resetPhysicalSize);
   addTearDown(tester.view.resetDevicePixelRatio);
@@ -95,6 +104,13 @@ Future<void> _pump(WidgetTester tester, FakeApi api, Widget home) async {
           GlobalCupertinoLocalizations.delegate,
         ],
         routerConfig: router,
+        // The app's celebration layer: a past day must not set it off.
+        builder: (context, child) => MediaQuery(
+          data: MediaQuery.of(
+            context,
+          ).copyWith(textScaler: TextScaler.linear(textScale)),
+          child: CelebrationLayer(child: child!),
+        ),
       ),
     ),
   );
@@ -133,6 +149,43 @@ Future<void> _tapVisible(WidgetTester tester, Finder finder) async {
 
 Finder _day(String date) => find.byKey(ValueKey('habit-day-$date'));
 
+/// The archive: Kitap (11), archived on 28 September; its detail says
+/// what a delete would take.
+FakeApi _archiveApi() => FakeApi()
+  ..onRequest('GET /habits', (request) {
+    if (request.queryParameters['archived'] == true) {
+      return {
+        'habits': [
+          {
+            ...habitJson(id: 11, name: 'Kitap'),
+            'archived': true,
+            'archived_at': '2026-09-28T18:00:00.000+03:00',
+          },
+        ],
+        'meta': habitsMeta(),
+      };
+    }
+    return habitsJson();
+  })
+  ..on('GET /habits/11', {
+    'habit': {
+      ...habitDetailJson(id: 11, name: 'Kitap', logged: 42),
+      'archived': true,
+      'archived_at': '2026-09-28T18:00:00.000+03:00',
+    },
+  })
+  ..on('DELETE /habits/11', null, status: 204);
+
+/// [finder]'s paragraph is on one line, at its own width — not squeezed
+/// into a column a few letters wide.
+void _expectOneLine(WidgetTester tester, Finder finder) {
+  final p = tester.renderObject<RenderParagraph>(finder);
+  expect(
+    p.size.width,
+    greaterThanOrEqualTo(p.getMaxIntrinsicWidth(double.infinity) - 0.5),
+  );
+}
+
 Finder _inDialog(String text) =>
     find.descendant(of: find.byType(AlertDialog), matching: find.text(text));
 
@@ -167,7 +220,7 @@ void main() {
         tester,
         find.descendant(
           of: find.byType(HabitDayEditor),
-          matching: find.byType(HabitCheck),
+          matching: find.byType(CheckPop),
         ),
       );
       expect(api.bodiesOf('PUT /habits/7/logs/2026-10-02'), [
@@ -175,6 +228,52 @@ void main() {
       ]);
       expect(find.text('Yapıldı'), findsOneWidget);
       // Back-filled days never celebrate, and nothing went wrong.
+      expect(find.byType(ConfettiBurst), findsNothing);
+      expect(tester.takeException(), isNull);
+    });
+
+    testWidgets('a past day that the server answers with a streak milestone '
+        'and a perfect week celebrates nothing (tier 2 and 3)', (tester) async {
+      final answer = logAnswer(7, '2026-10-04', 0);
+      answer['habit'] = {
+        ...(answer['habit'] as Map<String, dynamic>),
+        'current_streak': 7,
+      };
+      answer['meta'] = {
+        ...habitsMeta(completedToday: 2, totalActive: 2),
+        'perfect_day': {
+          'chain': [
+            {'date': '2026-10-04', 'status': 'perfect'},
+          ],
+          'current_streak': 7,
+          'longest_streak': 7,
+        },
+      };
+      final api = FakeApi()
+        ..on('GET /habits/7', {'habit': _detail()})
+        ..on('PUT /habits/7/logs/2026-10-02', answer);
+      // The Habits tab under the sheet: the list a tap there would
+      // celebrate from.
+      await _pump(tester, api, const HabitsScreen());
+      await tester.tap(find.text('Koşu'));
+      await _settle(tester);
+      await _tapVisible(tester, _day('2026-10-02'));
+      await _tapVisible(
+        tester,
+        find.descendant(
+          of: find.byType(HabitDayEditor),
+          matching: find.byType(CheckPop),
+        ),
+      );
+      expect(api.bodiesOf('PUT /habits/7/logs/2026-10-02'), [
+        {'count': 1},
+      ]);
+      for (var i = 0; i < 40; i++) {
+        await tester.pump(const Duration(milliseconds: 50));
+        expect(find.byType(ConfettiBurst), findsNothing);
+        expect(find.text('7 gün · Koşu'), findsNothing);
+        expect(find.text('İlk mükemmel hafta'), findsNothing);
+      }
       expect(tester.takeException(), isNull);
     });
 
@@ -239,7 +338,7 @@ void main() {
         tester,
         find.descendant(
           of: find.byType(HabitDayEditor),
-          matching: find.byType(HabitCheck),
+          matching: find.byType(CheckPop),
         ),
       );
       expect(find.text('Arşivlenmiş alışkanlık işaretlenemez'), findsWidgets);
@@ -253,7 +352,7 @@ void main() {
       await _openSheet(tester);
       expect(find.textContaining('Arşivde:'), findsOneWidget);
       await _tapVisible(tester, _day('2026-10-02'));
-      expect(find.byType(HabitCheck), findsNothing);
+      expect(find.byType(CheckPop), findsNothing);
       expect(find.text('Arşivlenmiş alışkanlık işaretlenemez'), findsOneWidget);
     });
   });
@@ -264,7 +363,7 @@ void main() {
     await _pump(tester, api, _opener());
     await _openSheet(tester);
 
-    await _tapVisible(tester, find.text('Düzenle'));
+    await _tapVisible(tester, find.byTooltip('Düzenle'));
     expect(find.byType(HabitFormScreen), findsOneWidget);
     expect(find.text('Alışkanlığı düzenle'), findsOneWidget);
     expect(find.text('Sabah, kahvaltıdan önce'), findsOneWidget);
@@ -288,7 +387,7 @@ void main() {
     final api = FakeApi()..on('GET /habits/7', {'habit': _detail()});
     await _pump(tester, api, _opener());
     await _openSheet(tester);
-    await _tapVisible(tester, find.text('Düzenle'));
+    await _tapVisible(tester, find.byTooltip('Düzenle'));
     await tester.enterText(
       find.widgetWithText(TextField, 'Alışkanlık adı'),
       'Başka',
@@ -425,9 +524,9 @@ void main() {
       ..on('PATCH /habits/11/unarchive', {'habit': habitJson(id: 11)});
     await _pump(tester, api, const HabitsScreen());
 
-    await tester.tap(find.byIcon(Icons.more_vert));
+    await tester.tap(find.byIcon(Icons.more_vert_rounded));
     await _settle(tester);
-    await tester.tap(find.text('Arşivlenmiş alışkanlıklar'));
+    await tester.tap(find.text('Arşiv'));
     await _settle(tester);
     expect(find.byType(ArchivedHabitsScreen), findsOneWidget);
     expect(find.text('Kitap'), findsOneWidget);
@@ -439,6 +538,30 @@ void main() {
     expect(find.text('“Kitap” yeniden aktif'), findsOneWidget);
   });
 
+  testWidgets('the archive\'s ⋯ deletes a habit for good, after the dialog '
+      'that says how many logged days go', (tester) async {
+    final api = _archiveApi();
+    await _pump(tester, api, const ArchivedHabitsScreen());
+    await tester.tap(find.byIcon(Icons.more_horiz_rounded));
+    await _settle(tester);
+    await tester.tap(find.text('Kalıcı olarak sil'));
+    await _settle(tester);
+    expect(api.requests, contains('GET /habits/11'));
+    expect(find.text('“Kitap” silinsin mi?'), findsOneWidget);
+    expect(
+      find.descendant(
+        of: find.byType(AlertDialog),
+        matching: find.textContaining('42 gün'),
+      ),
+      findsOneWidget,
+    );
+    await tester.tap(_inDialog('Sil'));
+    await _settle(tester);
+    expect(api.requests, contains('DELETE /habits/11'));
+    expect(find.text('Kitap'), findsNothing);
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('an empty archive says so', (tester) async {
     final api = FakeApi()
       ..onRequest(
@@ -447,5 +570,36 @@ void main() {
       );
     await _pump(tester, api, const ArchivedHabitsScreen());
     expect(find.text('Arşivde alışkanlık yok'), findsOneWidget);
+  });
+
+  // Last in the file: once loaded, the real fonts stay for every test after.
+  group('with the real fonts', () {
+    setUpAll(loadAppFonts);
+
+    for (final scale in [1.0, 1.3, 2.0]) {
+      testWidgets('the archive on a phone at ×$scale text: the name and its '
+          'date readable, nothing overflows (§8.3)', (tester) async {
+        await _pump(
+          tester,
+          _archiveApi(),
+          const ArchivedHabitsScreen(),
+          size: const Size(1080, 2340),
+          textScale: scale,
+        );
+        expect(tester.takeException(), isNull);
+        expect(find.text('Kitap'), findsOneWidget);
+        expect(tester.getSize(find.text('Kitap')).width, greaterThan(40));
+        _expectOneLine(tester, find.text('Kitap'));
+        _expectOneLine(tester, find.text('Arşivlendi: 28 Eylül'));
+        _expectOneLine(tester, find.text('Arşivden çıkar'));
+        // Both actions still there, at least 48 dp.
+        final restore = tester.getSize(
+          find.widgetWithText(TextButton, 'Arşivden çıkar'),
+        );
+        expect(restore.width, greaterThanOrEqualTo(48));
+        expect(restore.height, greaterThanOrEqualTo(48));
+        expect(find.byIcon(Icons.more_horiz_rounded), findsOneWidget);
+      });
+    }
   });
 }

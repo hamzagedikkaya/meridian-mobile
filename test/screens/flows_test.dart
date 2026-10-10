@@ -8,6 +8,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:intl/date_symbol_data_local.dart';
 import 'package:meridian_mobile/models/subscription.dart';
 import 'package:meridian_mobile/ui/flows/flows.dart';
+import 'package:meridian_mobile/ui/widgets/check_pop.dart';
 
 import '../support/app_harness.dart';
 import '../support/fake_api.dart';
@@ -115,7 +116,9 @@ void main() {
     await tester.tap(find.text('open'));
     await settleFrames(tester);
     expect(find.text('2 Ekim'), findsOneWidget, reason: 'the day, not today');
-    await tester.tap(find.text('Tamamla'));
+    // Done or not: the check, then "Kaydet" writes the day.
+    await tester.tap(find.byType(CheckPop));
+    await tester.tap(find.text('Kaydet'));
     await settleFrames(tester);
     expect(
         api.requests.where((r) => r.startsWith('PUT /habits/7/logs/')),
@@ -164,42 +167,57 @@ void main() {
       final fake = api()..hold('GET /habits/7');
       await open(tester, fake);
       await settleFrames(tester);
-      expect(find.text('Tamamla'), findsNothing,
+      expect(find.text('Kaydet'), findsNothing,
           reason: 'nothing to write from until the day is read');
       expect(find.byType(CircularProgressIndicator), findsOneWidget);
 
       fake.release('GET /habits/7');
       await settleFrames(tester);
       expect(find.text('5 / 8'), findsOneWidget);
-      await tester.tap(find.byTooltip('Bir artır'));
+      await tester.tap(find.text('+1'));
+      await tester.pump();
+      expect(find.text('6 / 8'), findsOneWidget);
+      await tester.tap(find.text('Kaydet'));
       await settleFrames(tester);
       expect(fake.bodiesOf('PUT /habits/7/logs/2026-09-10'), [
         {'count': 6},
       ]);
     });
 
-    testWidgets('taps made while a change is on its way are sent after it, '
-        'the last one last', (tester) async {
+    testWidgets('steps and typed digits add up to one count, saved once — '
+        'never past the target', (tester) async {
       final fake = api();
       await open(tester, fake);
       await settleFrames(tester);
       expect(find.text('5 / 8'), findsOneWidget);
 
-      fake.hold('PUT /habits/7/logs/2026-09-10');
-      await tester.tap(find.byTooltip('Bir artır'));
+      await tester.tap(find.text('+1'));
       await tester.pump();
-      await tester.tap(find.byTooltip('Bir artır'));
-      await tester.pump();
-      await tester.tap(find.byTooltip('Bir artır'));
+      await tester.tap(find.text('+2'));
       await tester.pump();
       expect(find.text('8 / 8'), findsOneWidget);
-      fake.release('PUT /habits/7/logs/2026-09-10');
+      // At the target the steps are off.
+      await tester.tap(find.text('+1'));
+      await tester.pump();
+      expect(find.text('8 / 8'), findsOneWidget);
+
+      // "Ayarla": the keypad sets the count; a digit past the target is
+      // refused.
+      await tester.tap(find.text('Ayarla'));
+      await tester.pump();
+      await tester.tap(find.text('7'));
+      await tester.pump();
+      expect(find.text('7 / 8'), findsOneWidget);
+      await tester.tap(find.text('3'));
+      await tester.pump();
+      expect(find.text('7 / 8'), findsOneWidget, reason: '73 > 8');
+
+      await tester.tap(find.text('Kaydet'));
       await settleFrames(tester);
       expect(fake.bodiesOf('PUT /habits/7/logs/2026-09-10'), [
-        {'count': 6},
-        {'count': 8},
+        {'count': 7},
       ]);
-      expect(find.text('8 / 8'), findsOneWidget);
+      expect(find.text('Kaydet'), findsNothing, reason: 'saved: it closes');
     });
   });
 }

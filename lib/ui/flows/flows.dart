@@ -43,13 +43,14 @@ enum QuickAddContext { today, agenda }
 
 /// Opens quick add: one line that becomes a task, a payment, a habit
 /// check-in or an event. [ctx] and [day] say where it was opened (Agenda's
-/// day headings pass their day); the sheet WP-6 builds reads them.
+/// day headings pass their day): a task added as one is due on [day], else
+/// today on Today and on no day from Agenda.
 Future<void> openQuickAdd(
   BuildContext context, {
   QuickAddContext ctx = QuickAddContext.today,
   DateTime? day,
 }) =>
-    quick_capture.showQuickCaptureSheet(context);
+    quick_capture.showQuickCaptureSheet(context, ctx: ctx, day: day);
 
 // --- Finance --------------------------------------------------------------------
 

@@ -10,51 +10,73 @@ import '../../../data/providers.dart';
 import '../../../data/sync.dart';
 import '../../../l10n/app_l10n.dart';
 import '../../../models/date_utils.dart';
-import '../../../models/habit.dart';
-import '../../../models/home.dart';
 import '../../../theme/app_colors.dart';
+import '../../../theme/app_metrics.dart';
 import '../../../theme/app_typography.dart';
+import '../../../theme/entity_color.dart';
+import '../../widgets/amount_keypad.dart';
+import '../../widgets/check_pop.dart';
+import '../../widgets/nok_chip.dart';
+import '../../widgets/nok_sheet.dart';
+import '../../widgets/primary_button.dart';
+import '../../widgets/segmented_pill.dart';
 import '../../widgets/sync_hint.dart';
-import '../today/widgets/today_common.dart';
-import 'widgets/habit_check.dart';
 
-/// Today's log of one habit, to set it exactly: a counter steps down as well
-/// as up, a done day can be undone, and "Tamamla" / "Sıfırla" jump to either
-/// end. What a long-press on a Today ring opens, and a tap on a counter that
-/// is already full (another +1 could do nothing).
+/// One habit's log for one day, to set it exactly (design-analysis §7.10):
+/// what a long-press on a habit opens — on Today and on Habits — and
+/// `openHabitLog`.
 ///
-/// Every change writes the count the user picked (`HabitActions.setToday`),
-/// shown at once here, on Today and on Habits. The sheet reads the habit
-/// from `/home` as it updates, so it always shows what the server has with
-/// the taps on their way on top.
+/// * **The day**: chips for today, yesterday and the five days before; a
+///   [date] further back gets a chip of its own (any day from the habit's
+///   start on can be logged, D13). Days before the habit started are off.
+/// * **A count** (a daily habit done several times a day): "Ekle" adds what
+///   is typed on the keypad to the day's count, "Ayarla" sets it; "+1 · +2
+///   · +5 · Hedefe tamamla" step it. Never past the target: the server
+///   clamps there (D12), so the steps that would go past it are off and a
+///   digit that would is refused.
+/// * **Done or not** for any other habit: the check.
+/// * **"Sıfırla"** clears the day; **"Kaydet"** writes the count shown —
+///   explicitly, `PUT /habits/:id/logs/:date` with that count — and closes.
+///   Today's log goes through `HabitActions.setToday`, so Today and Habits
+///   show it at once. A refusal keeps the sheet open with the reason.
 ///
-/// [date] logs another day than today instead (any day from the habit's
-/// start on, design-analysis D13): the sheet then reads the habit's day
-/// from the Habits list — or, for a day before the list's two weeks, from
-/// the habit's year of history — and sends the count for that day.
+/// Saving a past day never celebrates; nor does this sheet (the day's
+/// celebration belongs to the controls on the lists).
+///
+/// The sheet reads the habit as it updates: today from `/home` (or the
+/// Habits list), another day from the Habits list's two weeks — or, further
+/// back, from the habit's year of history.
 Future<void> showHabitLogSheet(
   BuildContext context, {
   required int habitId,
   DateTime? date,
 }) {
-  final c = context.nok;
-  return showModalBottomSheet<void>(
-    context: context,
-    useRootNavigator: true,
-    isScrollControlled: true,
-    // However tall large text makes it, the sheet stops below the status
-    // bar, and scrolls (see the build).
-    useSafeArea: true,
-    barrierColor: const Color(0xFF171310).withValues(alpha: 0.6),
-    backgroundColor: c.surface3,
+  return showNokSheet<void>(
+    context,
     builder: (_) => _HabitLogSheet(habitId: habitId, date: date),
   );
 }
 
+/// How a typed count is applied.
+enum _Mode { add, set }
+
+/// One day of the habit, as the sheet shows it.
+typedef _DayLog = ({
+  String name,
+  String color,
+  int target,
+  int count,
+  bool counts,
+
+  /// Writes the day's count; null: the day cannot be logged (before the
+  /// habit started, or not read yet).
+  Future<void> Function(int count)? save,
+});
+
 class _HabitLogSheet extends ConsumerStatefulWidget {
   final int habitId;
 
-  /// The day logged; null: today.
+  /// The day asked for; null: today.
   final DateTime? date;
 
   const _HabitLogSheet({required this.habitId, this.date});
@@ -64,132 +86,119 @@ class _HabitLogSheet extends ConsumerStatefulWidget {
 }
 
 class _HabitLogSheetState extends ConsumerState<_HabitLogSheet> {
-  /// Why the last change did not go through, shown in the sheet: a
-  /// snackbar would sit under it.
-  String? _error;
+  /// The day chosen with a chip; null: the one asked for.
+  DateTime? _picked;
 
-  Future<void> _set(HomeSummary home, HomeHabit habit, int count) async {
-    final l = context.l10n;
-    final daily = ref.read(habitActionsProvider).isDaily(habit.id) ?? false;
-    final log = habit.logFor(count, daily: daily);
-    if (log.completed && !habit.completedToday) {
-      Haptics.success();
-    } else {
-      Haptics.tick();
-    }
-    setState(() => _error = null);
-    try {
-      await ref
-          .read(habitActionsProvider)
-          .setToday(habit.id, count, day: home.today);
-    } catch (e) {
-      if (!mounted) return;
-      Haptics.danger();
-      setState(() {
-        _error = failureMessage(e, l, fallback: l.todayHabitUpdateFailed);
-      });
-    }
+  /// The count the sheet shows instead of the day's; null: the day's.
+  int? _draft;
+
+  /// Digits typed on the keypad.
+  String _typed = '';
+
+  /// The count shown when the digits in [_typed] began: in Ekle they add
+  /// to it, so a "+1" tapped before them stays.
+  int? _typeBase;
+  _Mode _mode = _Mode.add;
+  int _rejected = 0;
+
+  /// Why the last save did not go through, shown in the sheet: a snackbar
+  /// would sit under it.
+  String? _error;
+  bool _saving = false;
+
+  DateTime _today() {
+    final home = ref.watch(homeProvider).value?.data;
+    return dateOnly(home?.today ?? ref.watch(currentDayProvider));
   }
 
-  /// The past day's count as last set here: shown until the sheet closes,
-  /// and what [_setPast] sends.
-  int? _pastCount;
-
-  /// Whether the past day's count is being sent.
-  bool _pastSending = false;
-
-  /// Sets the past [day] of [habit] to [count]: shown here at once, then
-  /// sent with `PUT /habits/:id/logs/:date`. A change already on its way
-  /// picks this one up when it is answered, so the server ends on the last
-  /// one (as in the detail sheet). When a write fails, the sheet goes back
-  /// to the habit's count, with the reason. The write refreshes the Habits
-  /// list (its chain) and Today.
-  Future<void> _setPast(Habit habit, DateTime day, int count) async {
-    final l = context.l10n;
-    // The check or the stepper is the feedback of the change itself.
-    Haptics.tick();
+  void _pick(DateTime day) {
     setState(() {
-      _pastCount = habit.logFor(count).count;
+      _picked = day;
+      _draft = null;
+      _typed = '';
       _error = null;
     });
-    if (_pastSending) return;
-    _pastSending = true;
-    final repo = ref.read(repositoryProvider);
-    int? sent;
-    try {
-      while (true) {
-        final want = _pastCount;
-        if (want == null || want == sent) break;
-        await repo.setHabitLog(habit.id, day, count: want);
-        sent = want;
-      }
-    } catch (e) {
-      Haptics.danger();
-      if (mounted) {
-        setState(() {
-          _pastCount = null;
-          _error = failureMessage(e, l, fallback: l.todayHabitUpdateFailed);
-        });
-      }
-    } finally {
-      _pastSending = false;
-    }
   }
 
-  /// A centred line in place of the sheet's content: loading, or why there
-  /// is nothing to log.
-  Widget _placeholder(BuildContext context, Widget child) => SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.all(32),
-          child: Center(child: child),
-        ),
-      );
+  void _setDraft(int? count) => setState(() {
+    _draft = count;
+    _error = null;
+  });
 
-  /// The log of [day], a day other than today: read from the Habits list
-  /// when its chain (the last two weeks at most) reaches back to the day,
-  /// otherwise from the habit's year of history (`GET /habits/:id?days=366`,
-  /// the detail sheet's read) — loading meanwhile. A day older than that
-  /// year cannot be read, so it is shown but not logged.
-  Widget _pastDay(BuildContext context, DateTime day) {
+  // --- Resolving the day --------------------------------------------------------
+
+  /// The habit on [day], or the placeholder to show while it cannot be.
+  (_DayLog?, Widget?) _resolve(BuildContext context, DateTime day) {
     final l = context.l10n;
     final text = Theme.of(context).textTheme;
-    final async = ref.watch(habitsProvider);
-    final listed = async.value?.data.habits
+    final home = ref.watch(homeProvider).value?.data;
+    final today = _today();
+    final list = ref.watch(habitsProvider);
+    final listed = list.value?.data.habits
         .where((h) => h.id == widget.habitId)
         .firstOrNull;
+
+    if (day == today) {
+      final row = home?.todayHabits
+          .where((h) => h.id == widget.habitId)
+          .firstOrNull;
+      if (home != null && row != null) {
+        // A count to step only for a daily habit; done or not for any
+        // other, and — as on Today — while how often it repeats is not
+        // known yet.
+        final daily = ref.watch(habitCadenceProvider)[row.id] ?? false;
+        return (
+          (
+            name: row.name,
+            color: row.color,
+            target: row.targetCount,
+            count: row.todayCount,
+            counts: daily && row.targetCount > 1,
+            save: (int count) => _sent(
+              ref
+                  .read(habitActionsProvider)
+                  .setToday(row.id, count, day: home.today),
+            ),
+          ),
+          null,
+        );
+      }
+      if (listed != null && dateOnly(listed.today.date) == day) {
+        return (
+          (
+            name: listed.name,
+            color: listed.color,
+            target: listed.targetCount,
+            count: listed.today.count,
+            counts: listed.countsWithinDay,
+            save: (int count) => _sent(
+              ref
+                  .read(habitActionsProvider)
+                  .setToday(listed.id, count, day: listed.today.date),
+            ),
+          ),
+          null,
+        );
+      }
+    }
+
     if (listed == null) {
-      return _placeholder(
-        context,
-        async.isLoading && !async.hasValue
+      final loading =
+          (list.isLoading && !list.hasValue) ||
+          (home == null && ref.watch(homeProvider).isLoading);
+      return (
+        null,
+        loading
             ? const CircularProgressIndicator.adaptive()
+            // Archived or deleted meanwhile: nothing left to log.
             : Text(l.errNotFound, style: text.bodyMedium),
       );
     }
-    if (dateOnly(listed.today.date) == day) {
-      // The list's today (the server's): logged as today, on every screen.
-      return _view(
-        context,
-        name: listed.name,
-        color: listed.color,
-        target: listed.targetCount,
-        count: listed.today.count,
-        done: listed.today.completed,
-        counts: listed.countsWithinDay,
-        subtitle: l.habitLogToday,
-        onSet: (count) => ref
-            .read(habitActionsProvider)
-            .setToday(listed.id, count, day: listed.today.date)
-            .then((_) {}, onError: (Object e) {
-          if (mounted) {
-            setState(() => _error =
-                failureMessage(e, l, fallback: l.todayHabitUpdateFailed));
-          }
-        }),
-      );
-    }
+
     // The chain has every day from its first on (a day it leaves out has
     // nothing logged).
-    final listCovers = listed.chain.isNotEmpty &&
+    final listCovers =
+        listed.chain.isNotEmpty &&
         !day.isBefore(dateOnly(listed.chain.first.date));
     var habit = listed;
     var known = listCovers;
@@ -197,8 +206,8 @@ class _HabitLogSheetState extends ConsumerState<_HabitLogSheet> {
       final detail = ref.watch(habitDetailProvider(widget.habitId));
       final loaded = detail.value?.data;
       if (loaded == null) {
-        return _placeholder(
-          context,
+        return (
+          null,
           detail.hasFailed && !detail.isLoading
               ? Column(
                   mainAxisSize: MainAxisSize.min,
@@ -206,17 +215,20 @@ class _HabitLogSheetState extends ConsumerState<_HabitLogSheet> {
                     Text(
                       detail.isGone
                           ? l.errNotFound
-                          : failureMessage(detail.error!, l,
-                              fallback: l.errServerUnreachable),
+                          : failureMessage(
+                              detail.error!,
+                              l,
+                              fallback: l.errServerUnreachable,
+                            ),
                       style: text.bodyMedium,
                       textAlign: TextAlign.center,
                     ),
                     if (!detail.isGone) ...[
-                      const SizedBox(height: 8),
+                      const SizedBox(height: Gap.sm),
                       TextButton(
-                        onPressed: () => ref
-                            .read(dataSyncProvider)
-                            .refresh([habitDetailProvider(widget.habitId)]),
+                        onPressed: () => ref.read(dataSyncProvider).refresh([
+                          habitDetailProvider(widget.habitId),
+                        ]),
                         child: Text(l.actionRetry),
                       ),
                     ],
@@ -228,231 +240,462 @@ class _HabitLogSheetState extends ConsumerState<_HabitLogSheet> {
       habit = loaded;
       final t = dateOnly(loaded.today.date);
       known = !day.isBefore(
-          DateTime(t.year, t.month, t.day - (habitHistoryDays - 1)));
+        DateTime(t.year, t.month, t.day - (habitHistoryDays - 1)),
+      );
     }
-    final count = _pastCount ?? habit.countOn(day);
-    return _view(
-      context,
-      name: habit.name,
-      color: habit.color,
-      target: habit.targetCount,
-      count: count,
-      done: habit.logFor(count).completed && count > 0,
-      counts: habit.countsWithinDay,
-      subtitle: formatDate(day, withYear: day.year != habit.today.date.year),
-      // Only a day whose count is known: a write from a guess would
-      // overwrite what the day has.
-      onSet: habit.canLog(day) && known
-          ? (count) => _setPast(habit, day, count)
-          : null,
+    return (
+      (
+        name: habit.name,
+        color: habit.color,
+        target: habit.targetCount,
+        count: habit.countOn(day),
+        counts: habit.countsWithinDay,
+        // Only a day whose count is known: a write from a guess would
+        // overwrite what the day has.
+        save: habit.canLog(day) && known
+            ? (int count) => ref
+                  .read(repositoryProvider)
+                  .setHabitLog(habit.id, day, count: count)
+            : null,
+      ),
+      null,
     );
   }
+
+  /// A `setToday` that was taken back unsent (an earlier tap of the habit
+  /// failed) did not save.
+  Future<void> _sent(Future<bool> write) async {
+    if (!await write) throw StateError('taken back');
+  }
+
+  // --- Saving -------------------------------------------------------------------
+
+  Future<void> _save(_DayLog log) async {
+    final save = log.save;
+    if (save == null || _saving) return;
+    final count = _draft ?? log.count;
+    if (count == log.count) {
+      Navigator.of(context).maybePop();
+      return;
+    }
+    final l = context.l10n;
+    setState(() {
+      _saving = true;
+      _error = null;
+    });
+    try {
+      await save(count);
+      Haptics.confirm();
+      if (mounted) Navigator.of(context).maybePop();
+    } catch (e) {
+      Haptics.reject();
+      if (!mounted) return;
+      setState(() {
+        _saving = false;
+        _error = e is StateError
+            ? l.todayHabitUpdateFailed
+            : failureMessage(e, l, fallback: l.todayHabitUpdateFailed);
+      });
+    }
+  }
+
+  // --- Keypad -------------------------------------------------------------------
+
+  /// What [typed] makes of [count] (the count shown before typing) in the
+  /// current mode.
+  int _apply(String typed, int count) {
+    final value = int.tryParse(typed) ?? 0;
+    return _mode == _Mode.add ? count + value : value;
+  }
+
+  void _digit(String d, _DayLog log) {
+    final typed = _typed == '0' ? d : '$_typed$d';
+    final base = _typed.isEmpty
+        ? (_draft ?? log.count)
+        : (_typeBase ?? log.count);
+    final next = _apply(typed, base);
+    if (next > log.target) {
+      // Past the target: the server would clamp it.
+      Haptics.reject();
+      setState(() => _rejected++);
+      return;
+    }
+    setState(() {
+      _typed = typed;
+      _typeBase = base;
+      _draft = next;
+      _error = null;
+    });
+  }
+
+  void _backspace(_DayLog log) {
+    if (_typed.isEmpty) return;
+    final typed = _typed.substring(0, _typed.length - 1);
+    final base = _typeBase ?? log.count;
+    setState(() {
+      _typed = typed;
+      // Every digit gone: back to the count shown before them.
+      _draft = typed.isNotEmpty
+          ? _apply(typed, base)
+          : base == log.count
+          ? null
+          : base;
+    });
+  }
+
+  void _clearTyped() => setState(() {
+    _typed = '';
+    _draft = null;
+  });
+
+  // --- Build --------------------------------------------------------------------
 
   @override
   Widget build(BuildContext context) {
-    final l = context.l10n;
-    final text = Theme.of(context).textTheme;
-    final home = ref.watch(homeProvider).value?.data;
-    final asked = widget.date;
-    if (asked != null) {
-      final day = dateOnly(asked);
-      final DateTime today = home?.today ?? ref.watch(currentDayProvider);
-      if (day != dateOnly(today)) return _pastDay(context, day);
-    }
-    final habit = home?.todayHabits
-        .where((h) => h.id == widget.habitId)
-        .firstOrNull;
-    if (home == null || habit == null) {
-      // Archived or deleted meanwhile: nothing left to log.
+    final today = _today();
+    final asked = widget.date == null ? today : dateOnly(widget.date!);
+    final day = _picked ?? asked;
+    final (log, placeholder) = _resolve(context, day);
+    final busy =
+        ref.watch(homeProvider).isRefetching ||
+        ref.watch(habitsProvider).isRefetching;
+
+    if (log == null) {
       return SafeArea(
         child: Padding(
-          padding: const EdgeInsets.all(32),
-          child: Text(l.errNotFound, style: text.bodyMedium),
+          padding: const EdgeInsets.all(Gap.x3),
+          child: Center(child: placeholder),
         ),
       );
     }
-    // A count to step only for a daily habit; done or not for any other,
-    // and — as on Today — while how often it repeats is not known yet.
-    final daily = ref.watch(habitCadenceProvider)[habit.id] ?? false;
-    return _view(
-      context,
-      name: habit.name,
-      color: habit.color,
-      target: habit.targetCount,
-      count: habit.todayCount,
-      done: habit.completedToday,
-      counts: daily && habit.targetCount > 1,
-      subtitle: l.habitLogToday,
-      onSet: (count) => _set(home, habit, count),
+    // The sheet hugs its content: the hint lies over its top edge.
+    return Stack(
+      children: [
+        _view(context, log, day: day, today: today, asked: asked),
+        Positioned(
+          top: 0,
+          left: 0,
+          right: 0,
+          child: IgnorePointer(child: SyncHint(active: busy)),
+        ),
+      ],
     );
   }
 
-  /// The sheet for one day of a habit: its name and day, the count (a
-  /// stepper, or done / not done), then "Sıfırla" and "Tamamla". [onSet]
-  /// null: the day cannot be logged (before the habit started).
   Widget _view(
-    BuildContext context, {
-    required String name,
-    required String color,
-    required int target,
-    required int count,
-    required bool done,
-    required bool counts,
-    required String subtitle,
-    required ValueChanged<int>? onSet,
+    BuildContext context,
+    _DayLog log, {
+    required DateTime day,
+    required DateTime today,
+    required DateTime asked,
   }) {
     final c = context.nok;
     final text = Theme.of(context).textTheme;
     final l = context.l10n;
-    final tone = hexColor(color, fallback: c.gold);
-    void set(int value) => onSet?.call(value);
-    final enabled = onSet != null;
+    final tone = entityTone(log.color, c);
+    final enabled = log.save != null;
+    final count = _draft ?? log.count;
+    final done = count >= log.target && count > 0;
+    final subtitle = day == today
+        ? l.habitLogToday
+        : formatDate(day, withYear: day.year != today.year);
 
-    // Under the drag handle every sheet gets from the theme. Scrolls when it
-    // does not fit — 200% text on a small phone — rather than overflow.
-    return SafeArea(
-      child: SingleChildScrollView(
-        padding: const EdgeInsets.fromLTRB(20, 0, 20, 20),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
+    final body = <Widget>[
+      _DayChips(
+        today: today,
+        asked: asked,
+        selected: day,
+        startDate: _startDate(),
+        onPick: _pick,
+      ),
+      const SizedBox(height: Gap.lg),
+      if (log.counts)
+        ..._counter(context, log, count: count, tone: tone, enabled: enabled)
+      else
+        Row(
           children: [
-            Text(
-              name,
-              style: text.titleLarge,
-              maxLines: 2,
-              overflow: TextOverflow.ellipsis,
-            ),
-            const SizedBox(height: 4),
-            Text(
-              subtitle,
-              style: text.bodySmall!.copyWith(color: c.inkMid),
-            ),
-            const SizedBox(height: 24),
-            if (counts)
-              _Stepper(
+            CheckPop(
+              checked: done,
+              tone: tone,
+              semanticLabel: l.habitLogSemantics(
+                log.name,
                 count: count,
-                target: target,
-                color: tone,
-                enabled: enabled,
-                semantics: l.habitLogSemantics(
-                  name,
-                  count: count,
-                  target: target,
-                  done: done,
-                ),
-                onSet: set,
-              )
-            else
-              Row(
+                target: 1,
+                done: done,
+              ),
+              // A day that cannot be logged: the tap changes nothing, and
+              // the check plays nothing (it plays only when [checked]
+              // follows the tap).
+              onTap: () {
+                if (enabled) _setDraft(done ? 0 : log.target);
+              },
+            ),
+            const SizedBox(width: Gap.lg),
+            Expanded(
+              child: Text(
+                done
+                    ? (day == today ? l.habitLogDone : l.habitsDayDone)
+                    : (day == today ? l.habitLogNotDone : l.habitsDayNotDone),
+                style: text.bodyLarge,
+              ),
+            ),
+          ],
+        ),
+      if (!enabled) ...[
+        const SizedBox(height: Gap.sm),
+        Text(
+          l.habitsDayCannotLog,
+          style: text.bodySmall!.copyWith(color: c.inkMid),
+        ),
+      ],
+      if (_error != null) ...[
+        const SizedBox(height: Gap.md),
+        Text(_error!, style: text.bodySmall!.copyWith(color: c.error)),
+      ],
+    ];
+
+    // Under the drag handle every sheet gets from the theme. The heading
+    // and the body scroll when they do not fit — 200% text on a small
+    // phone — and the buttons stay at the bottom.
+    return SafeArea(
+      top: false,
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Flexible(
+            child: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  Semantics(
-                    label: l.habitLogSemantics(
-                      name,
-                      count: count,
-                      target: 1,
-                      done: done,
-                    ),
-                    button: true,
-                    enabled: enabled,
-                    checked: done,
-                    child: HabitCheck(
-                      completed: done,
-                      color: tone,
-                      onTap: () => set(done ? 0 : target),
-                    ),
+                  SheetHeader(
+                    title: log.name,
+                    subtitle: subtitle,
+                    showClose: true,
                   ),
-                  const SizedBox(width: 16),
-                  Expanded(
-                    child: Text(
-                      done ? l.habitLogDone : l.habitLogNotDone,
-                      style: text.bodyLarge,
+                  Padding(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: Insets.sheetH,
+                    ),
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: body,
                     ),
                   ),
                 ],
               ),
-            if (_error != null) ...[
-              const SizedBox(height: 12),
-              Text(_error!, style: text.bodySmall!.copyWith(color: c.error)),
-            ],
-            const SizedBox(height: 24),
-            Row(
+            ),
+          ),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(
+              Insets.sheetH,
+              Gap.md,
+              Insets.sheetH,
+              Gap.lg,
+            ),
+            child: Row(
               children: [
-                Expanded(
-                  child: OutlinedButton(
-                    onPressed: enabled && (count > 0 || done)
-                        ? () => set(0)
-                        : null,
-                    child: Text(l.habitLogReset),
+                TextButton(
+                  onPressed: enabled && count > 0
+                      ? () {
+                          _typed = '';
+                          _setDraft(0);
+                        }
+                      : null,
+                  style: TextButton.styleFrom(
+                    foregroundColor: c.inkMid,
+                    minimumSize: Hit.minSize,
                   ),
+                  child: Text(l.habitLogReset),
                 ),
-                const SizedBox(width: 12),
+                const SizedBox(width: Gap.md),
                 Expanded(
-                  child: FilledButton(
-                    onPressed: done || !enabled ? null : () => set(target),
-                    child: Text(l.habitLogComplete),
+                  child: PrimaryButton(
+                    label: l.actionSave,
+                    loading: _saving,
+                    onPressed: enabled ? () => _save(log) : null,
                   ),
                 ),
               ],
             ),
-          ],
-        ),
+          ),
+        ],
       ),
     );
   }
+
+  List<Widget> _counter(
+    BuildContext context,
+    _DayLog log, {
+    required int count,
+    required EntityTone tone,
+    required bool enabled,
+  }) {
+    final c = context.nok;
+    final text = Theme.of(context).textTheme;
+    final l = context.l10n;
+    final target = log.target;
+    final done = count >= target;
+    Widget step(String label, int to, {Key? key}) => NokChip(
+      key: key,
+      label: label,
+      enabled: enabled && to > count && count < target,
+      onTap: enabled && count < target
+          ? () {
+              _typed = '';
+              _setDraft(to.clamp(0, target));
+            }
+          : null,
+    );
+    return [
+      SegmentedPill<_Mode>(
+        expand: true,
+        options: [(_Mode.add, l.habitLogAdd), (_Mode.set, l.habitLogSet)],
+        selected: _mode,
+        onChanged: (mode) => setState(() {
+          _mode = mode;
+          _typed = '';
+          _draft = null;
+        }),
+      ),
+      const SizedBox(height: Gap.lg),
+      RejectShake(
+        trigger: _rejected,
+        child: Semantics(
+          label: l.habitLogSemantics(
+            log.name,
+            count: count,
+            target: target,
+            done: done,
+          ),
+          liveRegion: true,
+          excludeSemantics: true,
+          child: Column(
+            children: [
+              FittedBox(
+                fit: BoxFit.scaleDown,
+                // It changes with every key: Inter's tabular figures keep
+                // it still (Fraunces has none, §10.1-16).
+                child: Text(
+                  '$count / $target',
+                  maxLines: 1,
+                  style: context.nokText.numStat.copyWith(
+                    fontSize: text.displayMedium!.fontSize,
+                    height: text.displayMedium!.height,
+                    color: done ? tone.text : c.inkHi,
+                  ),
+                ),
+              ),
+              Text(
+                _mode == _Mode.add && _typed.isNotEmpty
+                    ? l.habitLogNowPlus(
+                        _typeBase ?? log.count,
+                        int.parse(_typed),
+                      )
+                    : l.habitLogNow(log.count),
+                style: text.bodySmall!.copyWith(color: c.inkMid),
+              ),
+            ],
+          ),
+        ),
+      ),
+      const SizedBox(height: Gap.md),
+      Wrap(
+        alignment: WrapAlignment.center,
+        spacing: Gap.sm,
+        children: [
+          step(l.habitLogPlus(1), count + 1),
+          step(l.habitLogPlus(2), count + 2),
+          step(l.habitLogPlus(5), count + 5),
+          step(
+            l.habitLogToTarget,
+            target,
+            key: const ValueKey('habit-log-to-target'),
+          ),
+        ],
+      ),
+      const SizedBox(height: Gap.sm),
+      AmountKeypad(
+        showDecimal: false,
+        onDigit: (d) {
+          if (enabled) _digit(d, log);
+        },
+        onDot: () {},
+        onBackspace: () => _backspace(log),
+        onClear: _clearTyped,
+      ),
+    ];
+  }
+
+  /// When the habit started, as far as the Habits list says.
+  DateTime? _startDate() => ref
+      .watch(habitsProvider)
+      .value
+      ?.data
+      .habits
+      .where((h) => h.id == widget.habitId)
+      .firstOrNull
+      ?.startDate;
 }
 
-/// `−  n / target  +` with 48 dp buttons.
-class _Stepper extends StatelessWidget {
-  final int count;
-  final int target;
-  final Color color;
-  final String semantics;
-  final ValueChanged<int> onSet;
-  final bool enabled;
+/// The days to log: today, yesterday, the five before — and the day asked
+/// for when it is further back. Days before [startDate] are off.
+class _DayChips extends StatelessWidget {
+  final DateTime today;
+  final DateTime asked;
+  final DateTime selected;
+  final DateTime? startDate;
+  final ValueChanged<DateTime> onPick;
 
-  const _Stepper({
-    required this.count,
-    required this.target,
-    required this.color,
-    required this.semantics,
-    required this.onSet,
-    this.enabled = true,
+  const _DayChips({
+    required this.today,
+    required this.asked,
+    required this.selected,
+    required this.startDate,
+    required this.onPick,
   });
 
   @override
   Widget build(BuildContext context) {
-    final c = context.nok;
-    final text = Theme.of(context).textTheme;
-    Widget step(IconData icon, bool enabled, int next, String tooltip) =>
-        IconButton.filledTonal(
-          tooltip: tooltip,
-          iconSize: 24,
-          constraints: const BoxConstraints.tightFor(width: 48, height: 48),
-          onPressed: enabled && this.enabled ? () => onSet(next) : null,
-          icon: Icon(icon),
-        );
     final l = context.l10n;
-    return Row(
-      children: [
-        step(Icons.remove, count > 0, count - 1, l.habitLogDecrease),
-        Expanded(
-          child: Semantics(
-            label: semantics,
-            liveRegion: true,
-            excludeSemantics: true,
-            child: Text(
-              '$count / $target',
-              textAlign: TextAlign.center,
-              style: text.displayMedium!.copyWith(
-                color: count >= target ? color : c.inkHi,
-                fontFeatures: tabularFigures,
-              ),
+    final days = [
+      for (var i = 0; i < 7; i++)
+        DateTime(today.year, today.month, today.day - i),
+    ];
+    if (!days.contains(asked)) days.add(asked);
+    String label(DateTime d) {
+      if (d == today) return l.dayToday;
+      if (d == DateTime(today.year, today.month, today.day - 1)) {
+        return l.dayYesterday;
+      }
+      if (today.difference(d).inDays < 7) {
+        return '${formatWeekdayShort(d)} ${d.day}';
+      }
+      return formatDate(d, withYear: d.year != today.year);
+    }
+
+    final start = startDate == null ? null : dateOnly(startDate!);
+    return SingleChildScrollView(
+      scrollDirection: Axis.horizontal,
+      child: Row(
+        children: [
+          for (final d in days) ...[
+            if (d != days.first) const SizedBox(width: Gap.sm),
+            NokChip(
+              key: ValueKey('habit-log-day-${isoDate(d)}'),
+              label: label(d),
+              selected: d == selected,
+              exclusive: true,
+              enabled: start == null || !d.isBefore(start),
+              onTap: start != null && d.isBefore(start)
+                  ? null
+                  : () => onPick(d),
             ),
-          ),
-        ),
-        step(Icons.add, count < target, count + 1, l.habitLogIncrease),
-      ],
+          ],
+        ],
+      ),
     );
   }
 }

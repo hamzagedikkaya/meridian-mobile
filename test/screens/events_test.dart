@@ -9,12 +9,10 @@ import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:intl/date_symbol_data_local.dart';
-import 'package:meridian_mobile/models/date_utils.dart';
 import 'package:meridian_mobile/models/event.dart';
-import 'package:meridian_mobile/ui/screens/events/event_form.dart';
-import 'package:meridian_mobile/ui/screens/events/event_sheet.dart';
+import 'package:meridian_mobile/ui/screens/agenda/event_form.dart';
+import 'package:meridian_mobile/ui/screens/agenda/event_sheet.dart';
 import 'package:meridian_mobile/ui/screens/today/today_screen.dart';
-import 'package:meridian_mobile/ui/screens/today/widgets/quick_capture_sheet.dart';
 import 'package:meridian_mobile/ui/widgets/check_pop.dart';
 import 'package:meridian_mobile/ui/widgets/choice_wrap.dart';
 import 'package:meridian_mobile/ui/widgets/color_swatches.dart';
@@ -33,6 +31,12 @@ Future<void> _typeTime(WidgetTester tester, String hh, String mm) async {
   await tester.tap(find.text('Tamam'));
   await tester.pumpAndSettle();
 }
+
+/// The Agenda's day list (not its sideways chip row).
+final _agendaList = find.descendant(
+  of: find.byType(CustomScrollView),
+  matching: find.byType(Scrollable),
+).first;
 
 Future<void> _openForm(
   WidgetTester tester,
@@ -225,7 +229,9 @@ void main() {
       await pumpWithRoutes(tester, api,
           initialLocation: '/agenda?view=events', locale: locale);
       expect(tester.takeException(), isNull);
-      await tester.tap(find.byType(FloatingActionButton));
+      // The capture bar's "Etkinlik ekle".
+      await tester.tap(find.byTooltip(
+          locale.languageCode == 'tr' ? 'Etkinlik ekle' : 'Add event'));
       await tester.pumpAndSettle();
       expect(tester.takeException(), isNull);
       expect(
@@ -292,8 +298,12 @@ void main() {
 
       await tester.tap(find.text('Sil'));
       await tester.pumpAndSettle();
-      expect(find.text('Tekrarlayan etkinliği sil'), findsOneWidget);
-      await tester.tap(find.text('11 Ekim ve sonrakiler'));
+      expect(find.text('Tekrarlayan etkinlik'), findsOneWidget);
+      expect(find.text('11 Ekim öncesindeki etkinlikler kalır.'),
+          findsOneWidget);
+      expect(find.textContaining('Yalnızca bu'), findsNothing,
+          reason: 'a series is one record: there is no "only this one"');
+      await tester.tap(find.text('Bu ve sonrakileri sil'));
       await settleFrames(tester);
       expect(api.bodiesOf('PATCH /events/12').single,
           {'recurrence_rule': 'FREQ=WEEKLY;UNTIL=20261010'});
@@ -305,7 +315,7 @@ void main() {
       await tester.pumpAndSettle();
       await tester.tap(find.text('Sil'));
       await tester.pumpAndSettle();
-      await tester.tap(find.text('Tüm seri'));
+      await tester.tap(find.text('Tüm seriyi sil'));
       await settleFrames(tester);
       expect(find.text('“Yoga” silindi'), findsOneWidget);
       await letUndoRunOut(tester);
@@ -326,7 +336,7 @@ void main() {
       );
       await tester.tap(find.text('Sil'));
       await tester.pumpAndSettle();
-      expect(find.text('Tüm seri'), findsOneWidget);
+      expect(find.text('Tüm seriyi sil'), findsOneWidget);
       expect(find.textContaining('ve sonrakiler'), findsNothing);
     });
     // "Hafta içi her gün", begun on a Sunday: its first occurrence is the
@@ -350,9 +360,9 @@ void main() {
       );
       await tester.tap(find.text('Sil'));
       await tester.pumpAndSettle();
-      expect(find.text('Tüm seri'), findsOneWidget);
+      expect(find.text('Tüm seriyi sil'), findsOneWidget);
       expect(find.textContaining('ve sonrakiler'), findsNothing);
-      await tester.tap(find.text('Tüm seri'));
+      await tester.tap(find.text('Tüm seriyi sil'));
       await settleFrames(tester);
       expect(api.bodiesOf('PATCH /events/12'), isEmpty);
       expect(find.text('“Yoga” silindi'), findsOneWidget);
@@ -428,12 +438,15 @@ void main() {
       expect(queries.single, {'from': '2026-10-04', 'to': '2026-11-02'});
       expect(find.text('Bugün · 4 Ekim'), findsOneWidget);
       expect(find.text('Yarın · 5 Ekim'), findsOneWidget);
-      expect(find.text('Pazar · 11 Ekim'), findsOneWidget);
+      expect(find.text('Sonra'), findsOneWidget,
+          reason: 'a week ahead and on: one group, each row with its day');
+      expect(find.text('Paz 11'), findsOneWidget);
       expect(find.text('Yoga'), findsNWidgets(2), reason: 'each occurrence');
       expect(find.text('Tatil'), findsOneWidget);
       expect(tester.takeException(), isNull);
 
-      await tester.scrollUntilVisible(find.text('Daha fazla göster'), 200);
+      await tester.scrollUntilVisible(find.text('Daha fazla göster'), 200,
+          scrollable: _agendaList);
       await tester.tap(find.text('Daha fazla göster'));
       await settleFrames(tester);
       expect(queries.last, {'from': '2026-10-04', 'to': '2026-12-02'});
@@ -456,7 +469,8 @@ void main() {
       expect(find.text('Yoga'), findsOneWidget);
 
       api.failNetwork('GET /events');
-      await tester.scrollUntilVisible(find.text('Daha fazla göster'), 200);
+      await tester.scrollUntilVisible(find.text('Daha fazla göster'), 200,
+          scrollable: _agendaList);
       await tester.tap(find.text('Daha fazla göster'));
       await settleFrames(tester);
       await tester.pump(const Duration(seconds: 10));
@@ -477,7 +491,8 @@ void main() {
       await settleFrames(tester);
       expect(find.text('Tekrar dene'), findsNothing);
       expect(find.text('Yoga'), findsNWidgets(2));
-      await tester.scrollUntilVisible(find.text('Daha fazla göster'), 200);
+      await tester.scrollUntilVisible(find.text('Daha fazla göster'), 200,
+          scrollable: _agendaList);
       expect(find.text('Daha fazla göster'), findsOneWidget);
     });
   });
@@ -630,57 +645,5 @@ void main() {
       expect(find.text('+4 etkinlik daha'), findsOneWidget,
           reason: '/home lists four at most, and says how many there are');
     });
-  });
-
-  testWidgets('quick capture: "Etkinlik olarak ekle" opens the event form '
-      'with the suggestion, and saving it closes both', (tester) async {
-    final api = FakeApi()
-      ..on('POST /quick_captures', {
-        'saved': false,
-        'captured_type': 'event_suggestion',
-        'record_id': null,
-        'summary': 'yarın 15:00 dişçi',
-        'message': 'x',
-        'suggestion': {
-          'title': 'dişçi',
-          'date': '2026-10-05',
-          'time': '15:00',
-          'start_at': '2026-10-05T15:00:00.000+03:00',
-          'all_day': false,
-          'keyword': 'yarın',
-        },
-      });
-    await pumpWithRoutes(
-      tester,
-      api,
-      home: opener((context) => showQuickCaptureSheet(context)),
-    );
-    await tester.tap(find.text('open'));
-    await tester.pumpAndSettle();
-    await tester.enterText(find.byType(TextField), 'yarın 15:00 dişçi');
-    await tester.tap(find.text('Ekle'));
-    await tester.pumpAndSettle();
-
-    await tester.tap(find.text('Etkinlik olarak ekle'));
-    await tester.pumpAndSettle();
-    expect(find.text('Yeni etkinlik'), findsOneWidget);
-    expect(find.widgetWithText(TextField, 'dişçi'), findsOneWidget);
-    expect(find.text('15:00'), findsOneWidget);
-    expect(find.text('16:00'), findsOneWidget);
-
-    await tester.tap(find.text('Kaydet'));
-    await settleFrames(tester);
-    expect(api.bodiesOf('POST /events').single, {
-      'title': 'dişçi',
-      'start_at': '2026-10-05T15:00',
-      'end_at': '2026-10-05T16:00',
-      'all_day': false,
-      'color': recordSwatches.first,
-      'event_type': 'personal',
-    });
-    await tester.pumpAndSettle();
-    expect(find.text('Yeni etkinlik'), findsNothing);
-    expect(find.text('Hızlı kayıt'), findsNothing, reason: 'the sheet too');
-    expect(isoDate(DateTime(2026, 10, 5)), '2026-10-05');
   });
 }

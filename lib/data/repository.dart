@@ -796,6 +796,29 @@ class MeridianRepository {
         parse: (data) => Todo.fromJson(_entity(data, 'todo')),
       );
 
+  /// Moves todo [id] to [day] at [time] (`"HH:MM"`; null: date-only) —
+  /// with [keepTime], at the time of day it has (only `due_date` is sent) —
+  /// or takes its date away ([day] null): the Agenda's "Bugün" / "Yarın",
+  /// "Hepsini bugüne al" and their undo, which writes back the day and time
+  /// a todo had (contract §9).
+  Future<Todo> rescheduleTodo(
+    int id,
+    DateTime? day, {
+    String? time,
+    bool keepTime = false,
+  }) =>
+      _write(
+        'PATCH',
+        '/todos/$id',
+        body: day == null
+            ? {'due_date': null}
+            : keepTime
+                ? {'due_date': isoDate(day)}
+                : {'due_date': isoDate(day), 'due_time': time},
+        touches: const {DataScope.todos},
+        parse: (data) => Todo.fromJson(_entity(data, 'todo')),
+      );
+
   /// Deletes todo [id]; the goal it was linked to is not affected.
   Future<void> deleteTodo(int id) => _write(
         'DELETE',
@@ -811,8 +834,25 @@ class MeridianRepository {
 
   /// The active lists, by position then name, and how many open todos are
   /// in no list.
-  Future<TodoListsBundle> fetchTodoLists() =>
-      _get('/todo_lists', (data) => TodoListsBundle.fromJson(data));
+  /// The archived lists come along (`include_archived=true`), apart: the
+  /// lists page's "Arşivlenmiş" group.
+  Future<TodoListsBundle> fetchTodoLists() => _get(
+        '/todo_lists',
+        (data) => TodoListsBundle.fromJson(data),
+        query: const {'include_archived': true},
+      );
+
+  /// Archives list [id] ([archived]) or brings it back. An archived list
+  /// leaves the pickers; its todos stay in it and in every todo filter
+  /// (contract §8).
+  Future<TodoList> setTodoListArchived(int id, {required bool archived}) =>
+      _write(
+        'PATCH',
+        '/todo_lists/$id',
+        body: {'archived': archived},
+        touches: const {DataScope.todoLists},
+        parse: (data) => TodoList.fromJson(_entity(data, 'todo_list')),
+      );
 
   /// A new list holds no todos yet: only the lists change.
   Future<TodoList> createTodoList(TodoListInput input) => _write(

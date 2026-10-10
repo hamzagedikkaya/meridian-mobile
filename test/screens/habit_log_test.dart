@@ -17,7 +17,7 @@ import 'package:meridian_mobile/ui/screens/habits/habit_form.dart';
 import 'package:meridian_mobile/ui/screens/habits/habit_log_sheet.dart';
 import 'package:meridian_mobile/ui/screens/habits/habits_screen.dart';
 import 'package:meridian_mobile/ui/screens/habits/widgets/counter_pill.dart';
-import 'package:meridian_mobile/ui/screens/habits/widgets/habit_check.dart';
+import 'package:meridian_mobile/ui/widgets/check_pop.dart';
 
 import '../support/fake_api.dart';
 
@@ -87,10 +87,11 @@ void main() {
     await _settle(tester);
 
     expect(_in(8, CounterPill), findsOneWidget);
+    // The body counts one more; the + only shows it.
     await tester.tap(
       find.descendant(
         of: _in(8, CounterPill),
-        matching: find.byIcon(Icons.add),
+        matching: find.byIcon(Icons.add_rounded),
       ),
     );
     await _settle(tester);
@@ -99,7 +100,7 @@ void main() {
     await tester.tap(
       find.descendant(
         of: _in(8, CounterPill),
-        matching: find.byIcon(Icons.remove),
+        matching: find.byIcon(Icons.remove_rounded),
       ),
     );
     await _settle(tester);
@@ -141,12 +142,12 @@ void main() {
       findsNothing,
       reason: 'not 0/3 for the day: the 3 is days a week',
     );
-    expect(_in(11, HabitCheck), findsOneWidget);
+    expect(_in(11, CheckPop), findsOneWidget);
     expect(find.text('Bu hafta 1/3'), findsOneWidget);
 
-    await tester.tap(_in(11, HabitCheck));
+    await tester.tap(_in(11, CheckPop));
     await tester.pump();
-    expect(tester.widget<HabitCheck>(_in(11, HabitCheck)).completed, isTrue);
+    expect(tester.widget<CheckPop>(_in(11, CheckPop)).checked, isTrue);
     expect(find.text('Bu hafta 2/3'), findsOneWidget, reason: 'at once');
 
     api.release(log);
@@ -156,8 +157,8 @@ void main() {
     await tester.pumpAndSettle();
   });
 
-  testWidgets('the counter\'s − and + each answer a 48 dp touch, while the '
-      'pill is drawn 40 dp tall as before', (tester) async {
+  testWidgets('the counter\'s − and its body each answer a 48 dp touch, '
+      'while the pill is drawn 40 dp tall', (tester) async {
     _tallPhone(tester);
     final api = FakeApi()..on('GET /habits', _habits());
     await tester.pumpWidget(_app(api, const HabitsScreen()));
@@ -170,25 +171,29 @@ void main() {
               of: _in(8, CounterPill),
               matching: find.byIcon(icon),
             ),
-            matching: find.byType(GestureDetector),
+            matching: find.byWidgetPredicate((w) => w is InkResponse),
           )
           .first,
     );
-    for (final icon in [Icons.remove, Icons.add]) {
+    for (final icon in [Icons.remove_rounded, Icons.add_rounded]) {
       expect(target(icon).width, greaterThanOrEqualTo(48), reason: '$icon');
       expect(target(icon).height, greaterThanOrEqualTo(48), reason: '$icon');
     }
     final pill = tester.getRect(
-      find.descendant(
-        of: _in(8, CounterPill),
-        matching: find.byType(DecoratedBox),
-      ),
+      find.byKey(const ValueKey('counter-pill-shape')),
     );
     expect(pill.height, 40);
-    expect(target(Icons.remove).overlaps(target(Icons.add)), isFalse);
+    expect(pill.width, 112);
+    expect(
+      target(Icons.remove_rounded).overlaps(target(Icons.add_rounded)),
+      isFalse,
+    );
 
-    // A touch just past the drawn pill still counts.
-    await tester.tapAt(Offset(pill.right + 4, pill.bottom + 3));
+    // A touch on the count counts one more.
+    await tester.tap(find.descendant(
+      of: _in(8, CounterPill),
+      matching: find.text('1/3'),
+    ));
     await _settle(tester);
     expect(api.bodiesOf('PUT /habits/8/logs/2026-10-04').single, {'count': 2});
     await tester.pumpAndSettle();
@@ -251,16 +256,23 @@ void main() {
           await tester.pumpAndSettle();
           expect(tester.takeException(), isNull, reason: 'nothing overflows');
 
-          final complete = find.text(
-            locale.languageCode == 'tr' ? 'Tamamla' : 'Complete',
+          final fill = id == 8
+              ? find.byKey(const ValueKey('habit-log-to-target'))
+              : find.byType(CheckPop);
+          final save = find.text(
+            locale.languageCode == 'tr' ? 'Kaydet' : 'Save',
           );
-          Future<void> tapComplete() async {
-            await tester.ensureVisible(complete);
+          Future<void> tap(Finder finder) async {
+            await tester.ensureVisible(finder);
             await tester.pumpAndSettle();
-            await tester.tap(complete);
+            await tester.tap(finder);
             await _settle(tester);
             await tester.pumpAndSettle();
           }
+
+          // Fill the day, then save it.
+          await tap(fill);
+          Future<void> tapComplete() => tap(save);
 
           // Refused: the reason shows in the sheet, which grows.
           await tapComplete();
@@ -274,10 +286,12 @@ void main() {
             findsOneWidget,
           );
 
-          // Still reachable, and it goes through now.
+          // Still reachable, and it goes through now — and the sheet
+          // closes.
           api.onRequest(log, (_) => logAnswer(id, '2026-10-04', 3));
           await tapComplete();
           expect(api.bodiesOf(log).last, {'count': id == 8 ? 3 : 1});
+          expect(save, findsNothing);
           expect(tester.takeException(), isNull);
         });
       }
@@ -291,8 +305,14 @@ void main() {
     await tester.pumpWidget(_app(api, const HabitsScreen()));
     await _settle(tester);
     expect(find.bySemanticsLabel('Koşu, henüz yapılmadı'), findsOneWidget);
-    expect(find.bySemanticsLabel('Su, 1 / 3'), findsOneWidget);
-    expect(find.bySemanticsLabel('Bir artır'), findsWidgets);
+    // The counter is one adjustable control: its name and count.
+    final counter = tester
+        .getSemantics(_in(8, CounterPill))
+        .getSemanticsData();
+    expect(counter.label, 'Su');
+    expect(counter.value, '1/3');
+    expect(counter.increasedValue, '2/3');
+    expect(counter.decreasedValue, '0/3');
     handle.dispose();
   });
 

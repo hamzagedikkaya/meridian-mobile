@@ -235,19 +235,24 @@ void main() {
         reason: 'one more could do nothing: nothing is sent',
       );
 
-      api.on('GET /home', _homeWithSuAt(2));
-      await tester.tap(find.byTooltip('Bir azalt'));
+      // "Ayarla" sets the count from the keypad; "Sıfırla" clears it;
+      // "Kaydet" writes the count shown, once.
+      await tester.tap(find.text('Ayarla'));
+      await tester.pump();
+      await tester.tap(find.text('2'));
       await tester.pump();
       expect(find.text('2 / 3'), findsOneWidget, reason: 'at once');
-      await _settle(tester);
-      expect(api.bodiesOf(_logSu).single, {'count': 2});
+      await tester.tap(find.text('Sıfırla'));
+      await tester.pump();
+      expect(find.text('0 / 3'), findsOneWidget);
+      expect(api.requests.where((r) => r.startsWith('PUT')), isEmpty);
 
       api.on('GET /home', _homeWithSuAt(0));
-      await tester.tap(find.text('Sıfırla'));
+      await tester.tap(find.text('Kaydet'));
       await _settle(tester);
-      expect(api.bodiesOf(_logSu).last, {'count': 0});
-      expect(find.text('0 / 3'), findsOneWidget);
+      expect(api.bodiesOf(_logSu).single, {'count': 0});
       await tester.pumpAndSettle();
+      expect(find.text('Bugünün kaydı'), findsNothing, reason: 'saved');
     });
 
     testWidgets('a long-press opens the day\'s log of any habit', (
@@ -260,11 +265,18 @@ void main() {
       expect(find.text('Bugünün kaydı'), findsOneWidget);
       expect(find.text('Bugün henüz yapılmadı'), findsOneWidget);
       api.on('GET /home', homeJson(habit7Done: true));
-      await tester.tap(find.text('Tamamla'));
+      await tester.tap(find.descendant(
+        of: find.byType(BottomSheet),
+        matching: find.byType(CheckPop),
+      ));
+      await tester.pump();
+      expect(find.text('Bugün tamamlandı'), findsOneWidget);
+      await tester.tap(find.text('Kaydet'));
       await _settle(tester);
       expect(api.bodiesOf(_logRun).single, {'count': 1});
-      expect(find.text('Bugün tamamlandı'), findsOneWidget);
       await tester.pumpAndSettle();
+      expect(find.text('Bugünün kaydı'), findsNothing, reason: 'saved');
+      expect(tester.widget<CheckPop>(_ring(7)).checked, isTrue);
     });
 
     testWidgets('a refused log is said in the sheet, and taken back', (
@@ -280,10 +292,17 @@ void main() {
       await _openToday(tester, api);
       await tester.longPress(_ring(7));
       await tester.pumpAndSettle();
-      await tester.tap(find.text('Tamamla'));
+      await tester.tap(find.descendant(
+        of: find.byType(BottomSheet),
+        matching: find.byType(CheckPop),
+      ));
+      await tester.tap(find.text('Kaydet'));
       await _settle(tester);
       expect(find.text('Arşivlenmiş alışkanlık işaretlenemez'), findsOneWidget);
-      expect(find.text('Bugün henüz yapılmadı'), findsOneWidget);
+      // Today shows the day as it was; the sheet keeps what was asked, to
+      // try again.
+      expect(tester.widget<CheckPop>(_ring(7)).checked, isFalse);
+      expect(find.text('Kaydet'), findsOneWidget);
       await tester.pumpAndSettle();
     });
   });

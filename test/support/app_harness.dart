@@ -9,8 +9,7 @@ import 'package:meridian_mobile/data/current_day.dart';
 import 'package:meridian_mobile/l10n/app_l10n.dart';
 import 'package:meridian_mobile/theme/app_theme.dart';
 import 'package:meridian_mobile/ui/screens/agenda/agenda_screen.dart';
-import 'package:meridian_mobile/ui/screens/todos/todo_lists_screen.dart';
-import 'package:meridian_mobile/ui/screens/todos/todos_screen.dart';
+import 'package:meridian_mobile/ui/screens/agenda/todo_lists_screen.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'fake_api.dart';
@@ -21,8 +20,9 @@ final fixtureNow = DateTime(2026, 10, 4, 12, 30);
 
 /// [home] at `/` in the app's theme and languages, with [api] behind the
 /// real repository, DataSync and read models, the clock at [fixtureNow],
-/// and the pages Today opens — `/todos`, the Agenda tab (`/agenda`, its
-/// events at `?view=events`) and `/agenda/lists` — as the app routes them.
+/// and the pages Today opens — the Agenda tab (`/agenda?view=…&list=…`),
+/// `/agenda/lists`, and p24's `/todos` links redirected to them — as the
+/// app routes them.
 Future<GoRouter> pumpWithRoutes(
   WidgetTester tester,
   FakeApi api, {
@@ -43,20 +43,20 @@ Future<GoRouter> pumpWithRoutes(
       GoRoute(path: '/', builder: (_, _) => home ?? const SizedBox()),
       GoRoute(
         path: '/todos',
-        builder: (_, state) {
+        redirect: (_, state) {
           final query = state.uri.queryParameters;
-          final list = query['list'];
-          return TodosScreen(
-            initialFilter: query['filter'] ?? 'open',
-            initialListId: list == null ? null : int.tryParse(list),
-            initialUnlisted: list == 'none',
-          );
+          final view = switch (query['filter']) {
+            null || 'open' => 'open',
+            'undated' => 'inbox',
+            final String filter => filter,
+          };
+          return Uri(
+            path: '/agenda',
+            queryParameters: {'view': view, 'list': ?query['list']},
+          ).toString();
         },
       ),
-      GoRoute(
-        path: '/todos/lists',
-        builder: (_, _) => const TodoListsScreen(),
-      ),
+      GoRoute(path: '/todos/lists', redirect: (_, _) => '/agenda/lists'),
       GoRoute(
         path: '/agenda',
         builder: (_, state) => AgendaTabScreen(

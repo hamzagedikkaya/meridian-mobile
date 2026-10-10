@@ -231,7 +231,7 @@ void main() {
 
     test('reads in the order its filter calls for', () {
       expect(const TodoQuery(filter: 'done').sort, 'completed');
-      expect(const TodoQuery(filter: 'undated').sort, 'position');
+      expect(const TodoQuery(filter: 'undated').sort, 'created');
       expect(const TodoQuery(filter: 'today').sort, 'due');
       expect(const TodoQuery(filter: 'done').perPage, 100);
       expect(const TodoQuery().perPage, isNull);

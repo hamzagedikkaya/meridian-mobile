@@ -41,6 +41,10 @@ class FormScaffold extends StatefulWidget {
   /// A form-level error under the save button.
   final String? errorText;
 
+  /// A quiet line right above the save button — what saving will reach
+  /// ("Bu değişiklik serideki tüm etkinlikleri etkiler").
+  final Widget? notice;
+
   const FormScaffold({
     super.key,
     required this.title,
@@ -52,6 +56,7 @@ class FormScaffold extends StatefulWidget {
     this.footer,
     this.actions,
     this.errorText,
+    this.notice,
   });
 
   /// After a failed save: the REJECT haptic, then the field under
@@ -179,6 +184,10 @@ class _FormScaffoldState extends State<FormScaffold> {
                   mainAxisSize: MainAxisSize.min,
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
+                    if (widget.notice != null) ...[
+                      widget.notice!,
+                      const SizedBox(height: Gap.sm),
+                    ],
                     PrimaryButton(
                       label: widget.actionLabel,
                       loading: widget.busy,

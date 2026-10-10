@@ -476,16 +476,16 @@ class AppL10nTr extends AppL10n {
   // region quick capture (WP-6)
 
   @override
-  String captureSavedExpense(String amount, String description) =>
-      'Harcama eklendi · $amount · $description';
+  String captureSavedExpense(String amount, String account) =>
+      'Harcama eklendi · $amount · $account';
   @override
-  String captureSavedIncome(String amount, String description) =>
-      'Gelir eklendi · $amount · $description';
+  String captureSavedIncome(String amount, String account) =>
+      'Gelir eklendi · $amount · $account';
   @override
   String captureSavedHabit(String name, {required bool completed}) =>
       completed ? '“$name” bugün tamamlandı' : '“$name” işaretlendi';
   @override
-  String captureSavedTodo(String title) => 'Görev eklendi: $title';
+  String captureSavedTodo(String title) => 'Görev eklendi · $title';
   @override
   String captureSaved(String summary) => 'Kaydedildi: $summary';
   @override
@@ -502,9 +502,60 @@ class AppL10nTr extends AppL10n {
   @override
   String get captureAddAsEvent => 'Etkinlik olarak ekle';
   @override
-  String get captureCreateAccount => 'Hesap oluştur';
+  String get captureCreateAccount => 'Nakit hesabı aç';
   @override
   String captureCreateHabit(String name) => '“$name” alışkanlığını oluştur';
+  @override
+  String get quickAddTitle => 'Hızlı ekle';
+  @override
+  String get quickAddHint => 'Ne eklemek istersin?';
+  @override
+  String quickAddAuto(String? guess) =>
+      guess == null ? 'Otomatik' : 'Otomatik · $guess';
+  @override
+  String get quickAddKindTask => 'Görev';
+  @override
+  String get quickAddKindExpense => 'Harcama';
+  @override
+  String get quickAddKindIncome => 'Gelir';
+  @override
+  String get quickAddKindEvent => 'Etkinlik';
+  @override
+  String get quickAddKindHabit => 'Alışkanlık';
+  @override
+  String get quickAddAction => 'Ekle';
+  @override
+  String get quickAddActionTask => 'Görev ekle';
+  @override
+  String get quickAddActionExpense => 'Harcama ekle';
+  @override
+  String get quickAddActionIncome => 'Gelir ekle';
+  @override
+  String get quickAddActionEvent => 'Etkinlik olarak aç';
+  @override
+  String get quickAddActionHabit => 'Alışkanlığı işaretle';
+  @override
+  List<String> get quickAddExamples => const [
+        '−85 kahve',
+        '+1.500 maaş',
+        'yarın 15:00 dişçi',
+        'alışkanlık: su',
+        'süt al',
+      ];
+  @override
+  String get quickAddPickHabit => 'Hangi alışkanlık?';
+  @override
+  String get quickAddNoHabits => 'Bugün için alışkanlık yok';
+  @override
+  String get quickAddNewHabit => 'Alışkanlık oluştur';
+  @override
+  String get quickAddHabitsFailed => 'Alışkanlıklar yüklenemedi';
+  @override
+  String get quickAddHabitDone => 'Bugün tamamlandı';
+  @override
+  String get quickAddFailed => 'Eklenemedi';
+  @override
+  String get quickAddUndoFailed => 'Geri alınamadı';
   // endregion
 
   // --- Todos and todo lists -------------------------------------------------
@@ -651,16 +702,32 @@ class AppL10nTr extends AppL10n {
   @override
   String todoListDeleteBody(int total) => total == 0
       ? 'Bu liste boş.'
-      : 'Bu listede $total görev var (tamamlananlar dahil). '
-          'Listeyle birlikte silinebilir ya da listesiz olarak kalabilir.';
+      : 'Bu listede $total görev var (tamamlananlar dahil).';
   @override
-  String get todoListDeleteKeep => 'Görevler listesiz kalsın';
+  String get todoListDeleteKeep => 'Görevleri listesiz bırak';
   @override
   String get todoListDeleteAll => 'Görevlerle birlikte sil';
   @override
   String todoListDeleted(String name) => '“$name” listesi silindi';
   @override
   String get todoListDeleteFailed => 'Liste silinemedi';
+
+  @override
+  String get todoMoreFields => 'Daha fazla';
+  @override
+  String todoMovedToday(String title) => '“$title” bugüne alındı';
+  @override
+  String todoMovedOn(String title, String day) => '“$title” taşındı · $day';
+  @override
+  String todosMovedToday(int count) => '$count görev bugüne alındı';
+  @override
+  String todoReopened(String title) => '“$title” yeniden açıldı';
+  @override
+  String get todoListsArchived => 'Arşivlenmiş';
+  @override
+  String todoListArchived(String name) => '“$name” listesi arşivlendi';
+  @override
+  String todoListRestored(String name) => '“$name” listesi geri yüklendi';
   // endregion
 
   // --- Events and agenda ----------------------------------------------------
@@ -729,7 +796,7 @@ class AppL10nTr extends AppL10n {
   @override
   String get eventRepeatEnds => 'Tekrar bitişi';
   @override
-  String get eventRepeatForever => 'Süresiz';
+  String get eventRepeatForever => 'Hiç';
   @override
   String recurrenceUntil(DateTime day) =>
       '${formatDate(day, withYear: day.year != appToday().year, locale: localeCode)} '
@@ -742,8 +809,7 @@ class AppL10nTr extends AppL10n {
   String get eventEndBeforeStart => 'Bitiş başlangıçtan sonra olmalı';
   @override
   String get eventSeriesFormNote =>
-      'Tekrarlayan etkinlik: kaydettiğin değişiklik serideki tüm etkinlikleri '
-      'etkiler. Tarih, serinin ilk etkinliğinin tarihidir.';
+      'Bu değişiklik serideki tüm etkinlikleri etkiler';
   @override
   String get eventSeriesNote =>
       'Tekrarlayan etkinlik: düzenlemek ya da silmek serideki tüm etkinlikleri '
@@ -759,15 +825,15 @@ class AppL10nTr extends AppL10n {
   @override
   String get eventDeleteFailed => 'Etkinlik silinemedi';
   @override
-  String get eventDeleteSeriesTitle => 'Tekrarlayan etkinliği sil';
+  String get eventDeleteSeriesTitle => 'Tekrarlayan etkinlik';
   @override
-  String eventDeleteFollowing(DateTime day) =>
-      '${relativeDay(day)} ve sonrakiler';
+  String eventDeleteFollowing(DateTime day) => 'Bu ve sonrakileri sil';
   @override
   String eventDeleteFollowingHint(DateTime day) =>
-      'Bu tarihten önceki etkinlikler kalır.';
+      '${formatDate(day, withYear: day.year != appToday().year, locale: localeCode)} '
+      'öncesindeki etkinlikler kalır.';
   @override
-  String get eventDeleteAll => 'Tüm seri';
+  String get eventDeleteAll => 'Tüm seriyi sil';
   @override
   String get eventDeleteAllHint => 'Serideki bütün etkinlikler silinir.';
   @override
@@ -778,6 +844,51 @@ class AppL10nTr extends AppL10n {
   @override
   String eventSemantics(String title, {required String when, String? where}) =>
       [title, when, ?where].join(', ');
+
+  @override
+  String get agendaViewUpcoming => 'Yaklaşan';
+  @override
+  String get agendaViewInbox => 'Gelen kutusu';
+  @override
+  String get agendaViewOverdue => 'Gecikmiş';
+  @override
+  String get agendaViewDone => 'Tamamlanan';
+  @override
+  String agendaChipCount(String label, int count) => '$label · $count';
+  @override
+  String agendaListChip(String? name) => 'Liste: ${name ?? 'Tümü'}';
+  @override
+  String get agendaLater => 'Sonra';
+  @override
+  String get agendaUpcomingEmpty => 'Önümüzdeki günler sakin';
+  @override
+  String get agendaUpcomingEmptyBody =>
+      'Eklediğin görevler ve etkinlikler burada gün gün sıralanır.';
+  @override
+  String get agendaTodayEmpty => 'Bugün için plan yok';
+  @override
+  String get agendaInboxEmpty =>
+      'Gelen kutun boş — tarihsiz görevler burada toplanır';
+  @override
+  String get agendaCaptureLabel => 'Ekle: görev, etkinlik…';
+  @override
+  String get agendaAddEvent => 'Etkinlik ekle';
+  @override
+  String get agendaShowDone => 'Tamamlananlar';
+  @override
+  String get agendaDayAddHint => 'bu güne ekle';
+  @override
+  String get eventDate => 'Tarih';
+  @override
+  String get eventEndDay => 'Bitiş günü';
+  @override
+  String get eventSameDay => 'Aynı gün';
+  @override
+  String get eventTime => 'Saat';
+  @override
+  String get eventMoreFields => 'Daha fazla';
+  @override
+  String recurrenceWeeklyOn(String weekday) => 'Her hafta $weekday';
   // endregion
 
   // --- Habit day log --------------------------------------------------------
@@ -811,6 +922,18 @@ class AppL10nTr extends AppL10n {
 
   @override
   String get habitLogHint => 'Ayarlamak için basılı tut';
+  @override
+  String get habitLogAdd => 'Ekle';
+  @override
+  String get habitLogSet => 'Ayarla';
+  @override
+  String habitLogPlus(int n) => '+$n';
+  @override
+  String get habitLogToTarget => 'Hedefe tamamla';
+  @override
+  String habitLogNow(int count) => 'Şu an $count';
+  @override
+  String habitLogNowPlus(int count, int add) => 'Şu an $count · +$add';
   // endregion
 
   // --- Finance --------------------------------------------------------------
@@ -1609,8 +1732,83 @@ class AppL10nTr extends AppL10n {
         : count > 0
             ? '$count / $target'
             : 'yapılmadı';
-    return loggable ? '$date, $state' : '$date, $state, değiştirilemez';
+    return loggable ? '$date, $state' : '$date, $state, kaydedilemez';
   }
+  @override
+  String get habitsNew => 'Yeni';
+  @override
+  String get habitsMenuArchive => 'Arşiv';
+  @override
+  String habitsAddedNamed(String name) => '“$name” eklendi';
+  @override
+  String get habitsPickFirst => 'İlk alışkanlığını seç';
+  @override
+  String get habitsStarterBody =>
+      'Birine dokun, hemen eklensin; sonra düzenleyebilirsin.';
+  @override
+  String get habitsStarterWater => 'Su';
+  @override
+  String get habitsStarterWaterChip => 'Su · günde 8';
+  @override
+  String get habitsStarterWalk => 'Yürüyüş';
+  @override
+  String get habitsStarterRead => 'Kitap';
+  @override
+  String get habitsStarterReadChip => 'Kitap · 10 sayfa';
+  @override
+  String get habitsStarterSleep => 'Erken yat';
+  @override
+  String get habitsStarterMeditate => 'Meditasyon';
+  @override
+  String get habitsStarterCustom => 'Özel…';
+  @override
+  String habitsDoneOfTotalRest(int total) => ' / $total tamamlandı';
+  @override
+  String habitsPerfectMeta(int streak, int record) =>
+      'Mükemmel seri $streak · Rekor $record';
+  @override
+  String habitsRate30d(int rate) => '%$rate (30g)';
+  @override
+  String get habitsDayStateDone => 'tamamlandı';
+  @override
+  String get habitsDayStatePartial => 'kısmi';
+  @override
+  String get habitsDayStateMissed => 'eksik';
+  @override
+  String get habitsDayStatePending => 'bekliyor';
+  @override
+  String get habitsDayStateNone => 'kayıt yok';
+  @override
+  String get habitsLegendToday => 'Bugün';
+  @override
+  String get habitsDayCannotLog => 'Kaydedilemez';
+  @override
+  String habitsStartedOn(String date) => 'Başlangıç $date';
+  @override
+  String habitsCadenceDaily(int target) =>
+      target == 1 ? 'Günlük' : 'Günlük · $target/gün';
+  @override
+  String habitsCadenceWeekly(int target) => 'Haftalık · $target gün';
+  @override
+  String habitsCadenceMonthly(int target) => 'Aylık · $target gün';
+  @override
+  String get habitsTrackingGoals => 'İzleyen hedefler';
+  @override
+  String get habitsSetGoal => 'Bu alışkanlık için hedef koy';
+  @override
+  String get habitsDeleteForever => 'Kalıcı olarak sil';
+  @override
+  String habitsTargetDaily(int target) => 'günde $target kez';
+  @override
+  String habitsTargetWeekly(int target) => 'haftada $target gün';
+  @override
+  String habitsTargetMonthly(int target) => 'ayda $target gün';
+  @override
+  String get habitsTargetTypeHint => 'Hedefi yazmak için dokun';
+  @override
+  String get habitsFormMore => 'Daha fazla';
+  @override
+  String habitsFormStarted(String date) => 'Başlangıç: $date';
   // endregion
 
   // --- Goals ----------------------------------------------------------------

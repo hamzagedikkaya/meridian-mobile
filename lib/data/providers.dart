@@ -683,11 +683,11 @@ class TodoQuery {
   const TodoQuery({this.filter = 'open', this.listId, this.unlisted = false});
 
   /// The order the list is read in: the most recently finished first for
-  /// done ones, the manual order for undated ones, else the soonest due.
+  /// done ones, the newest first for undated ones (the Agenda's inbox,
+  /// §7.4), else the soonest due.
   String get sort => switch (filter) {
         'done' => 'completed',
-        'cancelled' => 'created',
-        'undated' => 'position',
+        'cancelled' || 'undated' => 'created',
         _ => 'due',
       };
 

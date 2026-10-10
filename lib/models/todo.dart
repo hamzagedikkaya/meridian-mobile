@@ -246,19 +246,27 @@ class TodoList {
 }
 
 /// `GET /todo_lists`: the active lists, and how many open todos are in no
-/// list (the "Inbox").
+/// list (the "Inbox"). Read with `include_archived=true`, the archived ones
+/// come apart in [archived] — never in [lists], which the pickers offer.
 class TodoListsBundle {
   final List<TodoList> lists;
   final int unlistedOpenCount;
+  final List<TodoList> archived;
 
-  const TodoListsBundle({required this.lists, this.unlistedOpenCount = 0});
+  const TodoListsBundle({
+    required this.lists,
+    this.unlistedOpenCount = 0,
+    this.archived = const [],
+  });
 
   factory TodoListsBundle.fromJson(Map<String, dynamic> json) {
     final meta = (json['meta'] as Map<String, dynamic>?) ?? const {};
+    final all = ((json['todo_lists'] as List?) ?? const [])
+        .map((e) => TodoList.fromJson(e as Map<String, dynamic>))
+        .toList();
     return TodoListsBundle(
-      lists: ((json['todo_lists'] as List?) ?? const [])
-          .map((e) => TodoList.fromJson(e as Map<String, dynamic>))
-          .toList(),
+      lists: [for (final list in all) if (!list.archived) list],
+      archived: [for (final list in all) if (list.archived) list],
       unlistedOpenCount: readInt(meta['unlisted_open_count']),
     );
   }

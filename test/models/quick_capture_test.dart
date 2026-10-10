@@ -131,4 +131,108 @@ void main() {
     expect(r.saved, isTrue);
     expect(r.transaction, isNull);
   });
+
+  group('guessQuickAddKind mirrors the server\'s rules (contract §11)', () {
+    void expectGuess(String line, QuickAddKind? kind) =>
+        expect(guessQuickAddKind(line), kind, reason: line);
+
+    test('blank: no guess', () {
+      expectGuess('', null);
+      expectGuess('   ', null);
+    });
+
+    test('a sign then a number is money', () {
+      expectGuess('-250 kahve', QuickAddKind.expense);
+      expectGuess('−85 kahve', QuickAddKind.expense);
+      expectGuess('– 12,50 simit', QuickAddKind.expense);
+      expectGuess('+1.500 maaş', QuickAddKind.income);
+      expectGuess('+ 1500', QuickAddKind.income);
+      // A number without a sign is not money.
+      expectGuess('3 yumurta al', QuickAddKind.task);
+      // Money wins over a day word.
+      expectGuess('-250 yarın market', QuickAddKind.expense);
+    });
+
+    test('habit: and alışkanlık:, any case, with or without Turkish '
+        'letters', () {
+      expectGuess('habit: run', QuickAddKind.habit);
+      expectGuess('alışkanlık: su', QuickAddKind.habit);
+      expectGuess('ALIŞKANLIK: su', QuickAddKind.habit);
+      expectGuess('aliskanlik:koşu', QuickAddKind.habit);
+      expectGuess('Habit : yoga', QuickAddKind.habit);
+      expectGuess('my habit: yoga', QuickAddKind.task);
+    });
+
+    test('a whole day word is an event', () {
+      expectGuess('yarın 15:00 dişçi', QuickAddKind.event);
+      expectGuess('Yarin dişçi', QuickAddKind.event);
+      expectGuess('cuma toplantı', QuickAddKind.event);
+      expectGuess('meeting on Monday.', QuickAddKind.event);
+      expectGuess('bu pazar piknik', QuickAddKind.event);
+      expectGuess('pazar günü piknik', QuickAddKind.event);
+      // A bare "pazar" is Sunday with a time.
+      expectGuess('pazar 10:00 kahvaltı', QuickAddKind.event);
+      expectGuess('pazar saat 9 koşu', QuickAddKind.event);
+      expectGuess("pazar 9'da kahvaltı", QuickAddKind.event);
+      expectGuess('pazar 3pm brunch', QuickAddKind.event);
+      // Another day word wins over a bare "pazar".
+      expectGuess('pazar alışverişi yarın', QuickAddKind.event);
+    });
+
+    test('a time without a day word is a task, as the server saves it', () {
+      expectGuess('dişçi 15:00', QuickAddKind.task);
+      expectGuess('dişçi 15.30', QuickAddKind.task);
+      expectGuess('saat 9 koşu', QuickAddKind.task);
+      expectGuess("9'da kahvaltı", QuickAddKind.task);
+      expectGuess('call mom 3pm', QuickAddKind.task);
+      expectGuess('ekmek 12.50', QuickAddKind.task);
+    });
+
+    test('not an event: suffixed day words, pazar alone, words containing a '
+        'day, prices', () {
+      expectGuess('yarınki toplantı notları', QuickAddKind.task);
+      expectGuess("Cuma'ya kadar rapor", QuickAddKind.task);
+      expectGuess('pazar alışverişi', QuickAddKind.task);
+      expectGuess('pazar 12.50 TL', QuickAddKind.task);
+      expectGuess('masalı oku', QuickAddKind.task);
+      expectGuess('süt al 15.30 TL', QuickAddKind.task);
+      expectGuess('süt al', QuickAddKind.task);
+    });
+  });
+
+  group('splitQuickAmount reads the number as the server does', () {
+    void expectSplit(
+      String line,
+      int? minor,
+      String description, {
+      int subunit = 100,
+    }) => expect(splitQuickAmount(line, subunitToUnit: subunit), (
+      minorUnits: minor,
+      description: description,
+    ), reason: line);
+
+    test('the amount and the rest', () {
+      expectSplit('−85 kahve', 8500, 'kahve');
+      expectSplit('-1.250,50 market', 125050, 'market');
+      expectSplit('+1.500 maaş', 150000, 'maaş');
+      expectSplit('+1,500 salary', 150000, 'salary');
+      expectSplit('kahve 12,5', 1250, 'kahve');
+      expectSplit('kahve 12.50 TL', 1250, 'kahve');
+      expectSplit('250₺ kira', 25000, 'kira');
+      expectSplit('0,250 çay', 25, 'çay');
+      expectSplit('1,250.50 rent', 125050, 'rent');
+    });
+
+    test('no number, or one that cannot be read', () {
+      expectSplit('kahve', null, 'kahve');
+      expectSplit('-1.25.0 x', null, 'x');
+      expectSplit('-0 x', null, 'x');
+    });
+
+    test('in the account currency\'s minor units', () {
+      expectSplit('-2 altın', 2, 'altın', subunit: 1);
+      expectSplit('-1,5 x', 1500, 'x', subunit: 1000);
+      expectSplit('-1,234 x', 1234000, 'x', subunit: 1000);
+    });
+  });
 }

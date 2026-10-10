@@ -22,8 +22,6 @@ import 'package:meridian_mobile/router/app_router.dart';
 import 'package:meridian_mobile/theme/app_colors.dart';
 import 'package:meridian_mobile/theme/app_theme.dart';
 import 'package:meridian_mobile/ui/screens/agenda/agenda_screen.dart';
-import 'package:meridian_mobile/ui/screens/events/agenda_screen.dart'
-    as events;
 import 'package:meridian_mobile/ui/screens/finance/accounts_screen.dart';
 import 'package:meridian_mobile/ui/screens/finance/finance_screen.dart';
 import 'package:meridian_mobile/ui/screens/goals/goal_detail_screen.dart';
@@ -35,8 +33,8 @@ import 'package:meridian_mobile/ui/screens/shell/app_scaffold.dart';
 import 'package:meridian_mobile/ui/screens/shell/app_tabs.dart';
 import 'package:meridian_mobile/ui/screens/shell/fade_through_branches.dart';
 import 'package:meridian_mobile/ui/screens/today/today_screen.dart';
-import 'package:meridian_mobile/ui/screens/todos/todo_lists_screen.dart';
-import 'package:meridian_mobile/ui/screens/todos/todos_screen.dart';
+import 'package:meridian_mobile/ui/screens/agenda/todo_lists_screen.dart';
+import 'package:meridian_mobile/ui/widgets/nok_chip.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../support/fake_api.dart';
@@ -508,26 +506,38 @@ void main() {
       expect(_location(router), '/agenda/lists');
     });
 
-    testWidgets('a todo link opens the open todos, whatever the Agenda tab '
+    testWidgets('a todo link opens the days ahead, whatever the Agenda tab '
         'showed last', (tester) async {
-      final router = await _pumpApp(tester, FakeApi());
+      final api = FakeApi();
+      final filters = <String?>[];
+      api.onRequest('GET /todos', (request) {
+        filters.add(request.uri.queryParameters['filter']);
+        return {
+          'todos': <Object>[],
+          'meta': const {'counts': <String, int>{}},
+        };
+      });
+      final router = await _pumpApp(tester, api);
       Finder tab(String label) => find.descendant(
           of: find.byType(NavigationBar), matching: find.text(label));
+      bool selected(String chip) => tester
+          .widget<NokChip>(find.widgetWithText(NokChip, chip))
+          .selected;
       await tester.tap(tab('Ajanda'));
       await _settle(tester);
-      await tester.tap(find.text('Etkinlikler'));
+      await tester.ensureVisible(find.text('Tamamlanan'));
+      await tester.tap(find.text('Tamamlanan'));
       await _settle(tester);
-      expect(find.byType(events.AgendaScreen), findsOneWidget);
+      expect(filters.last, 'done');
+      expect(selected('Tamamlanan'), isTrue);
       await tester.tap(tab('Bugün'));
       await _settle(tester);
 
       router.go('/todos');
       await _settle(tester);
-      expect(find.byType(TodosScreen), findsOneWidget);
-      expect(find.byType(events.AgendaScreen), findsNothing);
-      expect(
-          tester.widget<TodosScreen>(find.byType(TodosScreen)).initialFilter,
-          'open');
+      expect(find.byType(AgendaTabScreen), findsOneWidget);
+      expect(selected('Yaklaşan'), isTrue);
+      expect(selected('Tamamlanan'), isFalse);
     });
 
     testWidgets('the old archived-accounts page opens Accounts with the '

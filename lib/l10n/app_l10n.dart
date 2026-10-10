@@ -294,9 +294,10 @@ abstract class AppL10n {
   // --- Quick capture --------------------------------------------------------
   // region quick capture (WP-6)
 
-  /// What a capture saved, by what it turned into.
-  String captureSavedExpense(String amount, String description);
-  String captureSavedIncome(String amount, String description);
+  /// What a capture saved, by what it turned into. Money names the account
+  /// it went to: a capture lands on the oldest active one (contract §11).
+  String captureSavedExpense(String amount, String account);
+  String captureSavedIncome(String amount, String account);
   String captureSavedHabit(String name, {required bool completed});
   String captureSavedTodo(String title);
 
@@ -316,6 +317,44 @@ abstract class AppL10n {
   String get captureAddAsEvent;
   String get captureCreateAccount;
   String captureCreateHabit(String name);
+
+  /// Quick add (design-analysis §7.3): the sheet's title and the line's hint.
+  String get quickAddTitle;
+  String get quickAddHint;
+
+  /// The type chips: "Otomatik" — with the app's guess once something is
+  /// typed ("Otomatik · Harcama") — then the kinds themselves.
+  String quickAddAuto(String? guess);
+  String get quickAddKindTask;
+  String get quickAddKindExpense;
+  String get quickAddKindIncome;
+  String get quickAddKindEvent;
+  String get quickAddKindHabit;
+
+  /// The add button, by what the line will become; [quickAddAction] while
+  /// that is not known yet.
+  String get quickAddAction;
+  String get quickAddActionTask;
+  String get quickAddActionExpense;
+  String get quickAddActionIncome;
+  String get quickAddActionEvent;
+  String get quickAddActionHabit;
+
+  /// Example lines under an empty field; a tap writes one in.
+  List<String> get quickAddExamples;
+
+  /// The habit step: today's habits, one tap logs one.
+  String get quickAddPickHabit;
+  String get quickAddNoHabits;
+  String get quickAddNewHabit;
+  String get quickAddHabitsFailed;
+  String get quickAddHabitDone;
+
+  /// Nothing more specific is known about why it failed.
+  String get quickAddFailed;
+
+  /// The result snackbar's "Geri al" did not go through.
+  String get quickAddUndoFailed;
   // endregion
 
   // --- Todos and todo lists -------------------------------------------------
@@ -401,6 +440,25 @@ abstract class AppL10n {
   String get todoListDeleteAll;
   String todoListDeleted(String name);
   String get todoListDeleteFailed;
+
+  /// The todo sheet's fold for the notes (§7.4).
+  String get todoMoreFields;
+
+  /// A todo moved by the Agenda: to today, to another [day] (its label).
+  String todoMovedToday(String title);
+  String todoMovedOn(String title, String day);
+
+  /// "Hepsini bugüne al": [count] overdue todos moved to today.
+  String todosMovedToday(int count);
+
+  /// A finished todo reopened from the Agenda's "Tamamlanan" view.
+  String todoReopened(String title);
+
+  /// The lists page's group of archived lists, and what archiving or
+  /// restoring one says.
+  String get todoListsArchived;
+  String todoListArchived(String name);
+  String todoListRestored(String name);
   // endregion
 
   // --- Events and agenda ----------------------------------------------------
@@ -460,6 +518,45 @@ abstract class AppL10n {
 
   /// Screen readers: an event row — its title, when, and where.
   String eventSemantics(String title, {required String when, String? where});
+
+  /// The Agenda tab's views (§7.4): its chips, one at a time.
+  String get agendaViewUpcoming;
+  String get agendaViewInbox;
+  String get agendaViewOverdue;
+  String get agendaViewDone;
+
+  /// A view chip with how many it holds: "Gelen kutusu · 3".
+  String agendaChipCount(String label, int count);
+
+  /// The list chip: "Liste: Ev", "Liste: Tümü" ([name] null).
+  String agendaListChip(String? name);
+
+  /// The group past the next seven days.
+  String get agendaLater;
+  String get agendaUpcomingEmpty;
+  String get agendaUpcomingEmptyBody;
+  String get agendaTodayEmpty;
+  String get agendaInboxEmpty;
+
+  /// The Agenda's capture bar, its "add an event" button, and the menu item
+  /// that shows the finished todos.
+  String get agendaCaptureLabel;
+  String get agendaAddEvent;
+  String get agendaShowDone;
+
+  /// Screen readers: what a long press on a day heading does.
+  String get agendaDayAddHint;
+
+  /// The event form: its date, the day a long event ends on, "same day",
+  /// the time row, and the fold for the rest.
+  String get eventDate;
+  String get eventEndDay;
+  String get eventSameDay;
+  String get eventTime;
+  String get eventMoreFields;
+
+  /// A weekly series and the weekday it falls on: "Her hafta Sal".
+  String recurrenceWeeklyOn(String weekday);
   // endregion
 
   // --- Habit day log --------------------------------------------------------
@@ -486,6 +583,14 @@ abstract class AppL10n {
 
   /// Screen-reader hint: a long-press opens the day's log.
   String get habitLogHint;
+  /// The day's log sheet: add to the count, or set it.
+  String get habitLogAdd;
+  String get habitLogSet;
+  String habitLogPlus(int n);
+  String get habitLogToTarget;
+  /// Under the log's count: the day's count before this change.
+  String habitLogNow(int count);
+  String habitLogNowPlus(int count, int add);
   // endregion
 
   // --- Finance --------------------------------------------------------------
@@ -980,6 +1085,46 @@ abstract class AppL10n {
     required bool done,
     required bool loggable,
   });
+  String get habitsNew;
+  String get habitsMenuArchive;
+  String habitsAddedNamed(String name);
+  String get habitsPickFirst;
+  String get habitsStarterBody;
+  String get habitsStarterWater;
+  String get habitsStarterWaterChip;
+  String get habitsStarterWalk;
+  String get habitsStarterRead;
+  String get habitsStarterReadChip;
+  String get habitsStarterSleep;
+  String get habitsStarterMeditate;
+  String get habitsStarterCustom;
+  /// The hero's done count after its rolling number: " / 5 tamamlandı".
+  String habitsDoneOfTotalRest(int total);
+  String habitsPerfectMeta(int streak, int record);
+  String habitsRate30d(int rate);
+  /// A habit day's state, read after its date ("4 Ekim, kısmi").
+  String get habitsDayStateDone;
+  String get habitsDayStatePartial;
+  String get habitsDayStateMissed;
+  String get habitsDayStatePending;
+  String get habitsDayStateNone;
+  String get habitsLegendToday;
+  String get habitsDayCannotLog;
+  String habitsStartedOn(String date);
+  /// The detail's cadence pill: "Günlük · 8/gün", "Haftalık · 3 gün".
+  String habitsCadenceDaily(int target);
+  String habitsCadenceWeekly(int target);
+  String habitsCadenceMonthly(int target);
+  String get habitsTrackingGoals;
+  String get habitsSetGoal;
+  String get habitsDeleteForever;
+  /// The form's target: "günde 8 kez", "haftada 3 gün", "ayda 3 gün".
+  String habitsTargetDaily(int target);
+  String habitsTargetWeekly(int target);
+  String habitsTargetMonthly(int target);
+  String get habitsTargetTypeHint;
+  String get habitsFormMore;
+  String habitsFormStarted(String date);
   // endregion
 
   // --- Goals ----------------------------------------------------------------

@@ -76,7 +76,7 @@ void main() {
       await container.read(
           todosProvider(const TodoQuery(filter: 'undated', listId: 5)).future);
       expect(queries['GET /todos']!.single,
-          {'filter': 'undated', 'list_id': 5, 'sort': 'position'});
+          {'filter': 'undated', 'list_id': 5, 'sort': 'created'});
     });
 
     test('a create sends the day as due_date: a date-only due', () async {
