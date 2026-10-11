@@ -1083,10 +1083,29 @@ abstract class AppL10n {
     required int subscriptions,
     required int children,
     required int budgets,
+    String? movedTo,
   });
   String get categoryDeleteFailed;
   String categoryChildren(int count);
   String get categoryLoadFailed;
+
+  /// The Kategoriler page with no category at all.
+  String get categoriesEmpty;
+
+  /// A root's spend this month in its row's meta: "Bu ay ₺12.400".
+  String categoryMonthSpend(String amount);
+
+  /// The in-use delete dialog: where the transactions go.
+  String get categoryMoveTo;
+  String get categoryDeleteAndMove;
+  String categoryDeletedMoved(String name, int count);
+
+  /// "Sil ve taşı" on its way: "12 işlem taşınıyor…".
+  String categoryMoving(int count);
+
+  /// A move that stopped part way: the category stays, and how many of its
+  /// transactions are already under the other one.
+  String categoryMovePartial(int moved, int total);
   // endregion
 
   // --- Budgets ---------------------------------------------------------------
@@ -1156,6 +1175,31 @@ abstract class AppL10n {
   String subscriptionResumedDone(String name);
   String get subscriptionToggleFailed;
   String subscriptionDeleted(String name);
+
+  /// The hero's label over the monthly total.
+  String get subscriptionsMonthlyLabel;
+  String subscriptionsActiveCount(int count);
+  String subscriptionsPausedCount(int count);
+
+  /// The Abonelikler page's urgency groups (after "Gecikmiş").
+  String get subscriptionsThisWeek;
+  String get subscriptionsThisMonth;
+  String get subscriptionsLater;
+
+  /// A due row's inline button, and what a screen reader hears for it.
+  String get subscriptionPaid;
+  String subscriptionPaidFor(String name);
+  String get subscriptionSkip;
+  String subscriptionSkipped(String name, String date);
+  String get subscriptionSkipFailed;
+  String get subscriptionMoreActions;
+  String get subscriptionFormInWeek;
+  String get subscriptionFormInMonth;
+  String get subscriptionFormStart;
+  String get subscriptionFormEnd;
+  String get subscriptionFormNotSet;
+  String get subscriptionFormClearDate;
+  String get subscriptionFormOtherCurrency;
   // endregion
 
   // --- Habits ---------------------------------------------------------------

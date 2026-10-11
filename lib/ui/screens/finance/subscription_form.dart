@@ -13,29 +13,37 @@ import '../../../models/account.dart';
 import '../../../models/subscription.dart';
 import '../../../models/transaction.dart';
 import '../../../theme/app_colors.dart';
+import '../../../theme/app_metrics.dart';
 import '../../widgets/amount_field.dart';
 import '../../widgets/amount_keypad.dart';
 import '../../widgets/app_snackbar.dart';
-import '../../widgets/choice_wrap.dart';
 import '../../widgets/color_swatches.dart';
 import '../../widgets/form_scaffold.dart';
+import '../../widgets/nok_chip.dart';
 import '../../widgets/picker_sheet.dart';
+import '../../widgets/segmented_pill.dart';
 import '../../widgets/slide_up_route.dart';
 import 'account_form.dart';
 import 'category_picker.dart';
 import 'finance_utils.dart';
+import 'subscriptions_screen.dart' show nextChargeAfter;
 
 /// The longest subscription name the server takes.
 const subscriptionNameMaxLength = 60;
 
 /// Opens the subscription form — a new one, or [existing] to edit — as a
 /// full-screen modal. Resolves to the subscription saved, or null.
+///
+/// [context] is the screen's: a delete from the form and its "Geri al"
+/// outlive the form, and the undo window ends when that screen is left.
 Future<Subscription?> openSubscriptionForm(
   BuildContext context, {
   Subscription? existing,
 }) {
   return Navigator.of(context, rootNavigator: true).push<Subscription>(
-    slideUpModalRoute((_) => SubscriptionFormScreen(existing: existing)),
+    slideUpModalRoute(
+      (_) => SubscriptionFormScreen(existing: existing, host: context),
+    ),
   );
 }
 
@@ -44,7 +52,11 @@ const _newAccount = -1;
 class SubscriptionFormScreen extends ConsumerStatefulWidget {
   final Subscription? existing;
 
-  const SubscriptionFormScreen({super.key, this.existing});
+  /// The screen the form was opened from: a delete's snackbar and undo
+  /// window belong to it. Without one, the form's navigator.
+  final BuildContext? host;
+
+  const SubscriptionFormScreen({super.key, this.existing, this.host});
 
   @override
   ConsumerState<SubscriptionFormScreen> createState() =>
@@ -60,15 +72,28 @@ class _SubscriptionFormScreenState
   late String _frequency = widget.existing?.frequency ?? 'monthly';
   late DateTime? _nextChargeOn = widget.existing?.nextChargeOn;
   late TxCategory? _category = widget.existing?.category;
+  late DateTime? _start = widget.existing?.startDate;
+  late DateTime? _end = widget.existing?.endDate;
+
+  /// The start or end was changed here: only then are they sent.
+  bool _periodTouched = false;
   String? _color;
 
   /// Set once the user picks one; until then the existing subscription's,
   /// or for a new one the only (or first) active account.
   Account? _account;
   late bool _more = widget.existing?.vendor != null ||
-      widget.existing?.note != null;
+      widget.existing?.note != null ||
+      widget.existing?.endDate != null;
 
   bool _saving = false;
+  bool _toggling = false;
+  final _nameKey = GlobalKey();
+  final _amountKey = GlobalKey();
+  final _nextKey = GlobalKey();
+  final _accountKey = GlobalKey();
+  final _categoryKey = GlobalKey();
+  final _endKey = GlobalKey();
   Map<String, String> _errors = const {};
   String? _formError;
 
@@ -190,23 +215,42 @@ class _SubscriptionFormScreenState
     });
   }
 
-  Future<void> _pickDate() async {
+  /// A date from the calendar, starting at [current] (today without one).
+  Future<DateTime?> _calendar(DateTime? current) {
     final today = ref.read(currentDayProvider);
     final first = DateTime(2015);
     final last = DateTime(2100);
-    final current = _nextChargeOn ?? today;
-    final picked = await showDatePicker(
+    final initial = current ?? today;
+    return showDatePicker(
       context: context,
-      initialDate: current.isBefore(first) ? first : current,
+      initialDate: initial.isBefore(first) ? first : initial,
       firstDate: first,
       lastDate: last,
     );
-    if (picked != null) {
-      setState(() {
-        _nextChargeOn = picked;
+  }
+
+  void _setNext(DateTime? date) => setState(() {
+        _nextChargeOn = date;
         _errors = {..._errors}..remove('next');
       });
-    }
+
+  Future<void> _pickDate() async {
+    final picked = await _calendar(_nextChargeOn);
+    if (picked != null && mounted) _setNext(picked);
+  }
+
+  Future<void> _pickPeriod({required bool end}) async {
+    final picked = await _calendar(end ? (_end ?? _start) : _start);
+    if (picked == null || !mounted) return;
+    setState(() {
+      _periodTouched = true;
+      if (end) {
+        _end = picked;
+      } else {
+        _start = picked;
+      }
+      _errors = {..._errors}..remove(end ? 'end' : 'start');
+    });
   }
 
   String? _text(TextEditingController ctrl) {
@@ -226,6 +270,7 @@ class _SubscriptionFormScreenState
       vendor: _text(_vendor),
       note: _text(_note),
       color: color,
+      period: _periodTouched ? (start: _start, end: _end) : null,
     );
   }
 
@@ -251,8 +296,8 @@ class _SubscriptionFormScreenState
             l.txFormNeedAccount,
     };
     if (problems.isNotEmpty) {
-      Haptics.danger();
       setState(() => _errors = problems);
+      _reveal(problems.keys);
       return;
     }
     final input = _input(account, color)!;
@@ -281,7 +326,7 @@ class _SubscriptionFormScreenState
               accountCurrency: account!.currency,
             );
       if (!mounted) return;
-      Haptics.success();
+      Haptics.confirm();
       Navigator.of(context).pop(saved);
       showAppSnack(
         context,
@@ -289,7 +334,7 @@ class _SubscriptionFormScreenState
       );
     } catch (e) {
       if (!mounted) return;
-      Haptics.danger();
+      Haptics.reject();
       final refusal = e is ApiException ? e : null;
       String? field(String key) => refusal?.fieldMessage(l, key);
       final dateParam = refusal?.code == 'invalid_date' ? refusal?.param : null;
@@ -303,15 +348,103 @@ class _SubscriptionFormScreenState
         'next': ?(dateParam == 'next_charge_on'
             ? l.errInvalidDate
             : field('next_charge_on')),
+        'end': ?(dateParam == 'end_date' || dateParam == 'start_date'
+            ? l.errInvalidDate
+            : (field('end_date') ?? field('start_date'))),
       };
       setState(() {
         _saving = false;
         _errors = placed;
+        if (placed.containsKey('end')) _more = true;
         _formError = placed.isEmpty
             ? failureMessage(e, l, fallback: l.subscriptionSaveFailed)
             : null;
       });
+      if (placed.isNotEmpty) _reveal(placed.keys);
     }
+  }
+
+  /// Brings the first field (in the form's order) of [keys] into view.
+  void _reveal(Iterable<String> keys) {
+    final order = {
+      'name': _nameKey,
+      'amount': _amountKey,
+      'next': _nextKey,
+      'account': _accountKey,
+      'category': _categoryKey,
+      'end': _endKey,
+    };
+    for (final entry in order.entries) {
+      if (keys.contains(entry.key)) {
+        WidgetsBinding.instance.addPostFrameCallback(
+            (_) => FormScaffold.revealInvalid(entry.value));
+        return;
+      }
+    }
+    Haptics.reject();
+  }
+
+  /// Leaves the form for a pause or a delete; unsaved edits are asked about
+  /// first. True when it may go.
+  Future<bool> _leave(Account? account, String color) async {
+    if (!_dirty(account, color)) return true;
+    return confirmDiscard(context);
+  }
+
+  /// Pauses or resumes it from the form: says so on the screen and closes.
+  Future<void> _toggle(Subscription sub, Account? account, String color) async {
+    final l = context.l10n;
+    if (!await _leave(account, color) || !mounted) return;
+    final host = widget.host;
+    final navigator = Navigator.of(context);
+    final say = host != null && host.mounted ? host : navigator.context;
+    setState(() {
+      _toggling = true;
+      _formError = null;
+    });
+    try {
+      await ref
+          .read(repositoryProvider)
+          .setSubscriptionActive(sub.id, active: !sub.active);
+      if (!mounted) return;
+      Haptics.confirm();
+      navigator.pop();
+      if (!say.mounted) return;
+      showAppSnack(
+        say,
+        sub.active
+            ? l.subscriptionPausedDone(sub.name)
+            : l.subscriptionResumedDone(sub.name),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      Haptics.reject();
+      setState(() {
+        _toggling = false;
+        _formError =
+            failureMessage(e, l, fallback: l.subscriptionToggleFailed);
+      });
+    }
+  }
+
+  /// Deletes it with "Geri al", on the screen the form was opened from.
+  Future<void> _delete(Subscription sub, Account? account, String color) async {
+    final l = context.l10n;
+    if (!await _leave(account, color) || !mounted) return;
+    final navigator = Navigator.of(context);
+    final host = widget.host;
+    final on = host != null && host.mounted ? host : navigator.context;
+    final repo = ref.read(repositoryProvider);
+    final deletes = ref.read(deferredDeletesProvider.notifier);
+    navigator.pop();
+    if (!on.mounted) return;
+    deleteWithUndo(
+      on,
+      deletes,
+      record: (scope: DataScope.subscriptions, id: sub.id),
+      message: l.subscriptionDeleted(sub.name),
+      send: () => repo.deleteSubscription(sub.id),
+    );
   }
 
   @override
@@ -360,14 +493,32 @@ class _SubscriptionFormScreenState
     final currency = account?.currency ?? 'TRY';
     final subunit = account?.subunitToUnit ?? 100;
 
+    // Moved to an account in another currency: the amount must be given
+    // again, in that currency (contract `amount_required`).
+    final otherCurrency = existing != null &&
+        account != null &&
+        account.currency.toUpperCase() !=
+            existing.account.currency.toUpperCase();
+    final today = ref.watch(currentDayProvider);
+    final inWeek = DateTime(today.year, today.month, today.day + 7);
+    final inMonth = nextChargeAfter(today, 'monthly');
+    bool isDay(DateTime d) =>
+        _nextChargeOn != null && dayDelta(_nextChargeOn!, now: d) == 0;
+    final custom = _nextChargeOn != null &&
+        !isDay(today) &&
+        !isDay(inWeek) &&
+        !isDay(inMonth);
+
     return FormScaffold(
       title: _isEdit ? l.subscriptionFormEditTitle : l.subscriptionFormNewTitle,
       actionLabel: l.actionSave,
       busy: _saving,
       dirty: _dirty(account, color),
-      onAction: () => _save(account, color),
+      onAction: _toggling ? null : () => _save(account, color),
+      errorText: _formError,
       children: [
         TextField(
+          key: _nameKey,
           controller: _name,
           autofocus: !_isEdit,
           maxLength: subscriptionNameMaxLength,
@@ -380,30 +531,82 @@ class _SubscriptionFormScreenState
             errorText: _errors['name'],
           ),
         ),
-        const SizedBox(height: 8),
+        const SizedBox(height: Gap.sm),
         AmountField(
+          key: _amountKey,
           label: l.subscriptionFormAmount,
           minorUnits: _amount,
           currency: currency,
           subunitToUnit: subunit,
           errorText: _errors['amount'],
+          helperText: otherCurrency ? l.subscriptionFormOtherCurrency : null,
           onChanged: (value) => setState(() {
             _amount = value;
             _errors = {..._errors}..remove('amount');
           }),
         ),
-        const SizedBox(height: 16),
+        const SizedBox(height: Gap.lg),
         FormLabel(l.subscriptionFormFrequency),
-        ChoiceWrap<String>(
-          choices: [
+        SegmentedPill<String>(
+          options: [
             for (final f in subscriptionFrequencies)
-              Choice(f, l.subscriptionFrequency(f)),
+              (f, l.subscriptionFrequency(f)),
           ],
           selected: _frequency,
           onChanged: (f) => setState(() => _frequency = f),
         ),
-        const SizedBox(height: 16),
+        const SizedBox(height: Gap.lg),
+        FormLabel(l.subscriptionFormNextCharge),
+        Wrap(
+          key: _nextKey,
+          spacing: Gap.sm,
+          children: [
+            NokChip(
+              label: l.dayToday,
+              exclusive: true,
+              selected: isDay(today),
+              onTap: () => _setNext(today),
+            ),
+            NokChip(
+              label: l.subscriptionFormInWeek,
+              exclusive: true,
+              selected: isDay(inWeek),
+              onTap: () => _setNext(inWeek),
+            ),
+            NokChip(
+              label: l.subscriptionFormInMonth,
+              exclusive: true,
+              selected: isDay(inMonth),
+              onTap: () => _setNext(inMonth),
+            ),
+            NokChip(
+              label: custom
+                  ? formatDate(_nextChargeOn!,
+                      withYear: _nextChargeOn!.year != today.year)
+                  : l.actionSelect,
+              icon: Icons.event_rounded,
+              exclusive: true,
+              selected: custom,
+              onTap: _pickDate,
+            ),
+          ],
+        ),
+        Padding(
+          padding: const EdgeInsets.only(top: Gap.xs),
+          child: Text(
+            _errors['next'] ??
+                (_nextChargeOn == null
+                    ? (_isEdit
+                        ? l.subscriptionNoDate
+                        : l.subscriptionFormNextChargeAuto)
+                    : formatDate(_nextChargeOn!, withYear: true)),
+            style: text.bodySmall!.copyWith(
+                color: _errors['next'] != null ? c.error : c.inkMid),
+          ),
+        ),
+        const SizedBox(height: Gap.lg),
         FormPickerRow(
+          key: _accountKey,
           icon: Icons.account_balance_wallet_outlined,
           label: l.subscriptionFormAccount,
           value: account?.name ??
@@ -416,18 +619,9 @@ class _SubscriptionFormScreenState
           errorText: _errors['account'] ??
               (accountsFailed ? l.txFormAccountsFailed : null),
         ),
-        const SizedBox(height: 8),
+        const SizedBox(height: Gap.sm),
         FormPickerRow(
-          icon: Icons.event_repeat,
-          label: l.subscriptionFormNextCharge,
-          value: _nextChargeOn == null
-              ? (_isEdit ? l.subscriptionNoDate : l.subscriptionFormNextChargeAuto)
-              : formatDate(_nextChargeOn!, withYear: true),
-          onTap: _pickDate,
-          errorText: _errors['next'],
-        ),
-        const SizedBox(height: 8),
-        FormPickerRow(
+          key: _categoryKey,
           icon: Icons.category_outlined,
           label: l.subscriptionFormCategory,
           value: _category?.name ?? l.financeUncategorized,
@@ -435,18 +629,18 @@ class _SubscriptionFormScreenState
           onTap: _pickCategory,
           errorText: _errors['category'],
         ),
-        const SizedBox(height: 8),
+        const SizedBox(height: Gap.sm),
         if (!_more)
           Align(
             alignment: Alignment.centerLeft,
             child: TextButton.icon(
               onPressed: () => setState(() => _more = true),
-              icon: const Icon(Icons.expand_more, size: 18),
+              icon: const Icon(Icons.expand_more_rounded, size: 18),
               label: Text(l.subscriptionFormMore),
             ),
           )
         else ...[
-          const SizedBox(height: 8),
+          const SizedBox(height: Gap.sm),
           TextField(
             controller: _vendor,
             textCapitalization: TextCapitalization.words,
@@ -455,7 +649,38 @@ class _SubscriptionFormScreenState
               labelText: '${l.subscriptionFormVendor} (${l.labelOptional})',
             ),
           ),
-          const SizedBox(height: 12),
+          const SizedBox(height: Gap.md),
+          _dateRow(
+            icon: Icons.play_circle_outline_rounded,
+            label: l.subscriptionFormStart,
+            date: _start,
+            onTap: () => _pickPeriod(end: false),
+            onClear: () => setState(() {
+              _periodTouched = true;
+              _start = null;
+            }),
+          ),
+          const SizedBox(height: Gap.sm),
+          _dateRow(
+            key: _endKey,
+            icon: Icons.stop_circle_outlined,
+            label: l.subscriptionFormEnd,
+            date: _end,
+            errorText: _errors['end'],
+            onTap: () => _pickPeriod(end: true),
+            onClear: () => setState(() {
+              _periodTouched = true;
+              _end = null;
+              _errors = {..._errors}..remove('end');
+            }),
+          ),
+          const SizedBox(height: Gap.lg),
+          FormLabel(l.subscriptionFormColor),
+          ColorSwatchRow(
+            selected: color,
+            onChanged: (hex) => setState(() => _color = hex),
+          ),
+          const SizedBox(height: Gap.lg),
           TextField(
             controller: _note,
             textCapitalization: TextCapitalization.sentences,
@@ -465,20 +690,80 @@ class _SubscriptionFormScreenState
               labelText: '${l.subscriptionFormNote} (${l.labelOptional})',
             ),
           ),
-          const SizedBox(height: 16),
-          FormLabel(l.subscriptionFormColor),
-          ColorSwatchRow(
-            selected: color,
-            onChanged: (hex) => setState(() => _color = hex),
+        ],
+        // Editing: pause or resume, and — at least 24 dp further down —
+        // delete, with "Geri al".
+        if (existing != null) ...[
+          const SizedBox(height: Gap.xxl),
+          Align(
+            alignment: Alignment.centerLeft,
+            child: TextButton.icon(
+              onPressed: _saving || _toggling
+                  ? null
+                  : () => _toggle(existing, account, color),
+              style: TextButton.styleFrom(foregroundColor: c.inkMid),
+              icon: Icon(
+                existing.active
+                    ? Icons.pause_rounded
+                    : Icons.play_arrow_rounded,
+                size: 18,
+              ),
+              label: Text(existing.active
+                  ? l.subscriptionPause
+                  : l.subscriptionResume),
+            ),
+          ),
+          const SizedBox(height: Gap.xxl),
+          Align(
+            alignment: Alignment.centerLeft,
+            child: TextButton.icon(
+              onPressed: _saving || _toggling
+                  ? null
+                  : () => _delete(existing, account, color),
+              style: TextButton.styleFrom(foregroundColor: c.error),
+              icon: const Icon(Icons.delete_outline_rounded, size: 18),
+              label: Text(l.actionDelete),
+            ),
           ),
         ],
-        if (_formError != null)
+      ],
+    );
+  }
+
+  /// A start or end date of the series: the picker row, and an X that
+  /// clears a date that is set.
+  Widget _dateRow({
+    Key? key,
+    required IconData icon,
+    required String label,
+    required DateTime? date,
+    required VoidCallback onTap,
+    required VoidCallback onClear,
+    String? errorText,
+  }) {
+    final l = context.l10n;
+    return Row(
+      key: key,
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Expanded(
+          child: FormPickerRow(
+            icon: icon,
+            label: label,
+            value: date == null
+                ? l.subscriptionFormNotSet
+                : formatDate(date, withYear: true),
+            onTap: onTap,
+            errorText: errorText,
+          ),
+        ),
+        if (date != null)
           Padding(
-            padding: const EdgeInsets.only(top: 16),
-            child: Semantics(
-              liveRegion: true,
-              child: Text(_formError!,
-                  style: text.bodyMedium!.copyWith(color: c.error)),
+            padding: const EdgeInsets.only(left: Gap.xs, top: Gap.xxs),
+            child: IconButton(
+              onPressed: onClear,
+              tooltip: l.subscriptionFormClearDate,
+              icon: const Icon(Icons.close_rounded),
             ),
           ),
       ],

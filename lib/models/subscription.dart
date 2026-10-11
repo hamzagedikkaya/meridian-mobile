@@ -152,6 +152,11 @@ class SubscriptionInput {
   final String? note;
   final String color;
 
+  /// When the series starts and ends; null leaves both as they are (the
+  /// server starts a new one today and never ends it). A null [start] or
+  /// [end] inside it clears that date on an edit.
+  final ({DateTime? start, DateTime? end})? period;
+
   const SubscriptionInput({
     required this.name,
     required this.accountId,
@@ -162,6 +167,7 @@ class SubscriptionInput {
     this.vendor,
     this.note,
     required this.color,
+    this.period,
   });
 
   /// The body of a create. Without a date the server proposes the first
@@ -176,6 +182,8 @@ class SubscriptionInput {
         if (vendor != null) 'vendor': vendor,
         if (note != null) 'note': note,
         'color': color,
+        if (period?.start != null) 'start_date': isoDate(period!.start!),
+        if (period?.end != null) 'end_date': isoDate(period!.end!),
       };
 
   /// The body of an edit of [before]: only what changed. Moving it to an
@@ -192,6 +200,8 @@ class SubscriptionInput {
         before.nextChargeOn == null ? null : isoDate(before.nextChargeOn!);
     final movedCurrency =
         accountCurrency.toUpperCase() != before.account.currency.toUpperCase();
+    String? day(DateTime? d) => d == null ? null : isoDate(d);
+    final period = this.period;
     return {
       if (formTextChanged(name, before.name)) 'name': name.trim(),
       if (accountId != before.account.id) 'account_id': accountId,
@@ -203,6 +213,10 @@ class SubscriptionInput {
       if (formTextChanged(vendor, before.vendor)) 'vendor': asFormText(vendor),
       if (formTextChanged(note, before.note)) 'note': asFormText(note),
       if (color.toUpperCase() != before.color.toUpperCase()) 'color': color,
+      if (period != null && day(period.start) != day(before.startDate))
+        'start_date': day(period.start),
+      if (period != null && day(period.end) != day(before.endDate))
+        'end_date': day(period.end),
     };
   }
 }

@@ -3,19 +3,23 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/api.dart';
 import '../../../core/haptics.dart';
+import '../../../core/turkish_case.dart';
 import '../../../data/data_scope.dart';
 import '../../../data/deferred_deletes.dart';
 import '../../../data/providers.dart';
+import '../../../data/repository.dart' show CategoryMoveFailed;
 import '../../../data/sync.dart';
 import '../../../l10n/app_l10n.dart';
 import '../../../models/finance_category.dart';
 import '../../../models/transaction.dart';
 import '../../../theme/app_colors.dart';
+import '../../../theme/app_metrics.dart';
+import '../../../theme/entity_color.dart';
 import '../../widgets/app_snackbar.dart';
 import '../../widgets/choice_wrap.dart';
 import '../../widgets/color_swatches.dart';
-import '../../widgets/confirm_dialog.dart';
 import '../../widgets/form_scaffold.dart';
+import '../../widgets/nok_sheet.dart';
 import '../../widgets/primary_button.dart';
 import 'finance_utils.dart';
 
@@ -115,7 +119,7 @@ class _CategoryFormState extends ConsumerState<CategoryForm> {
     final l = context.l10n;
     final name = _name.text.trim();
     if (name.isEmpty) {
-      Haptics.danger();
+      Haptics.reject();
       setState(() => _nameError = l.categoryFormNameRequired);
       return;
     }
@@ -140,12 +144,12 @@ class _CategoryFormState extends ConsumerState<CategoryForm> {
           ? await repo.createCategory(input)
           : await repo.updateCategory(existing, input);
       if (!mounted) return;
-      Haptics.success();
+      Haptics.confirm();
       setState(() => _saving = false);
       widget.onSaved(saved);
     } catch (e) {
       if (!mounted) return;
-      Haptics.danger();
+      Haptics.reject();
       final refusal = e is ApiException ? e : null;
       final kindLocked = refusal?.code == 'kind_locked';
       final nameError = refusal?.fieldMessage(l, 'name');
@@ -307,8 +311,9 @@ class _CategoryFormState extends ConsumerState<CategoryForm> {
       );
 }
 
-/// The create/edit sheet of a category (the Kategoriler page). A new one
-/// gets [kind]; resolves to the category saved, or null.
+/// The create/edit sheet of a category (the Kategoriler page;
+/// design-analysis §7.9): its fields, "Kaydet" and — 24 dp further down —
+/// "Sil". A new one gets [kind]; resolves to the category saved, or null.
 ///
 /// [context] is the screen's: a delete and its snackbar outlive the sheet,
 /// and its undo window ends when that screen is left (see
@@ -318,11 +323,11 @@ Future<TxCategory?> showCategorySheet(
   TxCategory? existing,
   required String kind,
 }) {
-  return showModalBottomSheet<TxCategory>(
-    context: context,
-    isScrollControlled: true,
-    useSafeArea: true,
-    barrierColor: const Color(0xFF171310).withValues(alpha: 0.6),
+  final l = context.l10n;
+  return showNokSheet<TxCategory>(
+    context,
+    title: existing == null ? l.categoryFormNewTitle : l.categoryFormEditTitle,
+    showClose: true,
     builder: (_) =>
         _CategorySheet(host: context, existing: existing, kind: kind),
   );
@@ -365,7 +370,7 @@ class _CategorySheetState extends ConsumerState<_CategorySheet> {
       category,
       host: widget.host,
       onUnreadable: (error) {
-        Haptics.danger();
+        Haptics.reject();
         unreadable = failureMessage(error, l, fallback: l.categoryLoadFailed);
       },
     );
@@ -396,71 +401,63 @@ class _CategorySheetState extends ConsumerState<_CategorySheet> {
     return Padding(
       padding: EdgeInsets.only(bottom: MediaQuery.viewInsetsOf(context).bottom),
       child: SingleChildScrollView(
-        padding: const EdgeInsets.fromLTRB(20, 0, 20, 20),
+        padding: const EdgeInsets.fromLTRB(
+            Insets.sheetH, 0, Insets.sheetH, Gap.lg),
         child: SafeArea(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              Text(
+          top: false,
+          child: CategoryForm(
+            existing: existing,
+            kind: widget.kind,
+            // A new one may still be either; an existing one only while
+            // nothing is filed under it.
+            kindEditable: existing == null || (usage?.kindEditable ?? false),
+            kindInUse: usage != null && !usage.kindEditable,
+            hasChildren: hasChildren,
+            onSaved: (saved) {
+              Navigator.of(context).pop(saved);
+              // Nothing changed (the form hands the category back as it
+              // was): nothing was saved, so nothing is said.
+              if (identical(saved, existing)) return;
+              final host = widget.host;
+              if (!host.mounted) return;
+              showAppSnack(
+                host,
                 existing == null
-                    ? l.categoryFormNewTitle
-                    : l.categoryFormEditTitle,
-                style: text.titleLarge,
-              ),
-              const SizedBox(height: 16),
-              CategoryForm(
-                existing: existing,
-                kind: widget.kind,
-                // A new one may still be either; an existing one only while
-                // nothing is filed under it.
-                kindEditable: existing == null || (usage?.kindEditable ?? false),
-                kindInUse: usage != null && !usage.kindEditable,
-                hasChildren: hasChildren,
-                onSaved: (saved) {
-                  Navigator.of(context).pop(saved);
-                  // Nothing changed (the form hands the category back as
-                  // it was): nothing was saved, so nothing is said.
-                  if (identical(saved, existing)) return;
-                  showAppSnack(
-                    context,
-                    existing == null
-                        ? l.categoryCreated(saved.name)
-                        : l.categoryUpdated,
-                  );
-                },
-                footer: existing == null
-                    ? null
-                    : Padding(
-                        padding: const EdgeInsets.only(top: 16),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.stretch,
-                          children: [
-                            TextButton.icon(
-                              onPressed:
-                                  _deleting ? null : () => _delete(existing),
-                              style: TextButton.styleFrom(
-                                foregroundColor: c.error,
-                                minimumSize: const Size.fromHeight(48),
-                              ),
-                              icon: const Icon(Icons.delete_outline, size: 18),
-                              label: Text(l.actionDelete),
-                            ),
-                            if (_deleteError != null)
-                              Semantics(
-                                liveRegion: true,
-                                child: Text(
-                                  _deleteError!,
-                                  textAlign: TextAlign.center,
-                                  style: text.bodySmall!
-                                      .copyWith(color: c.error),
-                                ),
-                              ),
-                          ],
+                    ? l.categoryCreated(saved.name)
+                    : l.categoryUpdated,
+                tone: SnackTone.success,
+              );
+            },
+            footer: existing == null
+                ? null
+                : Padding(
+                    // Never level with "Kaydet": 24 dp below it (§4.15).
+                    padding: const EdgeInsets.only(top: Gap.xxl),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        TextButton.icon(
+                          onPressed: _deleting ? null : () => _delete(existing),
+                          style: TextButton.styleFrom(
+                            foregroundColor: c.error,
+                            minimumSize: const Size.fromHeight(Hit.min),
+                          ),
+                          icon: const Icon(Icons.delete_outline_rounded,
+                              size: 18),
+                          label: Text(l.actionDelete),
                         ),
-                      ),
-              ),
-            ],
+                        if (_deleteError != null)
+                          Semantics(
+                            liveRegion: true,
+                            child: Text(
+                              _deleteError!,
+                              textAlign: TextAlign.center,
+                              style: text.bodySmall!.copyWith(color: c.error),
+                            ),
+                          ),
+                      ],
+                    ),
+                  ),
           ),
         ),
       ),
@@ -474,9 +471,11 @@ class _CategorySheetState extends ConsumerState<_CategorySheet> {
 ///
 /// What a delete touches comes from the server (GET
 /// /finance_categories/:id). A category nothing is filed under goes at once,
-/// with "Geri al". One in use asks first, naming what happens: its
-/// transactions and subscriptions are left uncategorized, its subcategories
-/// and budgets are deleted — none of which an undo could bring back.
+/// with "Geri al". One in use asks first, naming what happens with counts:
+/// its subscriptions are left uncategorized, its subcategories and budgets
+/// are deleted — none of which an undo could bring back — and its
+/// transactions go where the dialog says: uncategorized, or moved to
+/// another category of its type first ("Sil ve taşı").
 ///
 /// Should what it is used for not be readable, nothing is deleted, the
 /// sheet stays open and [onUnreadable] hears why; the next "Sil" asks again.
@@ -518,26 +517,197 @@ Future<void> deleteCategory(
     );
     return;
   }
-  final confirmed = await showConfirmDialog(
-    context,
-    title: l.categoryDeleteTitle(category.name),
-    message: l.categoryDeleteImpact(
-      transactions: usage.transactionsCount,
-      subscriptions: usage.subscriptionsCount,
-      children: usage.childrenCount,
-      budgets: usage.budgetsCount,
-    ),
-    confirmLabel: l.actionDelete,
-    destructive: true,
-  );
-  if (!confirmed || !context.mounted || !host.mounted) return;
+  // Where its transactions can go: another category of its type — not
+  // itself, nor one of its subcategories (deleted with it), nor one whose
+  // own delete waits out its undo.
+  final targets = usage.transactionsCount == 0
+      ? const <TxCategory>[]
+      : [
+          for (final entry in categoryTree(
+            withoutDeleted(
+              ref.read(categoriesProvider).value?.data ?? const <TxCategory>[],
+              ref.read(deferredDeletesProvider),
+              DataScope.categories,
+              (cat) => cat.id,
+            ),
+            kind: category.kind,
+          ))
+            if (entry.category.id != category.id &&
+                entry.category.parentId != category.id)
+              entry.category,
+        ];
+  final choice = await _askDelete(context, category, usage, targets);
+  if (choice == null || !context.mounted || !host.mounted) return;
+  final target = choice.target;
   navigator.pop();
+  // A move takes a request per transaction: it says it is on its way until
+  // the delete's own snackbar replaces it.
+  if (target != null) {
+    showAppSnack(
+      host,
+      l.categoryMoving(usage.transactionsCount),
+      persist: true,
+    );
+  }
   deleteNow(
     host,
     deletes,
     record: record,
-    message: l.categoryDeleted(category.name),
-    send: () => repo.deleteCategory(category.id),
+    message: target == null
+        ? l.categoryDeleted(category.name)
+        : l.categoryDeletedMoved(category.name, usage.transactionsCount),
+    send: () async {
+      // Moved first: a delete would leave them uncategorized. A move that
+      // fails stops it all; the category stays.
+      if (target != null) {
+        await repo.moveCategoryTransactions(category.id, target.id);
+      }
+      await repo.deleteCategory(category.id);
+    },
     failedMessage: l.categoryDeleteFailed,
+    // Some may have moved before it stopped: say how many.
+    explain: (error) => switch (error) {
+      CategoryMoveFailed(:final moved, :final total) when moved > 0 =>
+        l.categoryMovePartial(moved, total),
+      CategoryMoveFailed(:final cause) =>
+        failureMessage(cause, l, fallback: l.categoryDeleteFailed),
+      _ => null,
+    },
   );
+}
+
+/// What the in-use delete dialog answered: delete, moving the transactions
+/// to [target] first — or, without one, leaving them uncategorized.
+typedef _DeleteChoice = ({TxCategory? target});
+
+/// The one dialog a category delete may ask (design-analysis §4.16): the
+/// category by name, what goes with counts, and — when it has transactions
+/// and another category of its type exists — where they go: "Kategorisiz"
+/// or one of [targets], "Diğer" first when there is one. The verb follows:
+/// "Sil" or "Sil ve taşı". Null when cancelled.
+Future<_DeleteChoice?> _askDelete(
+  BuildContext context,
+  TxCategory category,
+  CategoryUsage usage,
+  List<TxCategory> targets,
+) {
+  final l = context.l10n;
+  final other = trLower(l.starterCategories(category.kind).last);
+  TxCategory? initial;
+  for (final t in targets) {
+    if (trLower(t.name.trim()) == other) initial = t;
+  }
+  return showDialog<_DeleteChoice>(
+    context: context,
+    builder: (context) => _DeleteDialog(
+      category: category,
+      usage: usage,
+      targets: targets,
+      initial: initial,
+    ),
+  );
+}
+
+class _DeleteDialog extends StatefulWidget {
+  final TxCategory category;
+  final CategoryUsage usage;
+  final List<TxCategory> targets;
+  final TxCategory? initial;
+
+  const _DeleteDialog({
+    required this.category,
+    required this.usage,
+    required this.targets,
+    this.initial,
+  });
+
+  @override
+  State<_DeleteDialog> createState() => _DeleteDialogState();
+}
+
+class _DeleteDialogState extends State<_DeleteDialog> {
+  late TxCategory? _target = widget.initial;
+
+  @override
+  Widget build(BuildContext context) {
+    final c = context.nok;
+    final text = Theme.of(context).textTheme;
+    final l = context.l10n;
+    final usage = widget.usage;
+    final target = _target;
+    return AlertDialog(
+      title: Text(l.categoryDeleteTitle(widget.category.name)),
+      content: SingleChildScrollView(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Text(l.categoryDeleteImpact(
+              transactions: usage.transactionsCount,
+              subscriptions: usage.subscriptionsCount,
+              children: usage.childrenCount,
+              budgets: usage.budgetsCount,
+              movedTo: target?.name,
+            )),
+            if (widget.targets.isNotEmpty) ...[
+              const SizedBox(height: Gap.lg),
+              Text(l.categoryMoveTo,
+                  style: text.bodySmall!.copyWith(color: c.inkMid)),
+              const SizedBox(height: Gap.xs),
+              DropdownButtonFormField<int?>(
+                initialValue: target?.id,
+                isExpanded: true,
+                decoration: const InputDecoration(),
+                items: [
+                  DropdownMenuItem<int?>(
+                    value: null,
+                    child: Text(l.financeUncategorized),
+                  ),
+                  for (final t in widget.targets)
+                    DropdownMenuItem<int?>(
+                      value: t.id,
+                      child: Row(
+                        children: [
+                          Icon(Icons.circle,
+                              size: 12, color: entityTone(t.color, c).fill),
+                          const SizedBox(width: Gap.sm),
+                          Flexible(
+                            child: Text(
+                              t.parentId == null ? t.name : '  ${t.name}',
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                ],
+                onChanged: (id) => setState(() {
+                  _target = id == null
+                      ? null
+                      : widget.targets.firstWhere((t) => t.id == id);
+                }),
+              ),
+            ],
+          ],
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          style: TextButton.styleFrom(foregroundColor: c.inkHi),
+          child: Text(l.actionCancel),
+        ),
+        FilledButton(
+          onPressed: () => Navigator.of(context).pop((target: target)),
+          style: FilledButton.styleFrom(
+            minimumSize: const Size(64, Hit.min),
+            backgroundColor: c.error,
+            foregroundColor: c.onError,
+          ),
+          child: Text(
+              target == null ? l.actionDelete : l.categoryDeleteAndMove),
+        ),
+      ],
+    );
+  }
 }

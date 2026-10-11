@@ -30,15 +30,50 @@ void main() {
     tallPhone(tester);
     final api = FakeApi()..on('GET /finance_categories', _categories());
     await pumpFinance(tester, api, const CategoriesScreen());
+    // Expenses first, then income, each under its heading.
+    expect(find.text('Gider'), findsOneWidget);
+    expect(find.text('Gelir'), findsOneWidget);
     expect(find.text('Market'), findsOneWidget);
     expect(find.text('Atıştırmalık'), findsOneWidget);
     expect(find.text('1 alt kategori'), findsOneWidget);
-    expect(find.text('Maaş'), findsNothing);
-
-    await tester.tap(find.text('Gelir'));
-    await settleFrames(tester);
     expect(find.text('Maaş'), findsOneWidget);
-    expect(find.text('Market'), findsNothing);
+    expect(tester.getTopLeft(find.text('Gider')).dy,
+        lessThan(tester.getTopLeft(find.text('Market')).dy));
+    expect(tester.getTopLeft(find.text('Atıştırmalık')).dy,
+        lessThan(tester.getTopLeft(find.text('Gelir')).dy));
+    expect(tester.getTopLeft(find.text('Gelir')).dy,
+        lessThan(tester.getTopLeft(find.text('Maaş')).dy));
+    // A subcategory sits 56 dp in from the card, past its parent's circle.
+    expect(
+      tester.getTopLeft(find.text('Atıştırmalık')).dx -
+          tester.getTopLeft(find.text('Market')).dx,
+      36,
+    );
+  });
+
+  testWidgets('a top-level expense category says what went to it this month '
+      '— from the dashboard — and how many subcategories it has; an income '
+      'one only the subcategories', (tester) async {
+    tallPhone(tester);
+    final api = FakeApi()
+      ..on('GET /finance_categories', _categories())
+      ..on('GET /finance/dashboard', {
+        'currency': 'TRY',
+        'subunit_to_unit': 100,
+        'month': {'income_cents': 0, 'expense_cents': 1240000, 'net_cents': -1240000},
+        'year': {'income_cents': 0, 'expense_cents': 1240000},
+        'six_month_series': {'labels': [], 'income_cents': [], 'expense_cents': []},
+        'pie': [
+          {'id': 5, 'name': 'Market', 'color': '#D4915A', 'amount_cents': 1240000, 'breakdown': const []},
+        ],
+        'budgets': [],
+        'upcoming_subscriptions': [],
+        'recent_transactions': [],
+      });
+    await pumpFinance(tester, api, const CategoriesScreen());
+    expect(find.text('Bu ay ₺12.400 · 1 alt kategori'), findsOneWidget);
+    expect(find.textContaining('Bu ay', findRichText: true), findsOneWidget,
+        reason: 'not on the income category');
   });
 
   testWidgets('a new subcategory: name, parent, colour', (tester) async {
@@ -283,12 +318,152 @@ void main() {
     expect(find.text('“Market” silindi'), findsOneWidget);
   });
 
+  testWidgets('a category in use can hand its transactions to another of its '
+      'type: "Diğer" is offered first, "Sil ve taşı" moves them and then '
+      'deletes it', (tester) async {
+    tallPhone(tester);
+    final api = FakeApi()
+      ..on('GET /finance_categories', {
+        'categories': [
+          categoryJson(),
+          categoryJson(id: 6, name: 'Atıştırmalık', parentId: 5),
+          categoryJson(id: 8, name: 'Diğer', color: '#A09B8E'),
+          categoryJson(id: 7, name: 'Maaş', kind: 'income'),
+        ],
+      })
+      ..on('GET /finance_categories/5', {
+        'category': categoryUsageJson(children: 1, transactions: 1),
+      });
+    await pumpFinance(tester, api, const CategoriesScreen());
+    await tester.tap(find.text('Market'));
+    await settleFrames(tester);
+    await tester.tap(_inSheet(find.text('Sil')));
+    await settleFrames(tester);
+    final dialog = find.byType(AlertDialog);
+    expect(find.descendant(of: dialog, matching: find.text('İşlemler şuraya taşınsın')),
+        findsOneWidget);
+    expect(
+      find.text('1 işlem “Diğer” kategorisine taşınacak. '
+          '1 alt kategori de silinecek.'),
+      findsOneWidget,
+    );
+    // Neither itself, its subcategory nor an income category is offered.
+    await tester.tap(find.descendant(of: dialog, matching: find.text('Diğer')));
+    await settleFrames(tester);
+    expect(find.text('Kategorisiz'), findsWidgets);
+    expect(find.text('Atıştırmalık').hitTestable(), findsNothing);
+    expect(find.text('Maaş').hitTestable(), findsNothing);
+    await tester.tap(find.text('Diğer').last);
+    await settleFrames(tester);
+
+    await tester.tap(find.widgetWithText(FilledButton, 'Sil ve taşı'));
+    await settleFrames(tester);
+    expect(api.bodiesOf('PATCH /transactions/316').single,
+        {'finance_category_id': 8});
+    final move = api.requests.indexOf('PATCH /transactions/316');
+    final delete = api.requests.indexOf('DELETE /finance_categories/5');
+    expect(delete, greaterThan(move), reason: 'moved first');
+    expect(find.text('“Market” silindi · 1 işlem taşındı'), findsOneWidget);
+  });
+
+  testWidgets('"Sil ve taşı" says it is moving them; one that fails stops '
+      'it, the category comes back, and the snackbar says how many moved',
+      (tester) async {
+    tallPhone(tester);
+    final api = FakeApi()
+      ..on('GET /finance_categories', {
+        'categories': [
+          categoryJson(),
+          categoryJson(id: 8, name: 'Diğer', color: '#A09B8E'),
+        ],
+      })
+      ..on('GET /finance_categories/5', {
+        'category': categoryUsageJson(transactions: 3),
+      })
+      ..on('GET /transactions', {
+        'transactions': [
+          transactionJson(),
+          transactionJson(id: 317),
+          transactionJson(id: 318),
+        ],
+        'meta': const {
+          'total_count': 3,
+          'page': 1,
+          'page_limit': 50,
+          'filtered_income_cents': 0,
+          'filtered_expense_cents': 41622,
+        },
+      })
+      ..on('PATCH /transactions/317', transactionJson(id: 317))
+      ..fail('PATCH /transactions/318', 500)
+      ..hold('PATCH /transactions/316');
+    await pumpFinance(tester, api, const CategoriesScreen());
+    await tester.tap(find.text('Market'));
+    await settleFrames(tester);
+    await tester.tap(_inSheet(find.text('Sil')));
+    await settleFrames(tester);
+    await tester.tap(find.widgetWithText(FilledButton, 'Sil ve taşı'));
+    await settleFrames(tester);
+    // On its way: said, and the category is off the list.
+    expect(find.text('3 işlem taşınıyor…'), findsOneWidget);
+    expect(find.text('Market'), findsNothing);
+
+    api.release('PATCH /transactions/316');
+    await settleFrames(tester);
+    expect(api.requests, isNot(contains('DELETE /finance_categories/5')));
+    expect(find.text('Kategori silinemedi · 3 işlemin 2 tanesi taşındı'),
+        findsOneWidget);
+    expect(find.text('3 işlem taşınıyor…'), findsNothing);
+    expect(find.text('Market'), findsOneWidget, reason: 'back');
+  });
+
+  testWidgets('"Kategorisiz" in the dialog leaves them uncategorized: no move, '
+      'just the delete', (tester) async {
+    tallPhone(tester);
+    final api = FakeApi()
+      ..on('GET /finance_categories', {
+        'categories': [
+          categoryJson(),
+          categoryJson(id: 8, name: 'Diğer', color: '#A09B8E'),
+        ],
+      })
+      ..on('GET /finance_categories/5', {
+        'category': categoryUsageJson(transactions: 1),
+      });
+    await pumpFinance(tester, api, const CategoriesScreen());
+    await tester.tap(find.text('Market'));
+    await settleFrames(tester);
+    await tester.tap(_inSheet(find.text('Sil')));
+    await settleFrames(tester);
+    await tester.tap(find.descendant(
+        of: find.byType(AlertDialog), matching: find.text('Diğer')));
+    await settleFrames(tester);
+    await tester.tap(find.text('Kategorisiz').last);
+    await settleFrames(tester);
+    expect(find.text('1 işlem kategorisiz kalacak.'), findsOneWidget);
+    await tester.tap(find.widgetWithText(FilledButton, 'Sil'));
+    await settleFrames(tester);
+    expect(api.requests, isNot(contains('PATCH /transactions/316')));
+    expect(api.requests, contains('DELETE /finance_categories/5'));
+  });
+
   testWidgets('a new user starts from a set: "Hazır kategorileri ekle" adds '
       'both types in the app\'s language', (tester) async {
     tallPhone(tester);
     final api = FakeApi()..on('GET /finance_categories', {'categories': const []});
     await pumpFinance(tester, api, const CategoriesScreen());
-    expect(find.text('Henüz gider kategorisi yok'), findsOneWidget);
+    expect(find.text('Henüz kategori yok'), findsOneWidget);
+    // The empty state carries the create action: the FAB steps aside.
+    expect(
+      tester
+          .widget<IgnorePointer>(find
+              .ancestor(
+                  of: find.byType(FloatingActionButton),
+                  matching: find.byType(IgnorePointer))
+              .first)
+          .ignoring,
+      isTrue,
+    );
     await tester.tap(find.text('Hazır kategorileri ekle'));
     await settleFrames(tester);
     final sent = [

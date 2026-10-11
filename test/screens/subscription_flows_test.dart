@@ -12,6 +12,8 @@ import 'package:meridian_mobile/l10n/app_l10n.dart';
 import 'package:meridian_mobile/models/date_utils.dart';
 import 'package:meridian_mobile/ui/screens/finance/finance_screen.dart';
 import 'package:meridian_mobile/ui/screens/finance/subscriptions_screen.dart';
+import 'package:meridian_mobile/ui/widgets/money_text.dart';
+import 'package:meridian_mobile/ui/widgets/primary_button.dart';
 
 import '../support/fake_api.dart';
 import '../support/finance_harness.dart';
@@ -34,25 +36,35 @@ Future<void> _openSheet(WidgetTester tester, FakeApi api) async {
 const _charge = 'POST /subscriptions/6/charge';
 
 /// Whether the sheet's "Ödendi olarak kaydet" can be tapped.
-bool _chargeEnabled(WidgetTester tester) => tester
-    .widget<ButtonStyleButton>(find
-        .ancestor(
-          of: _inSheet(find.text('Ödendi olarak kaydet')),
-          matching: find.byWidgetPredicate((w) => w is ButtonStyleButton),
-        )
-        .first)
-    .enabled;
+PrimaryButton _chargeButton(WidgetTester tester) =>
+    tester.widget<PrimaryButton>(find.ancestor(
+      of: _inSheet(find.text('Ödendi olarak kaydet')),
+      matching: find.byType(PrimaryButton),
+    ));
+
+/// Whether "Ödendi olarak kaydet" takes a tap: neither off nor loading.
+bool _chargeEnabled(WidgetTester tester) {
+  final button = _chargeButton(tester);
+  return button.onPressed != null && !button.loading;
+}
 
 void main() {
   setUpAll(initializeDateFormatting);
 
-  testWidgets('what the active ones cost, then active and paused',
-      (tester) async {
+  testWidgets('what the active ones cost and how many there are, then '
+      'every one by when it is due, the paused ones last', (tester) async {
     tallPhone(tester);
     await pumpFinance(tester, _api(), const SubscriptionsScreen());
-    expect(find.text('Aylık sabit giderin ₺229,99'), findsOneWidget);
-    expect(find.text('yılda ₺2.759,88'), findsOneWidget);
-    expect(find.text('Aktif'), findsOneWidget);
+    expect(find.text('Aylık sabit giderin'), findsOneWidget);
+    // The month in Fraunces (MoneyText.title); the paused row shows its
+    // own amount too.
+    final hero = find.byWidgetPredicate(
+        (w) => w is MoneyText && w.variant == MoneyVariant.title);
+    expect(tester.widget<MoneyText>(hero).cents, 22999);
+    expect(find.descendant(of: hero, matching: find.text('₺229,99')),
+        findsOneWidget);
+    expect(find.text('yılda ₺2.759,88 · 1 aktif · 1 duraklatılmış'),
+        findsOneWidget);
     expect(find.text('Netflix'), findsOneWidget);
     expect(find.text('Duraklatılmış'), findsOneWidget);
     expect(find.text('Gazete'), findsOneWidget);
@@ -220,6 +232,9 @@ void main() {
     await tester.tap(_inSheet(find.text('Ödendi olarak kaydet')));
     await settleFrames(tester);
     expect(_chargeEnabled(tester), isFalse);
+    // Loading, not disabled (D34): it stays gold, with a spinner.
+    expect(_chargeButton(tester).loading, isTrue);
+    expect(_inSheet(find.byType(CircularProgressIndicator)), findsOneWidget);
     await tester.tap(_inSheet(find.text('Ödendi olarak kaydet')),
         warnIfMissed: false);
     await settleFrames(tester);
@@ -407,8 +422,10 @@ void main() {
     await pumpFinance(tester, api, const SubscriptionsScreen());
     final shown =
         formatDate(thisYear, withYear: thisYear.year != today.year);
-    expect(find.text('Gecikmiş · $shown · Aylık'), findsOneWidget);
-    expect(find.text('Gecikmiş · 15 Ocak 2020 · Aylık'), findsOneWidget);
+    // Due rows carry the amount on a line under the date.
+    expect(find.text('Gecikmiş · $shown'), findsOneWidget);
+    expect(find.text('Gecikmiş · 15 Ocak 2020'), findsOneWidget);
+    expect(find.text('₺229,99 / ay'), findsNWidgets(2));
   });
 
   test('overdueSince: the year only when it is not today\'s', () async {

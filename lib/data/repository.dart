@@ -20,6 +20,24 @@ import '../models/transaction.dart';
 import '../models/user.dart';
 import 'data_scope.dart';
 
+/// A "Sil ve taşı" move that stopped part way ([MeridianRepository
+/// .moveCategoryTransactions]): [moved] of [total] transactions are already
+/// under the other category; [cause] is why the rest are not.
+class CategoryMoveFailed implements Exception {
+  final int moved;
+  final int total;
+  final Object cause;
+
+  const CategoryMoveFailed({
+    required this.moved,
+    required this.total,
+    required this.cause,
+  });
+
+  @override
+  String toString() => 'CategoryMoveFailed($moved/$total): $cause';
+}
+
 /// One async method per Meridian endpoint. Every [DioException] is normalized
 /// through [ApiException.fromDio]; models never see raw dio errors.
 ///
@@ -357,6 +375,78 @@ class MeridianRepository {
         deletes: (scope: DataScope.categories, id: id),
         parse: (_) {},
       );
+
+  /// Files every transaction of category [fromId] — and of its
+  /// subcategories — under [toId] instead, before a delete would leave them
+  /// uncategorized (the in-use delete's "Sil ve taşı"). The server has no
+  /// bulk move (WP-15 adds one): the ids are read page by page first, then
+  /// moved [_moveConcurrency] at a time. [onProgress] hears the total once
+  /// it is known, then after each move. The screens refresh once, after the
+  /// last. The number moved; a move that fails (but for one already
+  /// deleted) stops the rest and throws a [CategoryMoveFailed] saying how
+  /// many had gone.
+  Future<int> moveCategoryTransactions(
+    int fromId,
+    int toId, {
+    void Function(int moved, int total)? onProgress,
+  }) async {
+    // One refresh for the lot: the moves below finish inside this write.
+    _writes?.writeStarted();
+    var moved = 0;
+    var total = 0;
+    try {
+      final ids = <int>[];
+      for (var page = 1;; page++) {
+        final batch = await fetchTransactions(categoryId: fromId, page: page);
+        ids.addAll(batch.items.map((tx) => tx.id));
+        final meta = batch.meta;
+        if (batch.items.isEmpty ||
+            ids.length >= meta.totalCount ||
+            page * meta.pageLimit >= meta.totalCount) {
+          break;
+        }
+      }
+      total = ids.length;
+      onProgress?.call(0, total);
+      Object? failure;
+      var next = 0;
+      Future<void> worker() async {
+        while (failure == null && next < ids.length) {
+          final id = ids[next++];
+          try {
+            await _write(
+              'PATCH',
+              '/transactions/$id',
+              body: {'finance_category_id': toId},
+              touches: const {DataScope.transactions},
+              parse: (_) {},
+            );
+            moved++;
+            onProgress?.call(moved, total);
+          } on ApiException catch (e) {
+            // Deleted meanwhile: nothing left to move.
+            if (e.kind != ApiErrorKind.notFound) failure ??= e;
+          } catch (e) {
+            failure ??= e;
+          }
+        }
+      }
+
+      await Future.wait([
+        for (var i = 0; i < _moveConcurrency && i < ids.length; i++) worker(),
+      ]);
+      if (failure case final cause?) {
+        throw CategoryMoveFailed(moved: moved, total: total, cause: cause);
+      }
+      return moved;
+    } finally {
+      _writes?.writeFinished(
+          moved == 0 ? const {} : const {DataScope.transactions});
+    }
+  }
+
+  /// How many of [moveCategoryTransactions]' PATCHes are out at once.
+  static const _moveConcurrency = 4;
   // endregion
 
   // --- Budgets --------------------------------------------------------------

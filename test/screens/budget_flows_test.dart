@@ -4,8 +4,12 @@
 library;
 
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:intl/date_symbol_data_local.dart';
+import 'package:meridian_mobile/core/haptics.dart';
+import 'package:meridian_mobile/theme/app_colors.dart';
 import 'package:meridian_mobile/ui/screens/finance/finance_screen.dart';
 
 import '../support/fake_api.dart';
@@ -107,6 +111,56 @@ void main() {
     await settleFrames(tester);
     expect(api.bodiesOf('PATCH /budgets/2').single,
         {'monthly_limit_cents': 400000});
+  });
+
+  testWidgets('the sheet takes input: it has an X; "Bütçeyi kaldır" sits 24 '
+      'dp under "Kaydet", in error; a save confirms', (tester) async {
+    tallPhone(tester);
+    final api = FakeApi()
+      ..on('GET /finance/dashboard', _dashboard(budgets: [budgetJson()]));
+    await pumpFinance(tester, api, const FinanceScreen());
+    await _toBudgets(tester);
+    await tester.tap(find.text('Market'));
+    await settleFrames(tester);
+    expect(_inSheet(find.byTooltip('Kapat')), findsOneWidget);
+    final save = tester.getRect(_inSheet(find.byType(FilledButton)));
+    final remove = tester.getRect(_inSheet(find.text('Bütçeyi kaldır')));
+    expect(remove.top - save.bottom, greaterThanOrEqualTo(24));
+    final label = _inSheet(find.text('Bütçeyi kaldır'));
+    expect(
+      tester.renderObject<RenderParagraph>(label).text.style?.color,
+      tester.element(label).nok.error,
+    );
+    await tester.tap(_inSheet(find.byTooltip('Kapat')));
+    await settleFrames(tester);
+    expect(find.byType(BottomSheet), findsNothing);
+
+    // A save confirms (§5.8): the success notification, not a light tap.
+    final played = <Object?>[];
+    Haptics.debugReset(androidSdk: 34);
+    tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+      SystemChannels.platform,
+      (call) async {
+        if (call.method == 'HapticFeedback.vibrate') played.add(call.arguments);
+        return null;
+      },
+    );
+    addTearDown(() {
+      Haptics.debugReset();
+      tester.binding.defaultBinaryMessenger
+          .setMockMethodCallHandler(SystemChannels.platform, null);
+    });
+    await tester.tap(find.text('Market'));
+    await settleFrames(tester);
+    await tester.longPress(_inSheet(find.byIcon(Icons.backspace_outlined)));
+    await tester.pump();
+    await _type(tester, '4000');
+    played.clear();
+    await tester.tap(_inSheet(find.text('Kaydet')));
+    await settleFrames(tester);
+    expect(api.bodiesOf('PATCH /budgets/2'), isNotEmpty);
+    expect(played, contains('HapticFeedbackType.successNotification'));
+    expect(played, isNot(contains('HapticFeedbackType.lightImpact')));
   });
 
   testWidgets('a budget over its limit says by how much', (tester) async {

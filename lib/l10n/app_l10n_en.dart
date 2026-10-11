@@ -1645,12 +1645,16 @@ class AppL10nEn extends AppL10n {
     required int subscriptions,
     required int children,
     required int budgets,
+    String? movedTo,
   }) {
     String count(int n, String one, String many) => n == 1 ? '1 $one' : '$n $many';
     return [
       if (transactions > 0)
-        '${count(transactions, 'transaction', 'transactions')} will be '
-            'left uncategorized.',
+        movedTo == null
+            ? '${count(transactions, 'transaction', 'transactions')} will be '
+                'left uncategorized.'
+            : '${count(transactions, 'transaction', 'transactions')} will '
+                'move to “$movedTo”.',
       if (subscriptions > 0)
         '${count(subscriptions, 'subscription', 'subscriptions')} will be '
             'left uncategorized.',
@@ -1669,6 +1673,23 @@ class AppL10nEn extends AppL10n {
       count == 1 ? '1 subcategory' : '$count subcategories';
   @override
   String get categoryLoadFailed => 'Couldn\'t load the category';
+  @override
+  String get categoriesEmpty => 'No categories yet';
+  @override
+  String categoryMonthSpend(String amount) => '$amount this month';
+  @override
+  String get categoryMoveTo => 'Move the transactions to';
+  @override
+  String get categoryDeleteAndMove => 'Delete and move';
+  @override
+  String categoryDeletedMoved(String name, int count) =>
+      '“$name” deleted · ${count == 1 ? '1 transaction' : '$count transactions'} moved';
+  @override
+  String categoryMoving(int count) =>
+      'Moving ${count == 1 ? '1 transaction' : '$count transactions'}…';
+  @override
+  String categoryMovePartial(int moved, int total) =>
+      'Couldn\'t delete the category · $moved of $total transactions moved';
   // endregion
 
   // --- Budgets ---------------------------------------------------------------
@@ -1797,6 +1818,46 @@ class AppL10nEn extends AppL10n {
   String get subscriptionToggleFailed => 'Couldn\'t update the subscription';
   @override
   String subscriptionDeleted(String name) => '“$name” deleted';
+  @override
+  String get subscriptionsMonthlyLabel => 'Fixed costs a month';
+  @override
+  String subscriptionsActiveCount(int count) => '$count active';
+  @override
+  String subscriptionsPausedCount(int count) => '$count paused';
+  @override
+  String get subscriptionsThisWeek => 'This week';
+  @override
+  String get subscriptionsThisMonth => 'This month';
+  @override
+  String get subscriptionsLater => 'Later';
+  @override
+  String get subscriptionPaid => 'Paid';
+  @override
+  String subscriptionPaidFor(String name) => 'Mark $name paid';
+  @override
+  String get subscriptionSkip => 'Skip';
+  @override
+  String subscriptionSkipped(String name, String date) =>
+      'Skipped “$name” · next $date';
+  @override
+  String get subscriptionSkipFailed => 'Couldn\'t skip the payment';
+  @override
+  String get subscriptionMoreActions => 'More options';
+  @override
+  String get subscriptionFormInWeek => 'In a week';
+  @override
+  String get subscriptionFormInMonth => 'In a month';
+  @override
+  String get subscriptionFormStart => 'Starts';
+  @override
+  String get subscriptionFormEnd => 'Ends';
+  @override
+  String get subscriptionFormNotSet => 'Not set';
+  @override
+  String get subscriptionFormClearDate => 'Clear the date';
+  @override
+  String get subscriptionFormOtherCurrency =>
+      'This account uses another currency. Enter the amount in that currency.';
   // endregion
 
   // --- Habits ---------------------------------------------------------------

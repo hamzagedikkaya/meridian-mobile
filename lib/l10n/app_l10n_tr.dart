@@ -1615,9 +1615,13 @@ class AppL10nTr extends AppL10n {
     required int subscriptions,
     required int children,
     required int budgets,
+    String? movedTo,
   }) =>
       [
-        if (transactions > 0) '$transactions işlem kategorisiz kalacak.',
+        if (transactions > 0)
+          movedTo == null
+              ? '$transactions işlem kategorisiz kalacak.'
+              : '$transactions işlem “$movedTo” kategorisine taşınacak.',
         if (subscriptions > 0) '$subscriptions abonelik kategorisiz kalacak.',
         if (children > 0) '$children alt kategori de silinecek.',
         if (budgets > 0) '$budgets bütçe silinecek.',
@@ -1628,6 +1632,22 @@ class AppL10nTr extends AppL10n {
   String categoryChildren(int count) => '$count alt kategori';
   @override
   String get categoryLoadFailed => 'Kategori yüklenemedi';
+  @override
+  String get categoriesEmpty => 'Henüz kategori yok';
+  @override
+  String categoryMonthSpend(String amount) => 'Bu ay $amount';
+  @override
+  String get categoryMoveTo => 'İşlemler şuraya taşınsın';
+  @override
+  String get categoryDeleteAndMove => 'Sil ve taşı';
+  @override
+  String categoryDeletedMoved(String name, int count) =>
+      '“$name” silindi · $count işlem taşındı';
+  @override
+  String categoryMoving(int count) => '$count işlem taşınıyor…';
+  @override
+  String categoryMovePartial(int moved, int total) =>
+      'Kategori silinemedi · $total işlemin $moved tanesi taşındı';
   // endregion
 
   // --- Budgets ---------------------------------------------------------------
@@ -1755,6 +1775,46 @@ class AppL10nTr extends AppL10n {
   String get subscriptionToggleFailed => 'Abonelik güncellenemedi';
   @override
   String subscriptionDeleted(String name) => '“$name” silindi';
+  @override
+  String get subscriptionsMonthlyLabel => 'Aylık sabit giderin';
+  @override
+  String subscriptionsActiveCount(int count) => '$count aktif';
+  @override
+  String subscriptionsPausedCount(int count) => '$count duraklatılmış';
+  @override
+  String get subscriptionsThisWeek => 'Bu hafta';
+  @override
+  String get subscriptionsThisMonth => 'Bu ay';
+  @override
+  String get subscriptionsLater => 'Sonra';
+  @override
+  String get subscriptionPaid => 'Ödendi';
+  @override
+  String subscriptionPaidFor(String name) => '$name ödendi olarak kaydet';
+  @override
+  String get subscriptionSkip => 'Atla';
+  @override
+  String subscriptionSkipped(String name, String date) =>
+      '“$name” atlandı · sonraki $date';
+  @override
+  String get subscriptionSkipFailed => 'Ödeme atlanamadı';
+  @override
+  String get subscriptionMoreActions => 'Diğer seçenekler';
+  @override
+  String get subscriptionFormInWeek => '1 hafta';
+  @override
+  String get subscriptionFormInMonth => '1 ay';
+  @override
+  String get subscriptionFormStart => 'Başlangıç';
+  @override
+  String get subscriptionFormEnd => 'Bitiş';
+  @override
+  String get subscriptionFormNotSet => 'Yok';
+  @override
+  String get subscriptionFormClearDate => 'Tarihi kaldır';
+  @override
+  String get subscriptionFormOtherCurrency =>
+      'Bu hesap başka bir para birimi kullanıyor. Tutarı o para biriminde gir.';
   // endregion
 
   // --- Habits ---------------------------------------------------------------

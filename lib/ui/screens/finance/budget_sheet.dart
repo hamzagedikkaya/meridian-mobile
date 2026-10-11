@@ -13,37 +13,43 @@ import '../../../models/budget.dart';
 import '../../../models/finance_dashboard.dart';
 import '../../../models/transaction.dart';
 import '../../../theme/app_colors.dart';
-import '../../../theme/app_typography.dart';
+import '../../../theme/app_metrics.dart';
 import '../../widgets/amount_keypad.dart';
 import '../../widgets/app_snackbar.dart';
 import '../../widgets/choice_wrap.dart';
 import '../../widgets/form_scaffold.dart';
+import '../../widgets/nok_sheet.dart';
 import '../../widgets/primary_button.dart';
+import '../../widgets/rolling_number.dart';
 import '../../widgets/sync_hint.dart';
 import 'category_sheet.dart';
 import 'finance_utils.dart';
 
-/// The budget sheet: a new monthly limit on an expense category, or
-/// [existing]'s limit changed or the budget removed.
+/// The budget sheet (design-analysis §7.9): a new monthly limit on an
+/// expense category, or [existing]'s limit changed or the budget removed.
 ///
 /// Only what the server takes is offered: expense top-level categories
-/// that have no budget yet (`budgetable_category_ids`), a limit above zero
-/// in the user's currency. With nothing left to budget, the sheet turns
-/// into the category form, and the budget goes on the category it makes.
+/// that have no budget yet (`budgetable_category_ids`) as chips, a limit
+/// above zero in the user's currency on the keypad — in the sheet itself,
+/// never a sheet over it. "+ Yeni kategori" turns the sheet into the
+/// category form (a horizontal shared-axis step), and the budget goes on
+/// the category it makes. "Bütçeyi kaldır" (error, 24 dp under "Kaydet")
+/// removes it with "Geri al".
+///
+/// [context] is the screen's: the snackbars float over its FAB, and a
+/// removal's undo window ends when that screen is left.
 Future<void> showBudgetSheet(BuildContext context, {BudgetStatus? existing}) {
-  return showModalBottomSheet<void>(
-    context: context,
-    isScrollControlled: true,
-    useSafeArea: true,
-    barrierColor: const Color(0xFF171310).withValues(alpha: 0.6),
-    builder: (_) => _BudgetSheet(existing: existing),
+  return showNokSheet<void>(
+    context,
+    builder: (_) => _BudgetSheet(host: context, existing: existing),
   );
 }
 
 class _BudgetSheet extends ConsumerStatefulWidget {
+  final BuildContext host;
   final BudgetStatus? existing;
 
-  const _BudgetSheet({this.existing});
+  const _BudgetSheet({required this.host, this.existing});
 
   @override
   ConsumerState<_BudgetSheet> createState() => _BudgetSheetState();
@@ -77,7 +83,7 @@ class _BudgetSheetState extends ConsumerState<_BudgetSheet> {
       limit: cents <= 0 ? l.budgetLimitRequired : null,
     );
     if (problems.category != null || problems.limit != null) {
-      Haptics.danger();
+      Haptics.reject();
       setState(() {
         _categoryError = problems.category;
         _limitError = problems.limit;
@@ -105,12 +111,18 @@ class _BudgetSheetState extends ConsumerState<_BudgetSheet> {
         await repo.updateBudget(existing, input);
       }
       if (!mounted) return;
-      Haptics.success();
+      Haptics.confirm();
       Navigator.of(context).pop();
-      showAppSnack(context, existing == null ? l.budgetCreated : l.budgetUpdated);
+      final host = widget.host;
+      if (!host.mounted) return;
+      showAppSnack(
+        host,
+        existing == null ? l.budgetCreated : l.budgetUpdated,
+        tone: SnackTone.success,
+      );
     } catch (e) {
       if (!mounted) return;
-      Haptics.danger();
+      Haptics.reject();
       final refusal = e is ApiException ? e : null;
       final limitError = refusal?.fieldMessage(l, 'monthly_limit_cents') ??
           refusal?.fieldMessage(l, 'monthly_limit');
@@ -131,7 +143,7 @@ class _BudgetSheetState extends ConsumerState<_BudgetSheet> {
     final l = context.l10n;
     final existing = widget.existing!;
     final navigator = Navigator.of(context);
-    final host = navigator.context;
+    final host = widget.host.mounted ? widget.host : navigator.context;
     final repo = ref.read(repositoryProvider);
     final deletes = ref.read(deferredDeletesProvider.notifier);
     navigator.pop();
@@ -166,9 +178,10 @@ class _BudgetSheetState extends ConsumerState<_BudgetSheet> {
     if (_creatingCategory) {
       return _sheet(
         context,
+        key: const ValueKey('category'),
         title: l.categoryFormNewTitle,
         onBack: () => setState(() => _creatingCategory = false),
-        children: [
+        body: [
           CategoryForm(
             kind: 'expense',
             allowParent: false,
@@ -184,59 +197,58 @@ class _BudgetSheetState extends ConsumerState<_BudgetSheet> {
     }
 
     final draft = _draft(subunit);
+    final note = _limitError ??
+        (_atLimit
+            ? l.amountTooLarge(
+                formatMoney(AmountDraft.maxMinorUnits, currency, subunit))
+            : null);
     return _sheet(
       context,
+      key: const ValueKey('budget'),
       title: existing == null
           ? l.budgetNewTitle
           : l.budgetEditTitle(existing.categoryName),
-      children: [
+      body: [
         if (existing == null) ...[
           FormLabel(l.budgetCategory),
           _categoryChoices(context, bundle, budgetsAsync, categories),
           if (_categoryError != null)
             Padding(
-              padding: const EdgeInsets.only(top: 4),
+              padding: const EdgeInsets.only(top: Gap.xs),
               child: Text(_categoryError!,
                   style: text.bodySmall!.copyWith(color: c.error)),
             ),
-          const SizedBox(height: 16),
+          const SizedBox(height: Gap.lg),
         ],
         FormLabel(l.budgetLimit),
         Semantics(
           liveRegion: true,
-          label: l.budgetLimit,
-          child: FittedBox(
-            fit: BoxFit.scaleDown,
-            child: Text(
-              draft.display(currency),
+          label: '${l.budgetLimit}, ${draft.display(currency)}',
+          excludeSemantics: true,
+          child: Center(
+            child: RollingNumber(
+              text: draft.display(currency),
+              cause: NumberCause.typing,
               style: text.displayLarge!.copyWith(
-                fontFeatures: tabularFigures,
                 color: draft.isEmpty ? c.inkLow : c.inkHi,
               ),
             ),
           ),
         ),
-        if (_limitError != null || _atLimit)
-          Padding(
-            padding: const EdgeInsets.only(top: 4),
-            child: Text(
-              _limitError ??
-                  l.amountTooLarge(formatMoney(
-                      AmountDraft.maxMinorUnits, currency, subunit)),
-              textAlign: TextAlign.center,
-              style: text.bodySmall!.copyWith(
-                  color: _limitError != null ? c.error : c.warning),
+        // The note's line is kept, so the keypad never moves down.
+        Padding(
+          padding: const EdgeInsets.only(top: Gap.xs),
+          child: Text(
+            note ?? l.budgetCurrencyNote(currency),
+            textAlign: TextAlign.center,
+            style: text.bodySmall!.copyWith(
+              color: _limitError != null
+                  ? c.error
+                  : (_atLimit ? c.warning : c.inkLow),
             ),
           ),
-        Padding(
-          padding: const EdgeInsets.only(top: 4),
-          child: Text(
-            l.budgetCurrencyNote(currency),
-            textAlign: TextAlign.center,
-            style: text.bodySmall!.copyWith(color: c.inkLow),
-          ),
         ),
-        const SizedBox(height: 8),
+        const SizedBox(height: Gap.sm),
         AmountKeypad(
           onDigit: (d) => setState(() {
             _atLimit = draft.wouldPassLimit(d, subunit);
@@ -256,32 +268,31 @@ class _BudgetSheetState extends ConsumerState<_BudgetSheet> {
         ),
         if (_formError != null)
           Padding(
-            padding: const EdgeInsets.only(top: 8),
+            padding: const EdgeInsets.only(top: Gap.sm),
             child: Semantics(
               liveRegion: true,
               child: Text(_formError!,
                   style: text.bodySmall!.copyWith(color: c.error)),
             ),
           ),
-        const SizedBox(height: 12),
-        PrimaryButton(
+      ],
+      actions: SheetActions(
+        primary: PrimaryButton(
           label: l.actionSave,
           loading: _saving,
           onPressed: () => _save(subunit),
         ),
-        if (existing != null) ...[
-          const SizedBox(height: 16),
-          TextButton.icon(
-            onPressed: _remove,
-            style: TextButton.styleFrom(
-              foregroundColor: c.error,
-              minimumSize: const Size.fromHeight(48),
-            ),
-            icon: const Icon(Icons.delete_outline, size: 18),
-            label: Text(l.budgetRemove),
-          ),
-        ],
-      ],
+        destructive: existing == null
+            ? null
+            : TextButton.icon(
+                onPressed: _saving ? null : _remove,
+                style: TextButton.styleFrom(
+                  minimumSize: const Size.fromHeight(Hit.min),
+                ),
+                icon: const Icon(Icons.delete_outline_rounded, size: 18),
+                label: Text(l.budgetRemove),
+              ),
+      ),
     );
   }
 
@@ -328,7 +339,7 @@ class _BudgetSheetState extends ConsumerState<_BudgetSheet> {
           const SizedBox(height: 8),
           OutlinedButton.icon(
             onPressed: () => setState(() => _creatingCategory = true),
-            icon: const Icon(Icons.add, size: 18),
+            icon: const Icon(Icons.add_rounded, size: 18),
             label: Text(l.categoryNew),
           ),
         ],
@@ -350,47 +361,71 @@ class _BudgetSheetState extends ConsumerState<_BudgetSheet> {
         ),
         TextButton.icon(
           onPressed: () => setState(() => _creatingCategory = true),
-          icon: const Icon(Icons.add, size: 18),
+          icon: const Icon(Icons.add_rounded, size: 18),
           label: Text(l.categoryNew),
         ),
       ],
     );
   }
 
+  /// One step of the sheet: its header (with a back arrow on the category
+  /// step, the X on both), [body] scrolling, and [actions] pinned under it.
+  /// A step change slides along the horizontal axis ([SheetStepSwitcher]).
   Widget _sheet(
     BuildContext context, {
+    required Key key,
     required String title,
     VoidCallback? onBack,
-    required List<Widget> children,
+    required List<Widget> body,
+    Widget? actions,
   }) {
-    final text = Theme.of(context).textTheme;
+    final l = context.l10n;
     final refreshing = ref.watch(budgetsProvider).isRefetching;
     return Padding(
       padding: EdgeInsets.only(bottom: MediaQuery.viewInsetsOf(context).bottom),
       child: SyncHint.over(
         active: refreshing,
-        child: SingleChildScrollView(
-          padding: const EdgeInsets.fromLTRB(20, 0, 20, 16),
-          child: SafeArea(
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                Row(
-                  children: [
-                    if (onBack != null)
-                      IconButton(
-                        icon: const Icon(Icons.arrow_back),
-                        tooltip: context.l10n.actionBack,
+        child: SheetStepSwitcher(
+          reverse: onBack == null,
+          child: Column(
+            key: key,
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  if (onBack != null)
+                    Padding(
+                      padding: const EdgeInsets.only(left: Gap.xs),
+                      child: IconButton(
+                        icon: const Icon(Icons.arrow_back_rounded),
+                        tooltip: l.actionBack,
                         onPressed: onBack,
                       ),
-                    Expanded(child: Text(title, style: text.titleLarge)),
-                  ],
+                    ),
+                  Expanded(
+                    child: SheetHeader(title: title, showClose: true),
+                  ),
+                ],
+              ),
+              Flexible(
+                child: SingleChildScrollView(
+                  padding: EdgeInsets.fromLTRB(Insets.sheetH, 0,
+                      Insets.sheetH, actions == null ? Gap.lg : 0),
+                  child: SafeArea(
+                    top: false,
+                    bottom: actions == null,
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: body,
+                    ),
+                  ),
                 ),
-                const SizedBox(height: 16),
-                ...children,
-              ],
-            ),
+              ),
+              ?actions,
+            ],
           ),
         ),
       ),

@@ -166,7 +166,8 @@ Future<SubscriptionCharge?> markSubscriptionPaid(
           tx?.account.subunitToUnit ?? s.account.subunitToUnit,
         )),
         actionLabel: l.actionUndo,
-        onAction: () => _undoCharge(messenger, l, repo, charge, s.nextChargeOn),
+        onAction: () =>
+            undoSubscriptionCharge(messenger, l, repo, charge, s.nextChargeOn),
       );
     }
     return charge;
@@ -194,7 +195,7 @@ Future<SubscriptionCharge?> markSubscriptionPaid(
 /// Takes a payment back: deletes the expense it recorded and moves the
 /// due date back to [dueBefore]. Said on [messenger] when it fails, as the
 /// screen that paid may be gone.
-Future<void> _undoCharge(
+Future<void> undoSubscriptionCharge(
   ScaffoldMessengerState messenger,
   AppL10n l,
   MeridianRepository repo,
