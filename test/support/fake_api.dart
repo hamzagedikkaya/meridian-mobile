@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:dio/dio.dart';
+import 'package:meridian_mobile/core/turkish_case.dart';
 
 /// A scripted Meridian API behind a real [Dio], so tests run the real
 /// repository, `DataSync` and read models end to end — only the network is
@@ -779,6 +780,37 @@ Map<String, dynamic> financeDashboardJson() => {
 // endregion
 
 // region transactions (WP-9)
+/// GET /transactions answered from [rows], as the server filters them by
+/// `q` (contract 13.2): the rows whose description or note contains it, in
+/// any case, the four Turkish i's as one letter — with the totals of the
+/// rows it keeps. The other filters are not applied.
+Object? Function(RequestOptions request) transactionsFeed(
+  List<Map<String, dynamic>> rows,
+) =>
+    (request) {
+      final q = request.queryParameters['q'];
+      final needle = q is String ? trFold(q.trim()) : '';
+      final kept = [
+        for (final row in rows)
+          if (needle.isEmpty ||
+              [row['description'], row['note']]
+                  .any((f) => f is String && trFold(f).contains(needle)))
+            row,
+      ];
+      int total(String kind) => kept
+          .where((row) => row['kind'] == kind)
+          .fold(0, (sum, row) => sum + (row['amount_cents'] as int));
+      return {
+        'transactions': kept,
+        'meta': {
+          'total_count': kept.length,
+          'page': 1,
+          'page_limit': 50,
+          'filtered_income_cents': total('income'),
+          'filtered_expense_cents': total('expense'),
+        },
+      };
+    };
 // endregion
 
 // region categories, budgets, subscriptions (WP-10)
@@ -850,16 +882,6 @@ final Map<String, _Route> _defaults = {
   'GET /finance_categories/5': _Route(body: {'category': categoryUsageJson()}),
   'GET /budgets': _Route(body: budgetsJson()),
   'GET /subscriptions': _Route(body: subscriptionsJson()),
-  'GET /transactions': _Route(body: {
-    'transactions': [transactionJson()],
-    'meta': const {
-      'total_count': 1,
-      'page': 1,
-      'page_limit': 50,
-      'filtered_income_cents': 0,
-      'filtered_expense_cents': 13874,
-    },
-  }),
   'GET /transactions/316':
       _Route(body: {'transaction': transactionDetailJson()}),
   'GET /todos': _Route(body: {
@@ -918,6 +940,7 @@ final Map<String, _Route> _defaults = {
   // endregion
 
   // region transactions (WP-9)
+  'GET /transactions': _Route(respond: transactionsFeed([transactionJson()])),
   // endregion
 
   // region categories, budgets, subscriptions (WP-10)

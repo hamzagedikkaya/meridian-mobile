@@ -761,6 +761,27 @@ abstract class AppL10n {
 
   /// The sheet of a transaction deleted on the web or another device.
   String get txGone;
+
+  /// The kind filter's chip: "Tür" at rest, "Tür: Gider" once one is
+  /// picked.
+  String get txFilterKind;
+  String txFilterKindValue(String kind);
+
+  /// İşlemler's search (design-analysis §7.7): the field under the app
+  /// bar, its empty result and the way on to global search.
+  String get txSearchHint;
+  String get txSearchClose;
+  String txSearchEmpty(String query);
+  String get txSearchClear;
+  String get txSearchEverywhere;
+
+  /// A row's long-press action: the same transaction again, dated today.
+  String get txCopyToToday;
+  String get txCopiedToToday;
+  String get txCopyFailed;
+
+  /// A day's spending in its heading, for a screen reader.
+  String txDaySpent(String amount);
   // endregion
 
   // --- Transaction form ------------------------------------------------------
@@ -794,6 +815,19 @@ abstract class AppL10n {
   /// loaded (a tap tries again) — never "make your first account" then.
   String get txFormAccountsLoading;
   String get txFormAccountsFailed;
+
+  /// The bottom-up form (design-analysis §7.7): the meta chips, the
+  /// category chips, the transfer cards and the text mode.
+  String txFormAccountChip(String name);
+  String get txFormAddDescription;
+  String get txFormMore;
+  String get txFormAllCategories;
+  String get txFormPickDate;
+  String get txFormSource;
+  String get txFormTarget;
+  String get txFormSwap;
+  String txFormBalanceAfter(String amount);
+  String get txFormEditAmount;
   // endregion
 
   // --- Forms, keypad and undo -----------------------------------------------
@@ -1289,7 +1323,6 @@ abstract class AppL10n {
   String get goalsDetailDaysLeft;
   String get goalsDetailProgress;
   String get goalsHabitProgress;
-  String goalsStreakDays(int days);
   String get goalsLinkedAccount;
   String get goalsCurrentBalance;
   String get goalsRefresh;
@@ -1305,9 +1338,6 @@ abstract class AppL10n {
   String get goalsFormNameRequired;
   String get goalsFormDescription;
   String get goalsFormType;
-  String get goalsFormTypeCustom;
-  String get goalsFormTypeHabit;
-  String get goalsFormTypeFinancial;
   String get goalsFormColor;
   String get goalsFormTargetValue;
   String get goalsFormTargetRequired;
@@ -1330,7 +1360,6 @@ abstract class AppL10n {
   /// The starting progress of a goal logged by hand.
   String get goalsFormCurrentValue;
   String get goalsFormNoDeadline;
-  String get goalsFormClearDeadline;
 
   /// Under the type when an edit changes it: the old link goes.
   String get goalsFormTypeChangeNote;
@@ -1340,7 +1369,6 @@ abstract class AppL10n {
 
   /// Reopening a goal whose progress ([current]) already reaches its target.
   String goalsReopenNeedsHigherTarget(String current);
-  String get goalsReopenNewTarget;
   String goalsReopenTargetTooLow(String current);
   String get goalsMarkAchieved;
   String get goalsMarkedAchieved;
@@ -1362,6 +1390,45 @@ abstract class AppL10n {
   String get goalsTotalIncome;
   String goalsDaysOverdue(int days);
   String get goalsMore;
+
+  /// The Goals page's create button in the app bar.
+  String get goalsNew;
+
+  /// The three kinds of goal, as the empty page and the form offer them.
+  String get goalsKindSavings;
+  String get goalsKindSavingsBody;
+  String get goalsKindHabit;
+  String get goalsKindHabitBody;
+  String get goalsKindCustom;
+  String get goalsKindCustomBody;
+
+  /// A stepped or typed progress the server did not take (it springs back).
+  String get goalsProgressNotSaved;
+
+  /// A step button, for a screen reader: "1 ekle" / "10 çıkar".
+  String goalsStepAdd(String amount);
+  String goalsStepRemove(String amount);
+
+  /// A habit goal's action card.
+  String get goalsMarkToday;
+  String get goalsTodayDone;
+  String get goalsOpenHabit;
+
+  /// An account goal's action card.
+  String get goalsOpenAccount;
+
+  /// A savings goal without an account counts every income.
+  String get goalsIncomeCounts;
+
+  /// The goal card's long-press action for a goal logged by hand.
+  String get goalsAddProgress;
+
+  /// Deadline chips: "1 ay", "3 ay", "6 ay"; and the one that picks a date.
+  String goalsDeadlineMonths(int months);
+  String get goalsDeadlinePick;
+
+  /// The form's optional fields (description, colour), folded.
+  String get goalsFormMore;
   // endregion
 
   // --- Journal --------------------------------------------------------------

@@ -677,6 +677,18 @@ void main() {
     final incomes = await repo().fetchTransactions(kind: 'income');
     expect(incomes.items.every((t) => t.kind == 'income'), isTrue);
 
+    // Search (contract 13.2): the description or the note, in any case,
+    // the Turkish I's as one letter — "HAFTALIK" finds the note "haftalık" —
+    // with the other filters, and totals of what it keeps.
+    final searched =
+        await repo().fetchTransactions(accountId: wallet.id, q: ' HAFTALIK ');
+    expect([for (final t in searched.items) t.id], [marketTx.id]);
+    expect(searched.meta.totalCount, 1);
+    expect(searched.meta.filteredExpenseCents, 12550);
+    final described =
+        await repo().fetchTransactions(accountId: wallet.id, q: 'cip');
+    expect([for (final t in described.items) t.id], [snackTx.id]);
+
     final detail = await repo().fetchTransaction(marketTx.id);
     expect(detail.transaction.id, marketTx.id);
     expect(detail.transaction.note, 'haftalık');

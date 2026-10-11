@@ -1185,6 +1185,28 @@ class AppL10nEn extends AppL10n {
   String get txGone => 'This transaction was deleted';
   @override
   String get txSaveFailed => 'Couldn\'t save, try again';
+  @override
+  String get txFilterKind => 'Type';
+  @override
+  String txFilterKindValue(String kind) => 'Type: $kind';
+  @override
+  String get txSearchHint => 'Search descriptions and notes';
+  @override
+  String get txSearchClose => 'Close search';
+  @override
+  String txSearchEmpty(String query) => 'No results · “$query”';
+  @override
+  String get txSearchClear => 'Clear search';
+  @override
+  String get txSearchEverywhere => 'Search everywhere';
+  @override
+  String get txCopyToToday => 'Copy to today';
+  @override
+  String get txCopiedToToday => 'Copied to today';
+  @override
+  String get txCopyFailed => 'Couldn\'t copy';
+  @override
+  String txDaySpent(String amount) => 'Spent $amount';
   // endregion
 
   // --- Transaction form ------------------------------------------------------
@@ -1235,6 +1257,26 @@ class AppL10nEn extends AppL10n {
   @override
   String get txFormAccountsFailed =>
       'Couldn\'t load your accounts. Tap to try again.';
+  @override
+  String txFormAccountChip(String name) => 'Account: $name';
+  @override
+  String get txFormAddDescription => 'Description';
+  @override
+  String get txFormMore => 'More';
+  @override
+  String get txFormAllCategories => 'All…';
+  @override
+  String get txFormPickDate => 'Pick a date';
+  @override
+  String get txFormSource => 'From';
+  @override
+  String get txFormTarget => 'To';
+  @override
+  String get txFormSwap => 'Swap accounts';
+  @override
+  String txFormBalanceAfter(String amount) => 'after: $amount';
+  @override
+  String get txFormEditAmount => 'Edit amount';
   // endregion
 
   // --- Forms, keypad and undo -----------------------------------------------
@@ -2026,7 +2068,7 @@ class AppL10nEn extends AppL10n {
   // region goals (WP-12)
 
   @override
-  String get goalsTypeFinancial => 'FINANCIAL';
+  String get goalsTypeFinancial => 'SAVINGS';
   @override
   String get goalsTypeHabit => 'HABIT';
   @override
@@ -2066,8 +2108,6 @@ class AppL10nEn extends AppL10n {
   @override
   String get goalsHabitProgress => 'Habit progress';
   @override
-  String goalsStreakDays(int days) => '$days-day streak';
-  @override
   String get goalsLinkedAccount => 'Linked account';
   @override
   String get goalsCurrentBalance => 'Current balance';
@@ -2098,12 +2138,6 @@ class AppL10nEn extends AppL10n {
   String get goalsFormDescription => 'Description (optional)';
   @override
   String get goalsFormType => 'Type';
-  @override
-  String get goalsFormTypeCustom => 'Custom';
-  @override
-  String get goalsFormTypeHabit => 'Habit';
-  @override
-  String get goalsFormTypeFinancial => 'Financial';
   @override
   String get goalsFormColor => 'Colour';
   @override
@@ -2140,8 +2174,6 @@ class AppL10nEn extends AppL10n {
   @override
   String get goalsFormNoDeadline => 'None';
   @override
-  String get goalsFormClearDeadline => 'Remove end date';
-  @override
   String get goalsFormTypeChangeNote =>
       'Changing the type removes the old link; the goal keeps its current value.';
   @override
@@ -2154,8 +2186,6 @@ class AppL10nEn extends AppL10n {
   String goalsReopenNeedsHigherTarget(String current) =>
       'Its progress already reaches the target ($current). Enter a higher '
       'target to reopen it.';
-  @override
-  String get goalsReopenNewTarget => 'New target';
   @override
   String goalsReopenTargetTooLow(String current) =>
       'The target must be above the current progress ($current)';
@@ -2196,6 +2226,45 @@ class AppL10nEn extends AppL10n {
       '$days ${days == 1 ? 'day' : 'days'} past';
   @override
   String get goalsMore => 'More actions';
+  @override
+  String get goalsNew => 'New';
+  @override
+  String get goalsKindSavings => 'Savings goal';
+  @override
+  String get goalsKindSavingsBody => 'An account\'s balance, or your income';
+  @override
+  String get goalsKindHabit => 'Habit goal';
+  @override
+  String get goalsKindHabitBody => 'The days a habit is done';
+  @override
+  String get goalsKindCustom => 'Custom goal';
+  @override
+  String get goalsKindCustomBody => 'You log the progress';
+  @override
+  String get goalsProgressNotSaved => 'Couldn\'t save the progress';
+  @override
+  String goalsStepAdd(String amount) => 'Add $amount';
+  @override
+  String goalsStepRemove(String amount) => 'Remove $amount';
+  @override
+  String get goalsMarkToday => 'Mark today';
+  @override
+  String get goalsTodayDone => 'Done today';
+  @override
+  String get goalsOpenHabit => 'Open habit';
+  @override
+  String get goalsOpenAccount => 'Go to account';
+  @override
+  String get goalsIncomeCounts => 'All your income counts';
+  @override
+  String get goalsAddProgress => 'Add progress';
+  @override
+  String goalsDeadlineMonths(int months) =>
+      months == 1 ? '1 month' : '$months months';
+  @override
+  String get goalsDeadlinePick => 'Date';
+  @override
+  String get goalsFormMore => 'More';
   // endregion
 
   // --- Journal --------------------------------------------------------------

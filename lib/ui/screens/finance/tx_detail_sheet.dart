@@ -5,15 +5,19 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../core/api.dart';
 import '../../../core/formats.dart';
 import '../../../core/haptics.dart';
+import '../../../data/current_day.dart';
 import '../../../data/data_scope.dart';
 import '../../../data/deferred_deletes.dart';
 import '../../../data/providers.dart';
 import '../../../l10n/app_l10n.dart';
 import '../../../models/transaction.dart';
 import '../../../theme/app_colors.dart';
+import '../../../theme/app_metrics.dart';
 import '../../widgets/app_snackbar.dart';
 import '../../widgets/confirm_dialog.dart';
 import '../../widgets/money_text.dart';
+import '../../widgets/nok_sheet.dart';
+import '../../widgets/swipe_action.dart';
 import '../../widgets/sync_hint.dart';
 import 'finance_utils.dart';
 import 'transaction_form_screen.dart';
@@ -129,12 +133,14 @@ String describeLinked(AppL10n l, LinkedTransaction linked) => [
       formatDate(linked.date, withYear: true),
     ].join(' · ');
 
-/// A transaction row a swipe to the left deletes (design-research §4.2) —
-/// with "Geri al" and no dialog, unless the delete would take a linked
-/// transaction along: then the row stays swiped open under the dialog that
-/// names it, and slides back if the user keeps it (see
-/// [planTransactionDelete]). Screen readers get the same as an action, and
-/// a tap opens the row's sheet, which has "Sil" too.
+/// A transaction row a swipe to the left deletes (design-analysis §4.28):
+/// the errorContainer background warms to error under "Sil", the row folds
+/// away and "Geri al" offers it back — no dialog, no haptic on the delete —
+/// unless the delete would take a linked transaction along: then the row
+/// stays swiped open under the dialog that names it, and slides back if
+/// the user keeps it (see [planTransactionDelete]). Screen readers get the
+/// same as the row's "Sil" action; a long press and the row's sheet have
+/// "Sil" too.
 class TxSwipeToDelete extends ConsumerStatefulWidget {
   final Transaction tx;
   final Widget child;
@@ -146,10 +152,10 @@ class TxSwipeToDelete extends ConsumerStatefulWidget {
 }
 
 class _TxSwipeToDeleteState extends ConsumerState<TxSwipeToDelete> {
-  /// The delete the swipe settled on, run once the row has slid away.
+  /// The delete the swipe settled on, run once the row has folded away.
   VoidCallback? _delete;
 
-  Future<bool> _confirm() async {
+  Future<bool> _plan() async {
     _delete = await planTransactionDelete(context, ref, widget.tx);
     return _delete != null;
   }
@@ -160,44 +166,154 @@ class _TxSwipeToDeleteState extends ConsumerState<TxSwipeToDelete> {
     delete?.call();
   }
 
-  Future<void> _deleteAction() async {
-    final delete = await planTransactionDelete(context, ref, widget.tx);
-    delete?.call();
-  }
-
   @override
   Widget build(BuildContext context) {
-    final c = context.nok;
-    final text = Theme.of(context).textTheme;
-    final l = context.l10n;
-    return Semantics(
-      customSemanticsActions: {
-        CustomSemanticsAction(label: l.actionDelete): _deleteAction,
+    return SwipeAction(
+      key: ValueKey(widget.tx.id),
+      endToStart: SwipeSpec.delete(
+        context.nok,
+        label: context.l10n.actionDelete,
+        onSwipe: _plan,
+        onDismissed: _dismissed,
+      ),
+      child: widget.child,
+    );
+  }
+}
+
+/// Copies [tx] to today: the same kind, amount, accounts, category,
+/// description and note, dated the account's today — saved at once, with
+/// "Geri al", which deletes the copy. [onSaved] gets the copy as the server
+/// saved it (a feed puts it in place at once with it).
+Future<void> copyTransactionToToday(
+  BuildContext context,
+  WidgetRef ref,
+  Transaction tx, {
+  void Function(Transaction saved)? onSaved,
+}) async {
+  final l = context.l10n;
+  final repo = ref.read(repositoryProvider);
+  final transfer = tx.kind == 'transfer';
+  try {
+    final copy = await repo.createTransaction(TransactionInput(
+      kind: tx.kind,
+      amountCents: tx.amountCents,
+      date: ref.read(currentDayProvider),
+      description: _orNull(tx.description),
+      note: _orNull(tx.note),
+      accountId: tx.account.id,
+      financeCategoryId: transfer ? null : tx.category?.id,
+      relatedAccountId: transfer ? tx.relatedAccount?.id : null,
+    ));
+    if (!context.mounted) return;
+    Haptics.confirm();
+    onSaved?.call(copy);
+    showAppSnack(
+      context,
+      l.txCopiedToToday,
+      actionLabel: l.actionUndo,
+      onAction: () async {
+        try {
+          await repo.deleteTransaction(copy.id);
+        } catch (e) {
+          if (context.mounted) {
+            showAppSnack(
+              context,
+              failureMessage(e, l, fallback: l.txDeleteFailed),
+              isError: true,
+            );
+          } else {
+            Haptics.reject();
+          }
+        }
       },
-      child: Dismissible(
-        key: ValueKey(widget.tx.id),
-        direction: DismissDirection.endToStart,
-        confirmDismiss: (_) => _confirm(),
-        onDismissed: (_) => _dismissed(),
-        background: Container(
-          color: c.error,
-          alignment: Alignment.centerRight,
-          padding: const EdgeInsets.only(right: 24),
-          child: Row(
+    );
+  } catch (e) {
+    if (!context.mounted) return;
+    showAppSnack(
+      context,
+      failureMessage(e, l, fallback: l.txCopyFailed),
+      isError: true,
+    );
+  }
+}
+
+String? _orNull(String? text) {
+  final value = text?.trim() ?? '';
+  return value.isEmpty ? null : text;
+}
+
+/// A row's gesture-only actions as screen-reader actions: "Düzenle" and
+/// "Bugüne kopyala" (the swipe adds "Sil").
+Map<CustomSemanticsAction, VoidCallback> txRowSemanticActions(
+  BuildContext context,
+  WidgetRef ref,
+  Transaction tx, {
+  void Function(Transaction saved)? onSaved,
+}) {
+  final l = context.l10n;
+  return {
+    CustomSemanticsAction(label: l.actionEdit): () =>
+        editTransaction(context, tx, onSaved: onSaved),
+    CustomSemanticsAction(label: l.txCopyToToday): () =>
+        copyTransactionToToday(context, ref, tx, onSaved: onSaved),
+  };
+}
+
+/// What a long press on a transaction row offers (design-analysis §6.4):
+/// Düzenle · Bugüne kopyala · Sil, in a sheet titled with the row's title.
+/// [context] and [ref] are the screen's: what each action opens or says
+/// outlives the sheet.
+Future<void> showTransactionActions(
+  BuildContext context,
+  WidgetRef ref,
+  Transaction tx, {
+  void Function(Transaction saved)? onSaved,
+}) async {
+  final l = context.l10n;
+  final action = await showNokSheet<String>(
+    context,
+    title: TxRow.describe(l, tx).title,
+    builder: (sheet) {
+      final c = sheet.nok;
+      Widget row(String value, IconData icon, String label, {Color? color}) =>
+          ListTile(
+            leading: Icon(icon, color: color ?? c.inkMid),
+            title: Text(
+              label,
+              style: Theme.of(sheet)
+                  .textTheme
+                  .titleMedium!
+                  .copyWith(color: color),
+            ),
+            onTap: () => Navigator.of(sheet).pop(value),
+          );
+      return SafeArea(
+        top: false,
+        child: Padding(
+          padding: const EdgeInsets.only(bottom: Gap.sm),
+          child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              Text(
-                l.actionDelete,
-                style: text.labelLarge!.copyWith(color: c.bg),
-              ),
-              const SizedBox(width: 8),
-              Icon(Icons.delete_outline, color: c.bg),
+              row('edit', Icons.edit_outlined, l.actionEdit),
+              row('copy', Icons.content_copy_rounded, l.txCopyToToday),
+              row('delete', Icons.delete_outline_rounded, l.actionDelete,
+                  color: c.error),
             ],
           ),
         ),
-        child: widget.child,
-      ),
-    );
+      );
+    },
+  );
+  if (action == null || !context.mounted) return;
+  switch (action) {
+    case 'edit':
+      await editTransaction(context, tx, onSaved: onSaved);
+    case 'copy':
+      await copyTransactionToToday(context, ref, tx, onSaved: onSaved);
+    case 'delete':
+      final delete = await planTransactionDelete(context, ref, tx);
+      delete?.call();
   }
 }
 
@@ -215,10 +331,12 @@ Future<void> editTransaction(
   showAppSnack(context, l.txUpdated);
 }
 
-/// The detail sheet of a transaction — the one way a tapped transaction
-/// opens, on Finance, İşlemler and an account's screen alike: what it is,
-/// its note, the other row of its linked pair if it has one, "Düzenle" as
-/// the full-width primary and a quieter "Sil" below it.
+/// The detail sheet of a transaction (design-analysis §7.7) — the one way
+/// a tapped transaction opens, on Finance, İşlemler and an account's screen
+/// alike: its title (the description, else the category) in Fraunces, the
+/// amount, a table of account · category · date · note, the other row of
+/// its linked pair if it has one, "Düzenle" as the full-width primary and,
+/// 24 dp below, the error-coloured "Sil" (with "Geri al").
 /// [perspectiveAccountId] signs a transfer by direction, as the row did;
 /// [onSaved] gets an edit's saved transaction.
 ///
@@ -231,11 +349,8 @@ Future<void> showTransactionSheet(
   int? perspectiveAccountId,
   void Function(Transaction saved)? onSaved,
 }) {
-  return showModalBottomSheet<void>(
-    context: context,
-    isScrollControlled: true,
-    useSafeArea: true,
-    barrierColor: const Color(0xFF171310).withValues(alpha: 0.6),
+  return showNokSheet<void>(
+    context,
     builder: (_) => _TransactionSheet(
       host: context,
       hostRef: ref,
@@ -287,7 +402,7 @@ class _TransactionSheetState extends ConsumerState<_TransactionSheet> {
       tx,
       known: detail,
       onUnreadable: (error) {
-        Haptics.danger();
+        Haptics.reject();
         unreadable = failureMessage(error, l, fallback: l.txDeleteFailed);
       },
     );
@@ -312,7 +427,6 @@ class _TransactionSheetState extends ConsumerState<_TransactionSheet> {
     // The row it was opened from stands in until the detail is in.
     final tx = detail?.transaction ?? widget.tx;
     final linked = detail?.linked;
-    final described = TxRow.describe(l, tx);
     final note = tx.note?.trim() ?? '';
     final perspective = widget.perspectiveAccountId;
     final isTransfer = tx.kind == 'transfer';
@@ -321,92 +435,151 @@ class _TransactionSheetState extends ConsumerState<_TransactionSheet> {
         tx.relatedAccount?.id == perspective;
     final outgoing =
         isTransfer && perspective != null && tx.account.id == perspective;
-    return SafeArea(
-      child: SingleChildScrollView(
-        padding: const EdgeInsets.fromLTRB(20, 0, 20, 16),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            Text(described.title, style: text.titleLarge),
-            const SizedBox(height: 4),
-            Text(
-              [
-                described.meta,
-                formatDate(tx.date, withYear: true),
-              ].where((part) => part.isNotEmpty).join(' · '),
-              style: text.bodySmall!.copyWith(color: c.inkMid),
-            ),
-            const SizedBox(height: 16),
-            Align(
-              alignment: Alignment.centerLeft,
-              child: MoneyText(
-                tx.amountCents,
-                currency: tx.account.currency,
-                subunitToUnit: tx.account.subunitToUnit,
-                variant: MoneyVariant.title,
-                signed: tx.kind == 'income' || incoming,
-                positiveGreen: tx.kind == 'income' || incoming,
-                negative: tx.kind == 'expense' || outgoing,
-              ),
-            ),
-            if (note.isNotEmpty) ...[
-              const SizedBox(height: 16),
-              Text(
-                l.txFormNote,
-                style: text.labelMedium!.copyWith(color: c.inkMid),
-              ),
-              const SizedBox(height: 4),
-              Text(note, style: text.bodyMedium),
-            ],
-            if (linked != null) ...[
-              const SizedBox(height: 16),
-              _LinkedSection(linked: linked),
-            ],
-            if (gone) ...[
-              // Deleted on the web or another device: there is nothing left
-              // to edit or delete, and the lists are refetched already.
-              const SizedBox(height: 24),
-              Semantics(
-                liveRegion: true,
-                child: Text(l.txGone, style: text.titleSmall),
-              ),
-              const SizedBox(height: 4),
-              Text(
-                l.errRecordGoneBody,
-                style: text.bodySmall!.copyWith(color: c.inkMid),
-              ),
-            ] else ...[
-              const SizedBox(height: 24),
-              FilledButton.icon(
-                onPressed: () {
-                  Navigator.of(context).pop();
-                  editTransaction(widget.host, tx, onSaved: widget.onSaved);
-                },
-                icon: const Icon(Icons.edit_outlined, size: 18),
-                label: Text(l.actionEdit),
-              ),
-              const SizedBox(height: 24),
-              TextButton.icon(
-                onPressed: _deleting ? null : () => _delete(tx, detail),
-                style: TextButton.styleFrom(
-                  foregroundColor: c.error,
-                  minimumSize: const Size.fromHeight(48),
-                ),
-                icon: const Icon(Icons.delete_outline, size: 18),
-                label: Text(l.actionDelete),
-              ),
-              if (_deleteError != null)
-                Semantics(
-                  liveRegion: true,
-                  child: Text(
-                    _deleteError!,
-                    textAlign: TextAlign.center,
-                    style: text.bodySmall!.copyWith(color: c.error),
+    final route = tx.relatedAccount == null
+        ? tx.account.name
+        : '${tx.account.name} → ${tx.relatedAccount!.name}';
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        SheetHeader(
+          title: TxRow.describe(l, tx).title,
+          entityTitle: true,
+        ),
+        Flexible(
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.symmetric(horizontal: Insets.sheetH),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Align(
+                  alignment: Alignment.centerLeft,
+                  child: MoneyText(
+                    tx.amountCents,
+                    currency: tx.account.currency,
+                    subunitToUnit: tx.account.subunitToUnit,
+                    variant: MoneyVariant.title,
+                    signed: tx.kind == 'income' || incoming,
+                    positiveGreen: tx.kind == 'income' || incoming,
+                    negative: tx.kind == 'expense' || outgoing,
                   ),
                 ),
+                const SizedBox(height: Gap.lg),
+                _MetaRow(label: l.txFormAccount, value: route),
+                _MetaRow(
+                  label: l.txFormCategory,
+                  value: isTransfer
+                      ? l.financeTransfer
+                      : (tx.category?.name ?? l.financeUncategorized),
+                ),
+                _MetaRow(
+                  label: l.txFormDate,
+                  value: formatDate(tx.date, withYear: true),
+                ),
+                if (note.isNotEmpty) _MetaRow(label: l.txFormNote, value: note),
+                if (linked != null) ...[
+                  const SizedBox(height: Gap.lg),
+                  _LinkedSection(linked: linked),
+                ],
+                if (gone) ...[
+                  // Deleted on the web or another device: there is nothing
+                  // left to edit or delete, and the lists are refetched
+                  // already.
+                  const SizedBox(height: Gap.xxl),
+                  Semantics(
+                    liveRegion: true,
+                    child: Text(l.txGone, style: text.titleSmall),
+                  ),
+                  const SizedBox(height: Gap.xs),
+                  Text(
+                    l.errRecordGoneBody,
+                    style: text.bodySmall!.copyWith(color: c.inkMid),
+                  ),
+                  const SizedBox(height: Gap.lg),
+                ],
+              ],
+            ),
+          ),
+        ),
+        if (!gone)
+          SheetActions(
+            primary: FilledButton.icon(
+              onPressed: () {
+                Navigator.of(context).pop();
+                editTransaction(widget.host, tx, onSaved: widget.onSaved);
+              },
+              icon: const Icon(Icons.edit_outlined, size: 18),
+              label: Text(l.actionEdit),
+            ),
+            destructive: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                TextButton.icon(
+                  onPressed: _deleting ? null : () => _delete(tx, detail),
+                  style: TextButton.styleFrom(
+                    minimumSize: const Size.fromHeight(Hit.min),
+                  ),
+                  icon: const Icon(Icons.delete_outline_rounded, size: 18),
+                  label: Text(l.actionDelete),
+                ),
+                if (_deleteError != null)
+                  Semantics(
+                    liveRegion: true,
+                    child: Text(
+                      _deleteError!,
+                      textAlign: TextAlign.center,
+                      style: text.bodySmall!.copyWith(color: c.error),
+                    ),
+                  ),
+              ],
+            ),
+          )
+        else
+          const SafeArea(top: false, child: SizedBox.shrink()),
+      ],
+    );
+  }
+}
+
+/// One line of the sheet's table: the [label] in inkMid, the [value]
+/// after it; the value wraps rather than being cut.
+class _MetaRow extends StatelessWidget {
+  final String label;
+  final String value;
+
+  const _MetaRow({required this.label, required this.value});
+
+  @override
+  Widget build(BuildContext context) {
+    final c = context.nok;
+    final text = Theme.of(context).textTheme;
+    return MergeSemantics(
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(minHeight: 40),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(vertical: Gap.sm),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              ConstrainedBox(
+                constraints: const BoxConstraints(minWidth: 96),
+                child: Text(
+                  label,
+                  style: text.bodyMedium!.copyWith(color: c.inkMid),
+                ),
+              ),
+              const SizedBox(width: Gap.md),
+              Expanded(
+                child: Text(
+                  value,
+                  textAlign: TextAlign.end,
+                  style: text.bodyMedium!.copyWith(color: c.inkHi),
+                ),
+              ),
             ],
-          ],
+          ),
         ),
       ),
     );

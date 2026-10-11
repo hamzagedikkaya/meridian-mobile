@@ -1,3 +1,5 @@
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -10,25 +12,44 @@ import '../../../models/account.dart';
 import '../../../models/goal.dart';
 import '../../../models/habit.dart';
 import '../../../theme/app_colors.dart';
+import '../../../theme/app_metrics.dart';
+import '../../../theme/app_motion.dart';
 import '../../../data/current_day.dart';
 import '../../../data/providers.dart';
+import '../../widgets/amount_field.dart';
 import '../../widgets/app_snackbar.dart';
 import '../../widgets/color_swatches.dart';
 import '../../widgets/form_scaffold.dart';
+import '../../widgets/nok_chip.dart';
 import '../../widgets/picker_sheet.dart';
-import '../../widgets/segmented_pill.dart';
 import '../../widgets/slide_up_route.dart';
 import '../finance/account_form.dart';
+import 'goal_kind_tile.dart';
 import 'goal_ui.dart';
+import 'goal_value_sheet.dart';
 
 /// The longest goal name the server takes (meridian `Goal`).
 const goalNameMaxLength = 100;
 
-/// Opens the goal form: a new goal or, with [goal], an edit of it. Resolves
-/// to the goal saved, or null when it was closed without saving.
-Future<Goal?> openGoalForm(BuildContext context, {Goal? goal}) {
+/// Opens the goal form: a new goal — of [type] (`financial`, `habit`,
+/// `custom`) when given; a habit goal already linked to habit [habitId]
+/// when that is given (the habit's "Bu alışkanlık için hedef koy") — or,
+/// with [goal], an edit of it. Resolves to the goal saved, or null when it
+/// was closed without saving.
+Future<Goal?> openGoalForm(
+  BuildContext context, {
+  Goal? goal,
+  String? type,
+  int? habitId,
+}) {
   return Navigator.of(context, rootNavigator: true).push<Goal>(
-    slideUpModalRoute((_) => GoalFormScreen(goal: goal)),
+    slideUpModalRoute(
+      (_) => GoalFormScreen(
+        goal: goal,
+        initialType: type,
+        initialHabitId: habitId,
+      ),
+    ),
   );
 }
 
@@ -65,10 +86,14 @@ Future<GoalLink?> pickGoalLink(
   const none = -1;
   const created = -2;
   if (targetType == 'financial') {
-    final List<Account>? all =
-        await lookup(() => ref.read(accountsProvider.future));
+    final List<Account>? all = await lookup(
+      () => ref.read(accountsProvider.future),
+    );
     if (all == null || !context.mounted) return null;
-    final accounts = [for (final a in all) if (!a.archived) a];
+    final accounts = [
+      for (final a in all)
+        if (!a.archived) a,
+    ];
     final id = accounts.isEmpty
         ? created
         : await showPickerSheet<int>(
@@ -81,8 +106,15 @@ Future<GoalLink?> pickGoalLink(
               PickerOption(value: none, label: l.labelNone),
               for (final a in accounts)
                 PickerOption(
-                    value: a.id, label: a.name, color: goalColor(a.color)),
-              PickerOption(value: created, label: l.accountNew, icon: Icons.add),
+                  value: a.id,
+                  label: a.name,
+                  color: goalColor(a.color),
+                ),
+              PickerOption(
+                value: created,
+                label: l.accountNew,
+                icon: Icons.add,
+              ),
             ],
           );
     if (id == null || !context.mounted) return null;
@@ -99,8 +131,9 @@ Future<GoalLink?> pickGoalLink(
     }
     return (related: 'Account-${account.id}', name: account.name);
   }
-  final HabitsBundle? bundle =
-      await lookup(() => ref.read(habitsProvider.future));
+  final HabitsBundle? bundle = await lookup(
+    () => ref.read(habitsProvider.future),
+  );
   if (bundle == null || !context.mounted) return null;
   final id = await showPickerSheet<int>(
     context,
@@ -120,13 +153,42 @@ Future<GoalLink?> pickGoalLink(
   return (related: 'Habit-${habit.id}', name: habit.name);
 }
 
-/// Full-screen goal form (design-research §5.5): type first, then only that
-/// type's fields. With [goal] it edits that goal — every field prefilled,
-/// its link kept unless changed here — and sends only what changed.
+/// The deadline choices of the form: none, 1, 3 or 6 months from today,
+/// or a picked date.
+enum _Deadline { none, oneMonth, threeMonths, sixMonths, date }
+
+/// [from] moved [months] ahead, on the same day of the month — or the
+/// month's last day when it is shorter (31 Jan + 1 month = 28/29 Feb).
+DateTime _monthsAhead(DateTime from, int months) {
+  final last = DateTime(from.year, from.month + months + 1, 0).day;
+  return DateTime(from.year, from.month + months, math.min(from.day, last));
+}
+
+/// Full-screen goal form (design-analysis §7.11, IA-21): the kind first —
+/// savings, habit or custom, as three cards — then the name, the target on
+/// the keypad (money for savings), the unit (not for savings), the link
+/// (an account or a habit), the deadline as chips (none · 1 · 3 · 6 months
+/// · a date) and, folded under "Daha fazla", the description and colour.
+///
+/// With [goal] it edits that goal — every field prefilled, its link kept
+/// unless changed here — and sends only what changed.
 class GoalFormScreen extends ConsumerStatefulWidget {
   final Goal? goal;
 
-  const GoalFormScreen({super.key, this.goal});
+  /// The kind a new goal starts as; custom by default — habit when
+  /// [initialHabitId] is given.
+  final String? initialType;
+
+  /// A new goal starts linked to this habit (`related: Habit-<id>`), as a
+  /// habit goal.
+  final int? initialHabitId;
+
+  const GoalFormScreen({
+    super.key,
+    this.goal,
+    this.initialType,
+    this.initialHabitId,
+  });
 
   @override
   ConsumerState<GoalFormScreen> createState() => _GoalFormScreenState();
@@ -135,24 +197,38 @@ class GoalFormScreen extends ConsumerStatefulWidget {
 class _GoalFormScreenState extends ConsumerState<GoalFormScreen> {
   Goal? get _editing => widget.goal;
 
-  late final _name = TextEditingController(text: _editing?.name ?? '');
-  late final _description =
-      TextEditingController(text: _editing?.description ?? '');
-  late final _unit = TextEditingController(text: _editing?.unit ?? '');
-  late final _target = TextEditingController(
-    text: _editing == null ? '' : goalNumberInput(_editing!.targetValue),
-  );
-  late final _current = TextEditingController(
-    text: _editing == null || !_editing!.isManual
-        ? ''
-        : goalNumberInput(_editing!.currentValue),
-  );
+  /// The habit a new goal starts linked to; never for an edit.
+  int? get _habitId => widget.goal == null ? widget.initialHabitId : null;
 
-  late String _type = _editing?.targetType ?? 'custom';
+  late final _name = TextEditingController(text: _editing?.name ?? '');
+  late final _description = TextEditingController(
+    text: _editing?.description ?? '',
+  );
+  late final _unit = TextEditingController(text: _editing?.unit ?? '');
+
+  /// The target, in major units; null until one is entered.
+  late double? _target = _editing?.targetValue;
+
+  /// The progress so far of a goal logged by hand; null when not entered.
+  late double? _current = _editing == null || !_editing!.isManual
+      ? null
+      : _editing!.currentValue;
+
+  late String _type =
+      _editing?.targetType ??
+      (_habitId != null ? 'habit' : widget.initialType ?? 'custom');
   late String _color = _editing?.color ?? recordSwatches.first;
   late DateTime? _deadline = _editing?.deadline;
-  late String _related = _editing?.relatedRef ?? 'none';
+  late String _related =
+      _editing?.relatedRef ?? (_habitId != null ? 'Habit-$_habitId' : 'none');
   late String? _relatedLabel = _editing?.related?.name;
+
+  /// The description and colour are shown: when editing a goal that has a
+  /// description, or once "Daha fazla" is tapped.
+  late bool _more = _editing?.description.trim().isNotEmpty ?? false;
+
+  final _nameKey = GlobalKey();
+  final _targetKey = GlobalKey();
 
   bool _saving = false;
   bool _picking = false;
@@ -166,8 +242,6 @@ class _GoalFormScreenState extends ConsumerState<GoalFormScreen> {
     _name.dispose();
     _description.dispose();
     _unit.dispose();
-    _target.dispose();
-    _current.dispose();
     super.dispose();
   }
 
@@ -176,7 +250,19 @@ class _GoalFormScreenState extends ConsumerState<GoalFormScreen> {
   bool get _manual =>
       _type == 'custom' || (_type == 'habit' && _related == 'none');
 
+  bool get _financial => _type == 'financial';
+
+  /// The name of the habit [_related] points at, from the habits loaded —
+  /// for a link given up front (`initialHabitId`), which comes without it.
+  String? get _linkedHabitName {
+    if (!_related.startsWith('Habit-')) return null;
+    final id = int.tryParse(_related.substring(6));
+    final habits = ref.read(habitsProvider).value?.data.habits;
+    return habits?.where((h) => h.id == id).firstOrNull?.name;
+  }
+
   void _setType(String type) {
+    if (type == _type) return;
     final before = _editing;
     setState(() {
       _type = type;
@@ -184,6 +270,10 @@ class _GoalFormScreenState extends ConsumerState<GoalFormScreen> {
       if (before != null && type == before.targetType) {
         _related = before.relatedRef;
         _relatedLabel = before.related?.name;
+      } else if (before == null && _habitId != null && type == 'habit') {
+        // Back to the habit it was opened for.
+        _related = 'Habit-$_habitId';
+        _relatedLabel = null;
       } else {
         _related = 'none';
         _relatedLabel = null;
@@ -192,9 +282,45 @@ class _GoalFormScreenState extends ConsumerState<GoalFormScreen> {
     });
   }
 
+  /// What a financial goal is counted in: the goal's own currency when it
+  /// already is one, else the linked account's, else the user's.
+  ({String currency, int subunit}) get _money {
+    final before = _editing;
+    if (before != null && before.targetType == 'financial') {
+      return goalMoneyMeta(before);
+    }
+    if (_related.startsWith('Account-')) {
+      final id = int.tryParse(_related.substring(8));
+      final accounts = ref.read(accountsProvider).value?.data;
+      final account = accounts?.where((a) => a.id == id).firstOrNull;
+      if (account != null) {
+        return (currency: account.currency, subunit: account.subunitToUnit);
+      }
+    }
+    final currency = ref.read(currentUserProvider)?.currency ?? 'TRY';
+    return (currency: currency, subunit: currency == 'GAU' ? 1 : 100);
+  }
+
+  _Deadline get _deadlineChoice {
+    final d = _deadline;
+    if (d == null) return _Deadline.none;
+    final today = ref.read(currentDayProvider);
+    bool sameDay(DateTime a) =>
+        a.year == d.year && a.month == d.month && a.day == d.day;
+    if (sameDay(_monthsAhead(today, 1))) return _Deadline.oneMonth;
+    if (sameDay(_monthsAhead(today, 3))) return _Deadline.threeMonths;
+    if (sameDay(_monthsAhead(today, 6))) return _Deadline.sixMonths;
+    return _Deadline.date;
+  }
+
+  void _setMonths(int months) {
+    final today = ref.read(currentDayProvider);
+    setState(() => _deadline = _monthsAhead(today, months));
+  }
+
   Future<void> _pickDeadline() async {
     final now = ref.read(currentDayProvider);
-    final initial = _deadline ?? now.add(const Duration(days: 30));
+    final initial = _deadline ?? _monthsAhead(now, 1);
     final first = initial.isBefore(now) ? initial : now;
     final picked = await showDatePicker(
       context: context,
@@ -227,16 +353,16 @@ class _GoalFormScreenState extends ConsumerState<GoalFormScreen> {
   }
 
   GoalInput _inputWith({num? target, num? current}) => GoalInput(
-        name: _name.text.trim(),
-        description: _description.text,
-        targetType: _type,
-        color: _color,
-        unit: _type == 'financial' ? _financialUnit : _unit.text,
-        deadline: _deadline,
-        targetValue: target,
-        related: _related,
-        currentValue: _manual ? current : null,
-      );
+    name: _name.text.trim(),
+    description: _description.text,
+    targetType: _type,
+    color: _color,
+    unit: _financial ? _financialUnit : _unit.text,
+    deadline: _deadline,
+    targetValue: target,
+    related: _related,
+    currentValue: _manual ? current : null,
+  );
 
   /// A financial goal's unit is a currency, never typed here: the goal's
   /// own when it already was a financial one, the server's default (the
@@ -250,14 +376,11 @@ class _GoalFormScreenState extends ConsumerState<GoalFormScreen> {
   }
 
   bool get _dirty {
-    final input = _inputWith(
-      target: parseGoalNumber(_target.text),
-      current: parseGoalNumber(_current.text),
-    );
+    final input = _inputWith(target: _target, current: _current);
     final before = _editing;
     if (before != null) return input.changesFrom(before).isNotEmpty;
     return input.name.isNotEmpty ||
-        _target.text.trim().isNotEmpty ||
+        _target != null ||
         _description.text.trim().isNotEmpty;
   }
 
@@ -265,22 +388,22 @@ class _GoalFormScreenState extends ConsumerState<GoalFormScreen> {
     if (_saving) return;
     final l = context.l10n;
     final name = _name.text.trim();
-    final target = parseGoalNumber(_target.text);
-    final currentText = _current.text.trim();
-    final current = currentText.isEmpty ? null : parseGoalNumber(currentText);
+    final target = _target;
+    final current = _current;
     setState(() {
       _nameError = name.isEmpty ? l.goalsFormNameRequired : null;
       _targetError = (target == null || target <= 0)
-          ? goalNumberError(l, _target.text,
-              invalid: l.goalsFormTargetRequired)
+          ? l.goalsFormTargetRequired
           : null;
-      _currentError = _manual && currentText.isNotEmpty &&
-              (current == null || current < 0)
-          ? goalNumberError(l, currentText, invalid: l.errInvalidData)
-          : null;
+      _currentError = null;
     });
-    if (_nameError != null || _targetError != null || _currentError != null) {
-      Haptics.danger();
+    final invalid = _nameError != null
+        ? _nameKey
+        : _targetError != null
+        ? _targetKey
+        : null;
+    if (invalid != null) {
+      await FormScaffold.revealInvalid(invalid);
       return;
     }
 
@@ -299,7 +422,7 @@ class _GoalFormScreenState extends ConsumerState<GoalFormScreen> {
           ? await repo.createGoal(input)
           : await repo.updateGoal(before, input);
       if (!mounted) return;
-      Haptics.success();
+      Haptics.confirm();
       Navigator.of(context).pop(saved);
       showAppSnack(context, before == null ? l.goalsCreated : l.goalsUpdated);
     } catch (e) {
@@ -317,8 +440,12 @@ class _GoalFormScreenState extends ConsumerState<GoalFormScreen> {
         _currentError = currentError;
         _relatedError = relatedError;
       });
-      if ([nameError, targetError, currentError, relatedError]
-          .every((m) => m == null)) {
+      if ([
+        nameError,
+        targetError,
+        currentError,
+        relatedError,
+      ].every((m) => m == null)) {
         showAppSnack(
           context,
           failureMessage(
@@ -329,7 +456,9 @@ class _GoalFormScreenState extends ConsumerState<GoalFormScreen> {
           isError: true,
         );
       } else {
-        Haptics.danger();
+        await FormScaffold.revealInvalid(
+          nameError != null ? _nameKey : _targetKey,
+        );
       }
     }
   }
@@ -352,29 +481,30 @@ class _GoalFormScreenState extends ConsumerState<GoalFormScreen> {
       busy: _saving,
       dirty: _dirty && !_saving,
       children: [
+        // 1. The kind decides every other field.
         FormLabel(l.goalsFormType),
-        // Scrolls rather than overflows with large text.
-        SingleChildScrollView(
-          scrollDirection: Axis.horizontal,
-          child: SegmentedPill<String>(
-            options: [
-              ('custom', l.goalsFormTypeCustom),
-              ('habit', l.goalsFormTypeHabit),
-              ('financial', l.goalsFormTypeFinancial),
-            ],
-            selected: _type,
-            onChanged: _setType,
+        for (final type in goalKinds) ...[
+          GoalKindTile(
+            type: type,
+            selected: type == _type,
+            onTap: () {
+              if (type != _type) Haptics.tick();
+              _setType(type);
+            },
           ),
-        ),
+          if (type != goalKinds.last) const SizedBox(height: Gap.sm),
+        ],
         if (typeChanged && before.related != null) ...[
-          const SizedBox(height: 8),
+          const SizedBox(height: Gap.sm),
           Text(
             l.goalsFormTypeChangeNote,
             style: text.bodySmall!.copyWith(color: c.inkMid),
           ),
         ],
-        const SizedBox(height: 20),
+        const SizedBox(height: Gap.xl),
+        // 2. The name.
         TextField(
+          key: _nameKey,
           controller: _name,
           autofocus: before == null,
           maxLength: goalNameMaxLength,
@@ -386,109 +516,189 @@ class _GoalFormScreenState extends ConsumerState<GoalFormScreen> {
           ),
           onChanged: (_) => setState(() => _nameError = null),
         ),
-        const SizedBox(height: 8),
-        Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Expanded(
-              child: TextField(
-                controller: _target,
-                keyboardType:
-                    const TextInputType.numberWithOptions(decimal: true),
-                textInputAction: TextInputAction.next,
-                decoration: InputDecoration(
-                  labelText: l.goalsFormTargetValue,
-                  errorText: _targetError,
-                ),
-                onChanged: (_) => setState(() => _targetError = null),
-              ),
-            ),
-            if (_type != 'financial') ...[
-              const SizedBox(width: 12),
-              Expanded(
-                child: TextField(
-                  controller: _unit,
-                  textInputAction: TextInputAction.next,
-                  decoration: InputDecoration(
-                    labelText: l.goalsFormUnit,
-                    hintText: l.goalsFormUnitHint,
-                  ),
-                  onChanged: (_) => setState(() {}),
-                ),
-              ),
-            ],
-          ],
-        ),
-        if (_manual) ...[
-          const SizedBox(height: 16),
+        const SizedBox(height: Gap.sm),
+        // 3. The target, on the keypad.
+        KeyedSubtree(key: _targetKey, child: _targetField(l)),
+        // 4. The unit: not for money.
+        if (!_financial) ...[
+          const SizedBox(height: Gap.lg),
           TextField(
-            controller: _current,
-            keyboardType: const TextInputType.numberWithOptions(decimal: true),
+            controller: _unit,
+            textInputAction: TextInputAction.done,
             decoration: InputDecoration(
-              labelText: l.goalsFormCurrentValue,
-              hintText: '0',
-              errorText: _currentError,
+              labelText: l.goalsFormUnit,
+              hintText: l.goalsFormUnitHint,
             ),
-            onChanged: (_) => setState(() => _currentError = null),
+            onChanged: (_) => setState(() {}),
           ),
         ],
+        if (_manual) ...[
+          const SizedBox(height: Gap.lg),
+          GoalValueField(
+            label: l.goalsFormCurrentValue,
+            value: _current,
+            kind: GoalValueKind.count(_unit.text.trim()),
+            errorText: _currentError,
+            onChanged: (v) => setState(() {
+              _current = v;
+              _currentError = null;
+            }),
+          ),
+        ],
+        // 5. The link: an account or a habit.
         if (_type != 'custom') ...[
-          const SizedBox(height: 16),
+          const SizedBox(height: Gap.lg),
           FormPickerRow(
-            icon: _type == 'financial'
+            icon: _financial
                 ? Icons.account_balance_wallet_outlined
-                : Icons.repeat,
-            label: _type == 'financial'
+                : Icons.repeat_rounded,
+            label: _financial
                 ? l.goalsFormLinkedAccount
                 : l.goalsFormLinkedHabit,
-            value: _related == 'none' ? l.labelNone : _relatedLabel ?? '…',
+            value: _related == 'none'
+                ? l.labelNone
+                : _relatedLabel ?? _linkedHabitName ?? '…',
             errorText: _relatedError,
             onTap: _pickLink,
           ),
           if (_related == 'none') ...[
             const SizedBox(height: 6),
             Text(
-              _type == 'financial'
-                  ? l.goalsNoAccountLinked
-                  : l.goalsNoHabitLinked,
+              _financial ? l.goalsNoAccountLinked : l.goalsNoHabitLinked,
               style: text.bodySmall!.copyWith(color: c.inkMid),
             ),
           ],
         ],
-        const SizedBox(height: 16),
-        FormPickerRow(
-          icon: Icons.event_outlined,
-          label: l.goalsFormEndDate,
-          value: _deadline == null
-              ? l.goalsFormNoDeadline
-              : formatDate(_deadline!, withYear: true),
-          onTap: _pickDeadline,
-        ),
-        if (_deadline != null)
-          Align(
-            alignment: Alignment.centerRight,
-            child: TextButton(
-              onPressed: () => setState(() => _deadline = null),
-              style: TextButton.styleFrom(minimumSize: const Size(48, 48)),
-              child: Text(l.goalsFormClearDeadline),
-            ),
+        // 6. The deadline, as chips.
+        const SizedBox(height: Gap.xl),
+        FormLabel(l.goalsFormEndDate),
+        _deadlineChips(l),
+        // 7. More: the description and the colour.
+        const SizedBox(height: Gap.md),
+        _moreToggle(l),
+        if (_more) ...[
+          const SizedBox(height: Gap.sm),
+          TextField(
+            controller: _description,
+            textCapitalization: TextCapitalization.sentences,
+            minLines: 1,
+            maxLines: 4,
+            decoration: InputDecoration(labelText: l.goalsFormDescription),
+            onChanged: (_) => setState(() {}),
           ),
-        const SizedBox(height: 16),
-        TextField(
-          controller: _description,
-          textCapitalization: TextCapitalization.sentences,
-          minLines: 1,
-          maxLines: 4,
-          decoration: InputDecoration(labelText: l.goalsFormDescription),
-          onChanged: (_) => setState(() {}),
+          const SizedBox(height: Gap.xxl),
+          FormLabel(l.goalsFormColor),
+          ColorSwatchRow(
+            selected: _color,
+            onChanged: (hex) => setState(() => _color = hex),
+          ),
+        ],
+      ],
+    );
+  }
+
+  Widget _targetField(AppL10n l) {
+    void changed(double v) => setState(() {
+      _target = v;
+      _targetError = null;
+    });
+    if (_financial) {
+      final money = _money;
+      final target = _target;
+      return AmountField(
+        label: l.goalsFormTargetValue,
+        minorUnits: target == null ? null : (target * money.subunit).round(),
+        currency: money.currency,
+        subunitToUnit: money.subunit,
+        errorText: _targetError,
+        onChanged: (cents) => changed(cents / money.subunit),
+      );
+    }
+    return GoalValueField(
+      label: l.goalsFormTargetValue,
+      value: _target,
+      kind: GoalValueKind.count(_unit.text.trim()),
+      errorText: _targetError,
+      onChanged: changed,
+    );
+  }
+
+  Widget _deadlineChips(AppL10n l) {
+    final choice = _deadlineChoice;
+    final deadline = _deadline;
+    NokChip chip(
+      String label,
+      _Deadline value,
+      VoidCallback onTap, {
+      IconData? icon,
+    }) => NokChip(
+      label: label,
+      icon: icon,
+      exclusive: true,
+      selected: choice == value,
+      // The date chip opens the picker again; the others do nothing
+      // once chosen.
+      onTap: choice == value && value != _Deadline.date ? null : onTap,
+    );
+    return Wrap(
+      spacing: Gap.sm,
+      children: [
+        chip(
+          l.goalsFormNoDeadline,
+          _Deadline.none,
+          () => setState(() => _deadline = null),
         ),
-        const SizedBox(height: 24),
-        FormLabel(l.goalsFormColor),
-        ColorSwatchRow(
-          selected: _color,
-          onChanged: (hex) => setState(() => _color = hex),
+        chip(l.goalsDeadlineMonths(1), _Deadline.oneMonth, () => _setMonths(1)),
+        chip(
+          l.goalsDeadlineMonths(3),
+          _Deadline.threeMonths,
+          () => _setMonths(3),
+        ),
+        chip(
+          l.goalsDeadlineMonths(6),
+          _Deadline.sixMonths,
+          () => _setMonths(6),
+        ),
+        chip(
+          choice == _Deadline.date && deadline != null
+              ? formatDate(deadline, withYear: true)
+              : l.goalsDeadlinePick,
+          _Deadline.date,
+          _pickDeadline,
+          icon: Icons.event_outlined,
         ),
       ],
+    );
+  }
+
+  Widget _moreToggle(AppL10n l) {
+    final c = context.nok;
+    final text = Theme.of(context).textTheme;
+    return Semantics(
+      button: true,
+      expanded: _more,
+      child: InkWell(
+        borderRadius: BorderRadius.circular(Radii.md),
+        onTap: () => setState(() => _more = !_more),
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(minHeight: Hit.min),
+          child: Row(
+            children: [
+              Expanded(
+                child: Text(
+                  l.goalsFormMore,
+                  style: text.titleSmall!.copyWith(color: c.inkMid),
+                ),
+              ),
+              AnimatedRotation(
+                turns: _more ? 0.5 : 0,
+                duration: Motion.orInstant(context, Motion.quick),
+                child: Icon(Icons.expand_more_rounded, color: c.inkMid),
+              ),
+            ],
+          ),
+        ),
+      ),
     );
   }
 }

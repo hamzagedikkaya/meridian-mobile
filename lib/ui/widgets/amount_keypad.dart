@@ -42,7 +42,12 @@ class AmountKeypad extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final height = keyHeightFor(MediaQuery.sizeOf(context).height);
+    // Larger text grows the keys with their digits (34 dp line + 16), so a
+    // digit is never clipped at 200 % (§8.3).
+    final height = math.max(
+      keyHeightFor(MediaQuery.sizeOf(context).height),
+      MediaQuery.textScalerOf(context).scale(34) + 16,
+    );
     return Column(
       mainAxisSize: MainAxisSize.min,
       children: [

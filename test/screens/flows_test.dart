@@ -98,10 +98,8 @@ void main() {
     );
     await tester.tap(find.text('open'));
     await settleFrames(tester);
-    final description = tester
-        .widgetList<TextField>(find.byType(TextField))
-        .map((f) => f.controller?.text);
-    expect(description, contains('Maaş'));
+    // The description is on its chip; the amount is typed in already.
+    expect(find.text('Maaş'), findsOneWidget);
     expect(find.textContaining('123,45'), findsWidgets);
   });
 

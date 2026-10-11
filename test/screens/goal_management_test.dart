@@ -14,9 +14,13 @@ import 'package:intl/date_symbol_data_local.dart';
 import 'package:meridian_mobile/core/session.dart';
 import 'package:meridian_mobile/l10n/app_l10n.dart';
 import 'package:meridian_mobile/theme/app_theme.dart';
+import 'package:meridian_mobile/ui/flows/flows.dart' as flows;
 import 'package:meridian_mobile/ui/screens/goals/goal_detail_screen.dart';
 import 'package:meridian_mobile/ui/screens/goals/goal_form.dart';
+import 'package:meridian_mobile/ui/screens/goals/goal_kind_tile.dart';
 import 'package:meridian_mobile/ui/screens/goals/goals_screen.dart';
+import 'package:meridian_mobile/ui/widgets/amount_keypad.dart';
+import 'package:meridian_mobile/ui/widgets/primary_button.dart';
 
 import '../support/fake_api.dart';
 
@@ -113,6 +117,29 @@ Future<void> _menu(WidgetTester tester, String item) async {
   await _settle(tester);
 }
 
+/// Types [digits] on the open keypad sheet ("." is the decimal key, which
+/// shows "," in Turkish).
+Future<void> _type(WidgetTester tester, String digits) async {
+  for (final ch in digits.split('')) {
+    final key = find.descendant(
+      of: find.byType(AmountKeypad),
+      matching: find.text(ch == '.' ? ',' : ch),
+    );
+    await tester.ensureVisible(key);
+    await tester.tap(key);
+    await tester.pump();
+  }
+}
+
+/// Clears the keypad sheet's amount (a long press on ⌫).
+Future<void> _clear(WidgetTester tester) async {
+  await tester.longPress(find.byIcon(Icons.backspace_outlined));
+  await tester.pump();
+}
+
+/// The keypad sheet's button.
+Finder _sheetButton(String label) => find.widgetWithText(PrimaryButton, label);
+
 void main() {
   setUpAll(initializeDateFormatting);
 
@@ -199,15 +226,20 @@ void main() {
     await _settle(tester);
     expect(find.text('Hedefi yeniden aç'), findsOneWidget);
 
-    // Not above the progress: said under the field, nothing sent.
-    await tester.enterText(find.byType(TextField).last, '110');
-    await tester.tap(find.widgetWithText(FilledButton, 'Yeniden aç'));
+    // On the keypad, never the system keyboard.
+    expect(find.byType(AmountKeypad), findsOneWidget);
+    expect(find.byType(TextField), findsNothing);
+
+    // Not above the progress: said under the amount, nothing sent.
+    await _type(tester, '110');
+    await tester.tap(_sheetButton('Yeniden aç'));
     await _settle(tester);
     expect(find.textContaining('mevcut ilerlemeden'), findsOneWidget);
     expect(api.bodiesOf('PATCH /goals/3'), isEmpty);
 
-    await tester.enterText(find.byType(TextField).last, '150');
-    await tester.tap(find.widgetWithText(FilledButton, 'Yeniden aç'));
+    await _clear(tester);
+    await _type(tester, '150');
+    await tester.tap(_sheetButton('Yeniden aç'));
     await _settle(tester);
     expect(api.bodiesOf('PATCH /goals/3'), [
       {'status': 'active', 'target_value': 150},
@@ -264,8 +296,8 @@ void main() {
     expect(find.textContaining('120'), findsWidgets);
     expect(find.textContaining('Hedef değere zaten ulaşıldı'), findsNothing);
 
-    await tester.enterText(find.byType(TextField).last, '150');
-    await tester.tap(find.widgetWithText(FilledButton, 'Yeniden aç'));
+    await _type(tester, '150');
+    await tester.tap(_sheetButton('Yeniden aç'));
     await _settle(tester);
     expect(api.bodiesOf('PATCH /goals/3'), [
       {'status': 'active'},
@@ -287,13 +319,16 @@ void main() {
       }, status: 422);
     await _pump(tester, api);
     api.clearLog();
-    await _menu(tester, 'Tamamlandı olarak işaretle');
+    await tester.tap(find.text('Tamamlandı olarak işaretle'));
+    await _settle(tester);
     expect(find.text('Hedef değere henüz ulaşılmadı'), findsOneWidget);
     expect(api.gets, contains('/goals/3'));
+    // The value shown at once is taken back.
+    expect(find.text('40 / 100\u00A0kitap'), findsOneWidget);
   });
 
-  testWidgets('the higher-target sheet scrolls on a small screen with large '
-      'text and the keyboard up', (tester) async {
+  testWidgets('the higher-target keypad scrolls on a small screen with large '
+      'text, its button always in reach', (tester) async {
     final api = FakeApi()
       ..on('GET /goals/3', {'goal': _goal(status: 'achieved', current: 120)});
     await _pump(tester, api);
@@ -305,14 +340,11 @@ void main() {
     tester.view.devicePixelRatio = 1.0;
     tester.platformDispatcher.textScaleFactorTestValue = 2.0;
     addTearDown(tester.platformDispatcher.clearTextScaleFactorTestValue);
-    tester.view.viewInsets = const FakeViewPadding(bottom: 260);
-    addTearDown(tester.view.resetViewInsets);
     await _settle(tester);
     expect(tester.takeException(), isNull, reason: 'no overflow');
-    final button = find.widgetWithText(FilledButton, 'Yeniden aç');
-    await tester.ensureVisible(button);
-    await tester.pump();
-    await tester.enterText(find.byType(TextField).last, '150');
+    await _type(tester, '150');
+    final button = _sheetButton('Yeniden aç');
+    expect(tester.getRect(button).bottom, lessThanOrEqualTo(568));
     await tester.tap(button);
     await _settle(tester);
     expect(api.bodiesOf('PATCH /goals/3'), [
@@ -320,32 +352,43 @@ void main() {
     ]);
   });
 
-  testWidgets('a value typed with a dot is a decimal in Turkish too', (
-    tester,
-  ) async {
+  testWidgets('"Değer gir" opens the keypad: decimals with the language\'s '
+      'mark, sent at once', (tester) async {
     final api = FakeApi();
     await _pump(tester, api);
-    final field = find.widgetWithText(TextField, 'Değer gir');
-    await tester.enterText(field, '7.5');
-    await tester.tap(find.widgetWithText(FilledButton, 'Kaydet'));
+    await tester.tap(find.text('Değer gir'));
+    await _settle(tester);
+    expect(find.byType(AmountKeypad), findsOneWidget);
+    expect(find.byType(TextField), findsNothing, reason: 'no system keyboard');
+
+    await _clear(tester);
+    await _type(tester, '7.5');
+    expect(find.text('7,5\u00A0kitap'), findsOneWidget);
+    await tester.tap(_sheetButton('Tamam'));
     await _settle(tester);
     expect(api.bodiesOf('PATCH /goals/3/update_progress'), [
       {'current_value': 7.5},
     ]);
-
-    // One that reads two ways is refused, with the reason.
-    await tester.enterText(field, '1.500');
-    await tester.tap(find.widgetWithText(FilledButton, 'Kaydet'));
-    await _settle(tester);
-    expect(find.textContaining('Belirsiz sayı'), findsOneWidget);
-    expect(api.bodiesOf('PATCH /goals/3/update_progress'), hasLength(1));
   });
 
   testWidgets('mark achieved: only a goal logged by hand, which is set to its '
       'target', (tester) async {
     final api = FakeApi();
     await _pump(tester, api);
-    await _menu(tester, 'Tamamlandı olarak işaretle');
+    // In the goal's own card, not the menu.
+    await tester.tap(find.byTooltip('Diğer işlemler'));
+    await _settle(tester);
+    expect(
+      find.descendant(
+        of: find.byType(ListTile),
+        matching: find.text('Tamamlandı olarak işaretle'),
+      ),
+      findsNothing,
+    );
+    await tester.tapAt(Offset.zero);
+    await _settle(tester);
+    await tester.tap(find.text('Tamamlandı olarak işaretle'));
+    await _settle(tester);
     expect(api.bodiesOf('PATCH /goals/3'), [
       {'status': 'achieved', 'current_value': 100.0},
     ]);
@@ -439,5 +482,71 @@ void main() {
       });
     await _pump(tester, api);
     expect(find.text('33 gün geçti'), findsOneWidget);
+  });
+
+  testWidgets('a habit\'s "set a goal for it" opens the form as a habit goal '
+      'already linked to that habit', (tester) async {
+    tester.view.physicalSize = const Size(1290, 3600);
+    tester.view.devicePixelRatio = 3.0;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    final api = FakeApi();
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [dioProvider.overrideWithValue(api.dio)],
+        retry: (_, _) => null,
+        child: MaterialApp(
+          theme: buildTheme(Brightness.dark),
+          locale: const Locale('tr'),
+          supportedLocales: AppL10n.supportedLocales,
+          localizationsDelegates: const [
+            AppL10n.delegate,
+            GlobalMaterialLocalizations.delegate,
+            GlobalWidgetsLocalizations.delegate,
+            GlobalCupertinoLocalizations.delegate,
+          ],
+          home: Builder(
+            builder: (context) => Scaffold(
+              body: Center(
+                child: TextButton(
+                  onPressed: () => flows.openGoalForm(context, habitId: 7),
+                  child: const Text('set a goal'),
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.tap(find.text('set a goal'));
+    await _settle(tester);
+
+    final form = tester.widget<GoalFormScreen>(find.byType(GoalFormScreen));
+    expect(form.initialHabitId, 7);
+    // The habit kind chosen, the habit named on the link row, and no
+    // starting value: the habit counts the progress.
+    final chosen = tester
+        .widgetList<GoalKindTile>(find.byType(GoalKindTile))
+        .where((t) => t.selected ?? false)
+        .map((t) => t.type);
+    expect(chosen, ['habit']);
+    expect(find.text('Koşu'), findsOneWidget);
+    expect(find.text('Bir alışkanlık bağlı değil'), findsNothing);
+
+    await tester.enterText(find.byType(TextField).first, '30 gün koş');
+    await tester.tap(find.text('Hedef değer'));
+    await _settle(tester);
+    await _clear(tester);
+    await _type(tester, '30');
+    await tester.tap(_sheetButton('Tamam'));
+    await _settle(tester);
+    await tester.tap(find.text('Hedef oluştur'));
+    await _settle(tester);
+
+    final body = api.bodiesOf('POST /goals').single as Map;
+    expect(body['target_type'], 'habit');
+    expect(body['related'], 'Habit-7');
+    expect(body['target_value'], 30);
+    expect(body.containsKey('current_value'), isFalse);
   });
 }

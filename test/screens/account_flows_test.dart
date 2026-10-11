@@ -14,6 +14,8 @@ import 'package:meridian_mobile/ui/screens/finance/finance_screen.dart';
 import 'package:meridian_mobile/ui/screens/finance/reconcile_sheet.dart';
 import 'package:meridian_mobile/ui/screens/finance/transaction_form_screen.dart';
 import 'package:meridian_mobile/ui/screens/goals/goal_form.dart';
+import 'package:meridian_mobile/ui/widgets/amount_keypad.dart';
+import 'package:meridian_mobile/ui/widgets/primary_button.dart';
 
 import '../support/fake_api.dart';
 import '../support/finance_harness.dart';
@@ -695,7 +697,8 @@ void main() {
     );
     await tester.tap(find.text('open'));
     await settleFrames(tester);
-    await tester.tap(find.text('Finansal'));
+    // The kind first, as a card (§7.11).
+    await tester.tap(find.text('Birikim hedefi'));
     await settleFrames(tester);
     await tester.tap(find.text('Bağlı hesap'));
     await settleFrames(tester);
@@ -707,8 +710,18 @@ void main() {
     expect(find.text('Banka'), findsOneWidget);
 
     await tester.enterText(find.widgetWithText(TextField, 'Hedef adı'), 'Tatil');
-    await tester.enterText(
-        find.widgetWithText(TextField, 'Hedef değer'), '20000');
+    // The target on the keypad, never the system keyboard.
+    await tester.tap(find.text('Hedef değer'));
+    await settleFrames(tester);
+    for (final d in '20000'.split('')) {
+      await tester.tap(find.descendant(
+        of: find.byType(AmountKeypad),
+        matching: find.text(d),
+      ));
+      await tester.pump();
+    }
+    await tester.tap(find.widgetWithText(PrimaryButton, 'Tamam'));
+    await settleFrames(tester);
     await tester.tap(find.text('Hedef oluştur'));
     await settleFrames(tester);
     expect((api.bodiesOf('POST /goals').single as Map)['related'], 'Account-2');

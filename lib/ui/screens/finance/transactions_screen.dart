@@ -1,5 +1,8 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 
 import '../../../core/formats.dart';
 import '../../../core/session.dart';
@@ -12,10 +15,17 @@ import '../../../models/account.dart';
 import '../../../models/date_utils.dart';
 import '../../../models/transaction.dart';
 import '../../../theme/app_colors.dart';
+import '../../../theme/app_metrics.dart';
+import '../../../theme/app_motion.dart';
+import '../../../theme/app_typography.dart';
 import '../../widgets/app_snackbar.dart';
+import '../../widgets/collapsing_fab.dart';
+import '../../widgets/day_header.dart';
 import '../../widgets/empty_state.dart';
+import '../../widgets/nok_chip.dart';
 import '../../widgets/offline_banner.dart';
 import '../../widgets/picker_sheet.dart';
+import '../../widgets/row_motion.dart';
 import '../../widgets/skeletons.dart';
 import '../../widgets/sync_hint.dart';
 import 'category_picker.dart';
@@ -25,7 +35,27 @@ import 'transaction_form_screen.dart';
 import 'tx_detail_sheet.dart';
 import 'tx_row.dart';
 
-/// Every transaction, newest first, grouped by day, with filters.
+/// İşlemler (design-analysis §7.7): every transaction, newest first, under
+/// day headings that carry the day's spending, with filters and a search.
+///
+/// * **App bar**: "İşlemler" and a search button. The search opens a field
+///   under the app bar — focused, sent 300 ms after the last keystroke, from
+///   two characters on (`TxFilters.q`; contract 13.2). The route's
+///   `?search=1` opens it focused; `?q=` opens it with that text.
+/// * **Filters**: [Tür ▾] [Hesap ▾] [Kategori ▾] [Tarih ▾] and the clear ×
+///   ([FilterChipBar]); the income · expense line under them.
+/// * **Days**: `DayHeader` with the day's expenses (transfers left out),
+///   "−₺1.240"; the rows are `TxRow`s, without the account's name while the
+///   list is filtered to it.
+/// * **Rows**: a tap opens the detail sheet, a long press its actions
+///   (Düzenle · Bugüne kopyala · Sil), a swipe to the left deletes with
+///   "Geri al".
+/// * **New filters**: the list on screen stays; after 150 ms of waiting it
+///   dims to half and stops taking taps; the results cross-fade in (200 ms)
+///   at the top (§5.4).
+/// * **Empty**: no transaction at all ("İşlem ekle"; the FAB steps aside),
+///   none for the filters ("Filtreleri temizle"), none for the search
+///   ("Aramayı temizle", and "Her yerde ara" once global search is there).
 ///
 /// [initial] are the filters it opens with: Finance drills into it — a
 /// category this month, the month's uncategorized spending.
@@ -39,7 +69,6 @@ class TransactionsScreen extends ConsumerStatefulWidget {
 }
 
 class _TransactionsScreenState extends ConsumerState<TransactionsScreen> {
-  final _scroll = ScrollController();
   late String? _kind = widget.initial.kind;
   late int? _accountId = widget.initial.accountId;
   late int? _categoryId = widget.initial.categoryId;
@@ -47,11 +76,35 @@ class _TransactionsScreenState extends ConsumerState<TransactionsScreen> {
   late DateTime? _from = widget.initial.from;
   late DateTime? _to = widget.initial.to;
 
+  // --- search ------------------------------------------------------------------
+
+  /// The search field is open under the app bar.
+  late bool _searchOpen = widget.initial.q != null;
+
+  /// The text searched for (`q`): trimmed, two characters or more.
+  late String? _query = widget.initial.q;
+  late final _searchCtrl = TextEditingController(text: widget.initial.q);
+  final _searchFocus = FocusNode();
+  Timer? _debounce;
+  bool _routeRead = false;
+
+  // --- what is on screen ---------------------------------------------------------
+
   /// The last feed on screen and the filters it was for. While a newly
-  /// picked filter loads, the previous results stay up, dimmed, instead of a
-  /// skeleton.
+  /// picked filter loads, it stays up instead of a skeleton.
   TransactionsFeed? _lastFeed;
-  TxFilters? _shownFilters;
+  TxFilters? _lastFeedFilters;
+
+  /// The list waited for new results long enough to be dimmed (§5.4).
+  bool _dim = false;
+  Timer? _dimTimer;
+
+  /// Each shown result set scrolls on its own controller, so a new one
+  /// starts at its top while the old one fades out where it was.
+  ScrollController _scroll = ScrollController();
+  TxFilters? _scrollFor;
+  final _retired = <ScrollController>[];
+  Timer? _retireTimer;
 
   @override
   void initState() {
@@ -60,9 +113,35 @@ class _TransactionsScreenState extends ConsumerState<TransactionsScreen> {
   }
 
   @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (_routeRead) return;
+    _routeRead = true;
+    // go_router hands a page its query as the route's arguments:
+    // `/finance/transactions?search=1` opens the search, `&q=` fills it.
+    final args = ModalRoute.of(context)?.settings.arguments;
+    if (args is! Map) return;
+    final q = args['q'];
+    if (q is String && q.trim().isNotEmpty) {
+      _searchCtrl.text = q.trim();
+      _query = TxFilters.queryOf(q);
+      _searchOpen = true;
+    }
+    if (args['search'] == '1') _searchOpen = true;
+  }
+
+  @override
   void dispose() {
+    _debounce?.cancel();
+    _dimTimer?.cancel();
+    _retireTimer?.cancel();
+    _searchCtrl.dispose();
+    _searchFocus.dispose();
     _scroll.removeListener(_onScroll);
     _scroll.dispose();
+    for (final controller in _retired) {
+      controller.dispose();
+    }
     super.dispose();
   }
 
@@ -78,13 +157,34 @@ class _TransactionsScreenState extends ConsumerState<TransactionsScreen> {
         includeIncomingTransfers: _accountId != null,
         from: _from,
         to: _to,
+        q: _query,
       );
 
   void _onScroll() {
-    if (_scroll.position.pixels >=
-        _scroll.position.maxScrollExtent - 400) {
+    if (!_scroll.hasClients || _scroll.positions.length != 1) return;
+    final position = _scroll.position;
+    if (position.pixels >= position.maxScrollExtent - 400) {
       ref.read(transactionsProvider(_filters).notifier).loadMore();
     }
+  }
+
+  /// A new result set is on screen: it scrolls on a fresh controller (at
+  /// its top), and the old one is let go once its list has faded out.
+  void _scrollTo(TxFilters shown) {
+    if (_scrollFor == shown) return;
+    final first = _scrollFor == null;
+    _scrollFor = shown;
+    if (first) return;
+    final old = _scroll..removeListener(_onScroll);
+    _retired.add(old);
+    _scroll = ScrollController()..addListener(_onScroll);
+    _retireTimer?.cancel();
+    _retireTimer = Timer(const Duration(seconds: 1), () {
+      for (final controller in _retired) {
+        controller.dispose();
+      }
+      _retired.clear();
+    });
   }
 
   bool get _hasFilters =>
@@ -103,6 +203,52 @@ class _TransactionsScreenState extends ConsumerState<TransactionsScreen> {
       _from = null;
       _to = null;
     });
+  }
+
+  // --- search ------------------------------------------------------------------
+
+  void _openSearch() {
+    setState(() => _searchOpen = true);
+    // The field is built focused; a reopened one asks again.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _searchFocus.requestFocus();
+    });
+  }
+
+  void _closeSearch() {
+    _debounce?.cancel();
+    _searchCtrl.clear();
+    _searchFocus.unfocus();
+    setState(() {
+      _searchOpen = false;
+      _query = null;
+    });
+  }
+
+  void _clearSearch() {
+    _debounce?.cancel();
+    _searchCtrl.clear();
+    setState(() => _query = null);
+    _searchFocus.requestFocus();
+  }
+
+  void _onSearchChanged(String text) {
+    _debounce?.cancel();
+    _debounce = Timer(TxFilters.searchDebounce, () => _search(text));
+  }
+
+  void _search(String text) {
+    _debounce?.cancel();
+    if (!mounted) return;
+    final query = TxFilters.queryOf(text);
+    if (query == _query) return;
+    setState(() => _query = query);
+  }
+
+  /// "Her yerde ara": the same words over every kind of record (§6.8).
+  void _searchEverywhere() {
+    final q = _query ?? _searchCtrl.text.trim();
+    context.push(Uri(path: '/search', queryParameters: {'q': q}).toString());
   }
 
   // --- filter pickers --------------------------------------------------------
@@ -220,21 +366,24 @@ class _TransactionsScreenState extends ConsumerState<TransactionsScreen> {
       title: l.txFilterDateRange,
       selected: _presetKey(today) ?? 'all',
       options: [
-        PickerOption(value: 'all', label: l.labelAll, icon: Icons.all_inclusive),
+        PickerOption(
+            value: 'all', label: l.labelAll, icon: Icons.all_inclusive_rounded),
         PickerOption(
             value: 'month',
             label: l.txFilterThisMonth,
-            icon: Icons.calendar_today),
+            icon: Icons.calendar_today_rounded),
         PickerOption(
-            value: '30d', label: l.txFilterLast30Days, icon: Icons.history),
+            value: '30d',
+            label: l.txFilterLast30Days,
+            icon: Icons.history_rounded),
         PickerOption(
             value: 'year',
             label: l.txFilterThisYear,
-            icon: Icons.calendar_month),
+            icon: Icons.calendar_month_rounded),
         PickerOption(
             value: 'custom',
             label: l.txFilterCustomRange,
-            icon: Icons.date_range),
+            icon: Icons.date_range_rounded),
       ],
     );
     if (key == null || !mounted) return;
@@ -266,10 +415,19 @@ class _TransactionsScreenState extends ConsumerState<TransactionsScreen> {
     final saved =
         await openTransactionForm(context, initialAccountId: _accountId);
     if (saved == null || !mounted) return;
-    // In place at once; the write's refetch brings the rest.
-    ref.read(transactionsProvider(_filters).notifier).replaceLocally(saved);
+    _placeSaved(saved);
     showAppSnack(context, l.txSaved);
   }
+
+  /// [saved] in place at once — also deep in a long list, past what the
+  /// write's refetch reloads.
+  void _placeSaved(Transaction saved) {
+    if (!mounted) return;
+    ref.read(transactionsProvider(_filters).notifier).replaceLocally(saved);
+  }
+
+  Future<void> _refresh() =>
+      ref.read(transactionsProvider(_filters).notifier).refresh();
 
   // --- build -----------------------------------------------------------------
 
@@ -288,18 +446,19 @@ class _TransactionsScreenState extends ConsumerState<TransactionsScreen> {
     );
     final categories = ref.watch(categoriesProvider).value?.data ?? const [];
     final filters = _filters;
-    if (_shownFilters != null && filters != _shownFilters) {
-      // A new filter starts at the top of its results.
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (mounted && _scroll.hasClients) _scroll.jumpTo(0);
-      });
-    }
-    _shownFilters = filters;
     final feedAsync = ref.watch(transactionsProvider(filters));
     final current = feedAsync.value;
-    if (current != null) _lastFeed = current;
-    final previous = feedAsync.isFirstLoad ? _lastFeed : null;
-    final feed = current ?? previous;
+    if (current != null) {
+      _lastFeed = current;
+      _lastFeedFilters = filters;
+    }
+    // New filters loading: what was on screen stays there meanwhile.
+    final waiting =
+        current == null && feedAsync.isFirstLoad && _lastFeed != null;
+    final feed = current ?? (waiting ? _lastFeed : null);
+    final shown = waiting ? _lastFeedFilters! : filters;
+    _scrollTo(shown);
+    _trackWaiting(waiting);
     final offline = feedAsync.refreshFailed;
 
     Account? account;
@@ -316,56 +475,167 @@ class _TransactionsScreenState extends ConsumerState<TransactionsScreen> {
       }
     }
 
-    return Scaffold(
-      appBar: AppBar(title: Text(l.titleTransactions)),
-      floatingActionButton: FloatingActionButton.extended(
-        heroTag: null,
-        onPressed: _add,
-        icon: const Icon(Icons.add),
-        label: Text(l.financeAddTransactionFab),
-      ),
-      body: Column(
-        children: [
-          if (offline)
-            OfflineBanner(
-              // A failed refresh implies a feed on screen.
-              lastUpdated: current!.at,
-              onRetry: () =>
-                  ref.read(transactionsProvider(_filters).notifier).refresh(),
+    final items = feed == null
+        ? const <Transaction>[]
+        : withoutDeleted(
+            feed.items, hidden, DataScope.transactions, (tx) => tx.id);
+    // Nothing recorded at all: the empty state's "İşlem ekle" is the one
+    // way to add (§6.5).
+    final noneAtAll = feed != null &&
+        !waiting &&
+        items.isEmpty &&
+        !_hasFilters &&
+        _query == null;
+    final duration = Motion.orInstant(context, Motion.quick);
+
+    return CollapsingFabScope(
+      child: Scaffold(
+        appBar: AppBar(
+          title: Text(l.titleTransactions),
+          actions: [
+            if (_searchOpen)
+              IconButton(
+                onPressed: _closeSearch,
+                tooltip: l.txSearchClose,
+                icon: const Icon(Icons.close_rounded),
+              )
+            else
+              IconButton(
+                onPressed: _openSearch,
+                tooltip: l.actionSearch,
+                icon: const Icon(Icons.search_rounded),
+              ),
+            const SizedBox(width: Gap.xs),
+          ],
+        ),
+        floatingActionButton: CollapsingFab(
+          icon: Icons.add_rounded,
+          label: l.financeAddTransactionFab,
+          onPressed: _add,
+          hidden: noneAtAll,
+        ),
+        body: Column(
+          children: [
+            if (offline)
+              OfflineBanner(
+                // A failed refresh implies a feed on screen.
+                lastUpdated: current!.at,
+                onRetry: _refresh,
+              ),
+            if (_searchOpen) _searchField(context),
+            FilterChipBar(
+              kind: _kind,
+              onKind: (k) => setState(() => _kind = k),
+              accountLabel: _accountId == null
+                  ? null
+                  : (account?.name ?? l.txFilterAccount),
+              categoryLabel: categoryLabel,
+              dateLabel: _dateLabel(l, today),
+              onAccountTap: () => _pickAccount(accounts),
+              onCategoryTap: _pickCategory,
+              onDateTap: _pickDate,
+              onClear: _hasFilters ? _clearFilters : null,
             ),
-          FilterChipBar(
-            kind: _kind,
-            onKind: (k) => setState(() => _kind = k),
-            accountLabel: _accountId == null
-                ? null
-                : (account?.name ?? l.txFilterAccount),
-            categoryLabel: categoryLabel,
-            dateLabel: _dateLabel(l, today),
-            onAccountTap: () => _pickAccount(accounts),
-            onCategoryTap: _pickCategory,
-            onDateTap: _pickDate,
-            onClear: _hasFilters ? _clearFilters : null,
-          ),
-          if (feed != null)
-            Opacity(
-              opacity: previous == null ? 1 : 0.5,
-              child: _summary(context, feed, hidden, account),
-            ),
-          Expanded(
-            child: SyncHint.over(
-              active: feedAsync.isRefetching || previous != null,
-              // Same wrappers either way, so the list is not remounted when
-              // the new results land.
-              child: IgnorePointer(
-                ignoring: previous != null,
-                child: Opacity(
-                  opacity: previous == null ? 1 : 0.5,
-                  child: _list(context, feedAsync, feed, hidden),
+            Expanded(
+              child: SyncHint.over(
+                active: feedAsync.isRefetching || waiting,
+                child: IgnorePointer(
+                  ignoring: waiting && _dim,
+                  child: AnimatedOpacity(
+                    opacity: waiting && _dim ? 0.5 : 1,
+                    duration: Motion.orInstant(context, Motion.pressOut),
+                    // Each result set fades out as the next fades in
+                    // (§5.4): the old one in its first 100 ms, the new
+                    // one from 60 ms on.
+                    child: AnimatedSwitcher(
+                      duration: duration,
+                      layoutBuilder: (current, previous) => Stack(
+                        fit: StackFit.expand,
+                        children: [...previous, ?current],
+                      ),
+                      transitionBuilder: _crossFade,
+                      child: KeyedSubtree(
+                        key: ValueKey(shown),
+                        child: Column(
+                          children: [
+                            if (feed != null)
+                              _summary(context, feed, hidden, account),
+                            Expanded(
+                              child: _list(context, feedAsync, feed, items),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
                 ),
               ),
             ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  /// A result set's fade (§5.4): in over the last 70% of the switch, out
+  /// over its first half. One builder for the screen's life, so a rebuild
+  /// does not make the switcher build its transitions again.
+  static Widget _crossFade(Widget child, Animation<double> animation) =>
+      FadeTransition(opacity: _CrossFadeOpacity(animation), child: child);
+
+  /// Dims the list once new results have been waited for 150 ms (§5.4);
+  /// undimmed the moment they land.
+  void _trackWaiting(bool waiting) {
+    if (!waiting) {
+      _dimTimer?.cancel();
+      _dimTimer = null;
+      _dim = false;
+      return;
+    }
+    if (_dim || _dimTimer != null) return;
+    _dimTimer = Timer(Motion.spinnerDelay, () {
+      if (mounted) setState(() => _dim = true);
+    });
+  }
+
+  /// The search field under the app bar: focused when it opens, a clear ×
+  /// while it has text.
+  Widget _searchField(BuildContext context) {
+    final c = context.nok;
+    final l = context.l10n;
+    return ColoredBox(
+      color: c.bg,
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(
+          Insets.gutter,
+          Gap.xs,
+          Insets.gutter,
+          Gap.xs,
+        ),
+        child: TextField(
+          controller: _searchCtrl,
+          focusNode: _searchFocus,
+          autofocus: true,
+          textInputAction: TextInputAction.search,
+          onChanged: _onSearchChanged,
+          onSubmitted: _search,
+          decoration: InputDecoration(
+            hintText: l.txSearchHint,
+            prefixIcon: const Icon(Icons.search_rounded),
+            // The clear × comes and goes with the text — only it rebuilds
+            // on a keystroke, not the list.
+            suffixIcon: ValueListenableBuilder<TextEditingValue>(
+              valueListenable: _searchCtrl,
+              builder: (context, value, _) => value.text.isEmpty
+                  ? const SizedBox.shrink()
+                  : IconButton(
+                      onPressed: _clearSearch,
+                      tooltip: l.txSearchClear,
+                      icon: const Icon(Icons.close_rounded),
+                    ),
+            ),
           ),
-        ],
+        ),
       ),
     );
   }
@@ -395,129 +665,99 @@ class _TransactionsScreenState extends ConsumerState<TransactionsScreen> {
       if (tx.kind == 'income') income -= tx.amountCents;
       if (tx.kind == 'expense') expense -= tx.amountCents;
     }
+    String money(int cents) => formatMoney(cents, currency, subunit,
+        decimals: MoneyDecimals.auto);
     return Padding(
-      padding: const EdgeInsets.fromLTRB(20, 0, 20, 8),
-      child: Row(
-        children: [
-          Flexible(
-            child: Text(
-              l.txSummary(
-                formatMoney(income, currency, subunit),
-                formatMoney(expense, currency, subunit),
-              ),
-              style: text.bodySmall!.copyWith(color: c.inkMid),
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-            ),
+      padding: const EdgeInsets.fromLTRB(
+        Insets.gutter,
+        Gap.xxs,
+        Insets.gutter,
+        Gap.sm,
+      ),
+      child: Align(
+        alignment: AlignmentDirectional.centerStart,
+        child: Text(
+          l.txSummary(money(income), money(expense)),
+          style: text.bodySmall!.copyWith(
+            color: c.inkMid,
+            fontFeatures: tabularFigures,
           ),
-        ],
+        ),
       ),
     );
   }
-
-  Future<void> _refresh() =>
-      ref.read(transactionsProvider(_filters).notifier).refresh();
 
   Widget _list(
     BuildContext context,
     AsyncValue<TransactionsFeed> feedAsync,
     TransactionsFeed? feed,
-    Set<DeletedRecord> hidden,
+    List<Transaction> items,
   ) {
     final c = context.nok;
     final l = context.l10n;
     if (feed == null) {
       if (feedAsync.isFirstLoad) return const _TxSkeleton();
-      return RefreshIndicator.adaptive(
-        color: c.gold,
-        onRefresh: _refresh,
-        child: ListView(
-          physics: const AlwaysScrollableScrollPhysics(),
-          children: [
-            const SizedBox(height: 120),
-            EmptyState(
-              icon: Icons.cloud_off,
-              title: l.errServerUnreachable,
-              subtitle: l.errCheckWifi,
-              actionLabel: l.actionRetry,
-              onAction: _refresh,
-            ),
-          ],
-        ),
-      );
+      return _scrollableEmpty(EmptyState.error(onRetry: _refresh));
     }
 
-    final items = withoutDeleted(
-      feed.items,
-      hidden,
-      DataScope.transactions,
-      (tx) => tx.id,
-    );
     if (items.isEmpty) {
-      return RefreshIndicator.adaptive(
-        color: c.gold,
-        onRefresh: _refresh,
-        child: ListView(
-          physics: const AlwaysScrollableScrollPhysics(),
-          children: [
-            const SizedBox(height: 100),
-            EmptyState(
-              icon: Icons.receipt_long_outlined,
-              title: _hasFilters
-                  ? l.txNoneForFilter
-                  : l.financeNoTransactionsYet,
-              actionLabel: _hasFilters ? null : l.financeFirstTxAction,
-              onAction: _hasFilters ? null : _add,
-              secondaryLabel: _hasFilters ? l.txFilterClear : null,
-              onSecondary: _hasFilters ? _clearFilters : null,
-            ),
-          ],
-        ),
-      );
+      final query = _query;
+      if (query != null) {
+        return _scrollableEmpty(EmptyState(
+          icon: Icons.search_off_rounded,
+          title: l.txSearchEmpty(query),
+          secondaryLabel: l.txSearchClear,
+          onSecondary: _clearSearch,
+          chips: kSearchEnabled
+              ? [
+                  NokChip(
+                    label: l.txSearchEverywhere,
+                    icon: Icons.travel_explore_rounded,
+                    onTap: _searchEverywhere,
+                  ),
+                ]
+              : null,
+        ));
+      }
+      if (_hasFilters) {
+        return _scrollableEmpty(EmptyState(
+          icon: Icons.filter_alt_off_outlined,
+          title: l.txNoneForFilter,
+          secondaryLabel: l.txFilterClear,
+          onSecondary: _clearFilters,
+        ));
+      }
+      return _scrollableEmpty(EmptyState(
+        icon: Icons.receipt_long_outlined,
+        title: l.financeNoTransactionsYet,
+        actionLabel: l.financeFirstTxAction,
+        onAction: _add,
+      ));
     }
 
-    final groups = _groupByDay(items);
     final perspective = _accountId;
     final slivers = <Widget>[
       // One group per day: its header pins while the day is on screen and
       // is pushed away by the next day's, instead of piling up under the
       // filters.
-      for (final g in groups)
+      for (final g in _groupByDay(items))
         SliverMainAxisGroup(
-          key: ValueKey('day-${g.key.toIso8601String()}'),
+          key: ValueKey('day-${g.day.toIso8601String()}'),
           slivers: [
-            PinnedHeaderSliver(child: _DayHeader(g.label)),
+            PinnedHeaderSliver(child: _dayHeader(context, g)),
             SliverList.builder(
               itemCount: g.items.length,
-              itemBuilder: (context, i) {
-                final tx = g.items[i];
-                return TxSwipeToDelete(
-                  key: ValueKey('tx-${tx.id}'),
-                  tx: tx,
-                  child: TxRow(
-                    tx: tx,
-                    perspectiveAccountId: perspective,
-                    onTap: () => showTransactionSheet(
-                      context,
-                      ref,
-                      tx,
-                      perspectiveAccountId: perspective,
-                      // In place at once — also deep in a long list, past
-                      // what the edit's refetch reloads.
-                      onSaved: (saved) => ref
-                          .read(transactionsProvider(_filters).notifier)
-                          .replaceLocally(saved),
-                    ),
-                  ),
-                );
-              },
+              itemBuilder: (context, i) =>
+                  _row(context, g.items[i], perspective),
             ),
           ],
         ),
       SliverToBoxAdapter(
         child: SizedBox(
-          height: 96,
-          child: Center(
+          // Room for the FAB under the last row's amount.
+          height: CollapsingFab.clearance(context),
+          child: Align(
+            alignment: const Alignment(0, -0.5),
             child: feed.hasMore
                 ? const SizedBox(
                     width: 20,
@@ -545,51 +785,139 @@ class _TransactionsScreenState extends ConsumerState<TransactionsScreen> {
     );
   }
 
-  List<_DayGroup> _groupByDay(List<Transaction> items) {
+  /// An empty state that still pulls to refresh.
+  Widget _scrollableEmpty(Widget empty) => RefreshIndicator.adaptive(
+        color: context.nok.gold,
+        onRefresh: _refresh,
+        child: CustomScrollView(
+          physics: const AlwaysScrollableScrollPhysics(),
+          slivers: [
+            SliverFillRemaining(hasScrollBody: false, child: empty),
+          ],
+        ),
+      );
+
+  Widget _row(BuildContext context, Transaction tx, int? perspective) {
+    return RowMotion(
+      key: ValueKey('tx-${tx.id}'),
+      record: (scope: DataScope.transactions, id: tx.id),
+      child: TxSwipeToDelete(
+        key: ValueKey(tx.id),
+        tx: tx,
+        child: TxRow(
+          tx: tx,
+          perspectiveAccountId: perspective,
+          // Filtered to one account: its name would be on every row.
+          hideAccount: perspective != null,
+          onTap: () => showTransactionSheet(
+            context,
+            ref,
+            tx,
+            perspectiveAccountId: perspective,
+            onSaved: _placeSaved,
+          ),
+          onLongPress: () =>
+              showTransactionActions(context, ref, tx, onSaved: _placeSaved),
+          semanticActions:
+              txRowSemanticActions(context, ref, tx, onSaved: _placeSaved),
+        ),
+      ),
+    );
+  }
+
+  /// The day's heading with what was spent that day — expenses only, a
+  /// transfer is no spending — per currency: "−₺1.240".
+  Widget _dayHeader(BuildContext context, _DayGroup g) {
     final l = context.l10n;
+    final today = ref.read(currentDayProvider);
+    final spent = <String, ({int cents, int subunit})>{};
+    for (final tx in g.items) {
+      if (tx.kind != 'expense') continue;
+      final currency = tx.account.currency;
+      final sum = spent[currency];
+      spent[currency] = (
+        cents: (sum?.cents ?? 0) + tx.amountCents,
+        subunit: tx.account.subunitToUnit,
+      );
+    }
+    final total = spent.isEmpty
+        ? null
+        : [
+            for (final MapEntry(key: currency, value: sum) in spent.entries)
+              formatMoney(
+                sum.cents,
+                currency,
+                sum.subunit,
+                sign: MoneySign.negative,
+                decimals: MoneyDecimals.auto,
+              ),
+          ].join(' · ');
+    var header =
+        DayHeader.forDay(context, g.day, today: today, trailing: total);
+    if (g.day.year != today.year) {
+      // İşlemler pages back through years: a day of another year says
+      // which ("Pazartesi · 29 Eylül 2025").
+      final name = switch (dayDelta(g.day, now: today)) {
+        -1 => l.dayYesterday,
+        1 => l.dayTomorrow,
+        _ => formatWeekday(g.day),
+      };
+      header = DayHeader(
+        label: '$name · ${formatDate(g.day, withYear: true)}',
+        trailing: total,
+      );
+    }
+    if (total == null) return header;
+    // One heading for a screen reader: "Bugün · 4 Ekim, Gider −₺1.240".
+    return Semantics(
+      header: true,
+      label: '${header.label}, ${l.txDaySpent(total)}',
+      excludeSemantics: true,
+      child: header,
+    );
+  }
+
+  List<_DayGroup> _groupByDay(List<Transaction> items) {
     final groups = <_DayGroup>[];
     for (final tx in items) {
-      final key = DateTime(tx.date.year, tx.date.month, tx.date.day);
-      if (groups.isNotEmpty && groups.last.key == key) {
+      final day = DateTime(tx.date.year, tx.date.month, tx.date.day);
+      if (groups.isNotEmpty && groups.last.day == day) {
         groups.last.items.add(tx);
       } else {
-        groups.add(_DayGroup(key, l.relativeDay(tx.date), [tx]));
+        groups.add(_DayGroup(day, [tx]));
       }
     }
     return groups;
   }
 }
 
-class _DayGroup {
-  final DateTime key;
-  final String label;
-  final List<Transaction> items;
-  _DayGroup(this.key, this.label, this.items);
-}
-
-/// A day's heading; at least 36 dp, taller with large text.
-class _DayHeader extends StatelessWidget {
-  final String label;
-  const _DayHeader(this.label);
+/// [parent]'s value as the result sets' cross-fade wants it: eased in over
+/// its last 70% while it runs forward (the set coming in), gone in its first
+/// half while it runs back (the set going out). It listens to nothing of its
+/// own — [parent] carries the listeners — so it needs no disposing.
+class _CrossFadeOpacity extends Animation<double>
+    with AnimationWithParentMixin<double> {
+  _CrossFadeOpacity(this.parent);
 
   @override
-  Widget build(BuildContext context) {
-    final c = context.nok;
-    final text = Theme.of(context).textTheme;
-    return Semantics(
-      header: true,
-      child: Container(
-        constraints: const BoxConstraints(minHeight: 36),
-        color: c.bg,
-        alignment: Alignment.centerLeft,
-        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
-        child: Text(
-          label,
-          style: text.labelMedium!.copyWith(color: c.inkMid),
-        ),
-      ),
-    );
+  final Animation<double> parent;
+
+  static const _incoming = Interval(0.3, 1, curve: Curves.easeOut);
+  static const _outgoing = Interval(0.5, 1, curve: Curves.easeIn);
+
+  @override
+  double get value {
+    final t = parent.value;
+    final out = parent.status == AnimationStatus.reverse ||
+        parent.status == AnimationStatus.dismissed;
+    return (out ? _outgoing : _incoming).transform(t);
   }
+}
+
+class _DayGroup {
+  final DateTime day;
+  final List<Transaction> items;
+  _DayGroup(this.day, this.items);
 }
 
 class _TxSkeleton extends StatelessWidget {
@@ -602,11 +930,14 @@ class _TxSkeleton extends StatelessWidget {
       enabled: true,
       child: ListView(
         physics: const NeverScrollableScrollPhysics(),
-        padding: const EdgeInsets.symmetric(vertical: 8),
+        padding: const EdgeInsets.symmetric(vertical: Gap.sm),
         children: [
           for (var i = 0; i < 10; i++)
             Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
+              padding: const EdgeInsets.symmetric(
+                horizontal: Insets.gutter,
+                vertical: Gap.sm,
+              ),
               child: Row(
                 children: [
                   Container(
@@ -617,7 +948,7 @@ class _TxSkeleton extends StatelessWidget {
                       shape: BoxShape.circle,
                     ),
                   ),
-                  const SizedBox(width: 12),
+                  const SizedBox(width: Gap.md),
                   Expanded(
                     child: Container(
                       height: 14,

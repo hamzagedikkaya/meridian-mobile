@@ -18,6 +18,7 @@ import 'package:meridian_mobile/ui/screens/finance/account_detail_screen.dart';
 import 'package:meridian_mobile/ui/screens/finance/finance_screen.dart';
 import 'package:meridian_mobile/ui/screens/finance/transaction_form_screen.dart';
 import 'package:meridian_mobile/ui/screens/finance/transactions_screen.dart';
+import 'package:meridian_mobile/ui/widgets/nok_chip.dart';
 
 import '../support/fake_api.dart';
 import '../support/finance_harness.dart';
@@ -72,6 +73,12 @@ Map<String, dynamic> _accounts() => {
 Finder _inSheet(Finder finder) =>
     find.descendant(of: find.byType(BottomSheet), matching: finder);
 
+/// The labels of the form's chips that are picked.
+List<String> _selectedChips(WidgetTester tester) => [
+      for (final chip in tester.widgetList<NokChip>(find.byType(NokChip)))
+        if (chip.selected) chip.label,
+    ];
+
 void main() {
   setUpAll(initializeDateFormatting);
 
@@ -81,7 +88,9 @@ void main() {
       tallPhone(tester);
       final api = FakeApi();
       await _openForm(tester, api);
-      expect(find.text('Kategorisiz'), findsOneWidget);
+      // No category chip is picked: "Kategorisiz".
+      expect(find.text('Market'), findsOneWidget);
+      expect(_selectedChips(tester), isEmpty);
       await _type(tester, '250');
       await tester.tap(find.text('Kaydet'));
       await settleFrames(tester);
@@ -100,7 +109,7 @@ void main() {
       final api = FakeApi();
       await _openForm(tester, api);
       await _type(tester, '45');
-      await tester.tap(find.text('Kategori'));
+      await tester.tap(find.text('Tümü…'));
       await settleFrames(tester);
       expect(_inSheet(find.text('Market')), findsOneWidget);
       expect(_inSheet(find.text('Kategorisiz')), findsOneWidget);
@@ -117,9 +126,11 @@ void main() {
         'parent_id': null,
         'color': '#6B8E5A',
       });
-      // The sheet closed on the new category (the fake answers "Yeni").
+      // The sheet closed on the new category (the fake answers "Yeni"),
+      // picked among the chips.
       expect(find.byType(BottomSheet), findsNothing);
       expect(find.text('Yeni'), findsOneWidget);
+      expect(_selectedChips(tester), ['Yeni']);
 
       await tester.tap(find.text('Kaydet'));
       await settleFrames(tester);
@@ -140,7 +151,7 @@ void main() {
       await settleFrames(tester);
       await tester.tap(_inSheet(find.text('Cüzdan')));
       await settleFrames(tester);
-      await tester.tap(find.text('Hedef hesap'));
+      await tester.tap(find.text('Hedef hesap seç'));
       await settleFrames(tester);
       expect(_inSheet(find.text('Banka')), findsOneWidget);
       expect(_inSheet(find.text('Altın')), findsNothing, reason: 'GAU');
@@ -171,11 +182,15 @@ void main() {
         'category': categoryJson(),
       });
       await _openForm(tester, api, existing: existing);
-      expect(find.text('web notu'), findsOneWidget);
       // Clear the amount (long-press ⌫) and type a new one.
       await tester.longPress(find.byIcon(Icons.backspace_outlined));
       await tester.pump();
       await _type(tester, '150');
+      // The description chip opens the text fields, the note among them.
+      await tester.ensureVisible(find.text('Kahve'));
+      await tester.tap(find.text('Kahve'));
+      await settleFrames(tester);
+      expect(find.text('web notu'), findsOneWidget);
       await tester.tap(find.text('Güncelle'));
       await settleFrames(tester);
       expect(api.bodiesOf('PATCH /transactions/316').single,
@@ -220,6 +235,9 @@ void main() {
         'related_account': {'id': 3, 'name': 'Altın'},
       });
       await _openForm(tester, api, existing: existing);
+      await tester.ensureVisible(find.text('Kahve'));
+      await tester.tap(find.text('Kahve'));
+      await settleFrames(tester);
       await tester.enterText(
           find.widgetWithText(TextField, 'Açıklama'), 'Altın birikimi');
       await tester.tap(find.text('Güncelle'));
@@ -247,13 +265,14 @@ void main() {
       });
       await _openForm(tester, api, existing: existing);
       // A new source: the gold target no longer goes with it.
-      await tester.tap(find.text('Hesap'));
+      await tester.tap(find.text('Cüzdan'));
       await settleFrames(tester);
       await tester.tap(_inSheet(find.text('Euro')));
       await settleFrames(tester);
       await tester.tap(find.text('Güncelle'));
       await settleFrames(tester);
-      expect(find.text('Hedef hesap seç'), findsOneWidget);
+      // The emptied target card, and the error under it.
+      expect(find.text('Hedef hesap seç'), findsNWidgets(2));
       expect(api.bodiesOf('PATCH /transactions/316'), isEmpty);
     });
 
@@ -281,7 +300,7 @@ void main() {
       expect(find.byType(BottomSheet), findsNothing, reason: 'no picker');
       expect(api.gets.where((p) => p == '/accounts').length, loads + 1);
       // Loaded: the only account is filled in, as it would have been.
-      expect(find.text('Cüzdan'), findsOneWidget);
+      expect(find.text('Hesap: Cüzdan'), findsOneWidget);
       expect(find.text('Hesaplar yüklenemedi. Tekrar denemek için dokun.'),
           findsNothing);
       await tester.tap(find.text('Kaydet'));
@@ -296,13 +315,13 @@ void main() {
       final api = FakeApi()..hold('GET /accounts');
       await _openForm(tester, api);
       expect(find.text('Hesaplar yükleniyor…'), findsOneWidget);
-      await tester.tap(find.text('Hesap'));
+      await tester.tap(find.text('Hesaplar yükleniyor…'));
       await settleFrames(tester);
       expect(find.text('Yeni hesap'), findsNothing);
       expect(find.byType(BottomSheet), findsNothing);
       api.release('GET /accounts');
       await settleFrames(tester);
-      expect(find.text('Cüzdan'), findsOneWidget);
+      expect(find.text('Hesap: Cüzdan'), findsOneWidget);
     });
 
     testWidgets('an amount typed before the list came in is read in the '
@@ -317,9 +336,10 @@ void main() {
         ..hold('GET /accounts');
       await _openForm(tester, api);
       await _type(tester, '12');
-      await tester.tap(find.text(','));
+      await tester.tap(find.text(',').last);
       await tester.pump();
       await _type(tester, '5');
+      await settleFrames(tester);
       expect(find.text('₺12,5'), findsOneWidget);
       api.release('GET /accounts');
       await settleFrames(tester);
@@ -363,8 +383,8 @@ void main() {
           .stage((scope: DataScope.accounts, id: 2), send: () async {});
       await tester.tap(find.text('open'));
       await settleFrames(tester);
-      expect(find.text('Banka'), findsNothing);
-      expect(find.text('Cüzdan'), findsOneWidget,
+      expect(find.text('Hesap: Banka'), findsNothing);
+      expect(find.text('Hesap: Cüzdan'), findsOneWidget,
           reason: 'the one account left');
     });
 
@@ -380,7 +400,7 @@ void main() {
       await settleFrames(tester);
       expect(api.bodiesOf('POST /accounts'), hasLength(1));
       // Back in the transaction form, on the new account.
-      expect(find.text('Banka'), findsOneWidget);
+      expect(find.text('Hesap: Banka'), findsOneWidget);
     });
 
     testWidgets('an amount stops where the server can store it, and says so',
@@ -389,9 +409,10 @@ void main() {
       final api = FakeApi();
       await _openForm(tester, api);
       await _type(tester, '21474836');
-      await tester.tap(find.text(','));
+      await tester.tap(find.text(',').last);
       await tester.pump();
       await _type(tester, '48');
+      await settleFrames(tester);
       expect(find.text('₺21.474.836,4'), findsOneWidget, reason: 'refused 8');
       expect(find.text('En fazla ₺21.474.836,47 girilebilir'), findsOneWidget);
     });

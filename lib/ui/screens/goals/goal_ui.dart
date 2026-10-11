@@ -3,24 +3,37 @@ import 'package:flutter/material.dart';
 import '../../../core/formats.dart';
 import '../../../l10n/app_l10n.dart';
 import '../../../models/goal.dart';
+import '../../../theme/app_colors.dart';
 import '../../../theme/entity_color.dart';
+import '../../widgets/progress_ring.dart';
 
 /// Parse a "#RRGGBB" (or "#AARRGGBB") goal color, falling back to gold.
 /// New code draws record colours through `entityTone` (theme/entity_color).
 Color goalColor(String hex) =>
     parseEntityHex(hex, fallback: const Color(0xFFD4A853));
 
+/// The goal's colours as the theme draws them (dot, ring fill).
+EntityTone goalTone(Goal g, NokturnColors c) => entityTone(g.color, c);
+
+/// [current] against [Goal.targetValue] as a whole percentage, 0–100 —
+/// what a stepped value shows before the server has recalculated it. A
+/// target of 0 is 0 %, never NaN.
+int goalPercentOf(Goal g, double current) {
+  if (g.targetValue <= 0) return 0;
+  return (current / g.targetValue * 100).clamp(0, 100).round();
+}
+
 String goalTypeOverline(AppL10n l, String targetType) => switch (targetType) {
-      'financial' => l.goalsTypeFinancial,
-      'habit' => l.goalsTypeHabit,
-      _ => l.goalsTypeCustom,
-    };
+  'financial' => l.goalsTypeFinancial,
+  'habit' => l.goalsTypeHabit,
+  _ => l.goalsTypeCustom,
+};
 
 String goalStatusLabel(AppL10n l, String status) => switch (status) {
-      'achieved' => l.goalsStatusAchieved,
-      'abandoned' => l.goalsStatusAbandoned,
-      _ => l.goalsStatusActive,
-    };
+  'achieved' => l.goalsStatusAchieved,
+  'abandoned' => l.goalsStatusAbandoned,
+  _ => l.goalsStatusActive,
+};
 
 bool goalIsFinancial(Goal g) => g.targetType == 'financial';
 
@@ -31,6 +44,12 @@ bool goalIsFinancial(Goal g) => g.targetType == 'financial';
   final subunit = g.related?.subunitToUnit ?? (currency == 'GAU' ? 1 : 100);
   return (currency: currency, subunit: subunit);
 }
+
+// WP-17 cleanup: since WP-12 goal numbers are entered on the keypad
+// (goal_value_sheet.dart), so [parseGoalNumber], [goalNumberIsAmbiguous],
+// [goalNumberError], [goalNumberInput] and `goalsNumberAmbiguous` are used
+// only by test/screens/goal_number_test.dart. Remove them with that test
+// once no screen types goal numbers as text.
 
 /// A number typed into a goal field. Either mark can be the decimal one,
 /// since a phone's number keypad often offers only "." — so "12.5", "12,5",
@@ -50,7 +69,9 @@ bool goalNumberIsAmbiguous(String text) => _readGoalNumber(text).ambiguous;
 /// The field error for [text], or null when it reads as a number: the
 /// "write the decimal mark" hint for an ambiguous one, else [invalid].
 String goalNumberError(AppL10n l, String text, {required String invalid}) =>
-    goalNumberIsAmbiguous(text) ? l.goalsNumberAmbiguous(decimalMark()) : invalid;
+    goalNumberIsAmbiguous(text)
+    ? l.goalsNumberAmbiguous(decimalMark())
+    : invalid;
 
 final _digits = RegExp(r'^\d+$');
 final _groupedInt = RegExp(r'^\d{1,3}$');
@@ -113,7 +134,8 @@ final _groupedInt = RegExp(r'^\d{1,3}$');
   final at = t.indexOf(sep);
   final whole = t.substring(0, at);
   final fraction = t.substring(at + 1);
-  final looksGrouped = sep != decimalMark() &&
+  final looksGrouped =
+      sep != decimalMark() &&
       fraction.length == 3 &&
       _groupedInt.hasMatch(whole) &&
       !whole.startsWith('0');
@@ -139,19 +161,52 @@ String formatGoalNumber(double v) => v == v.roundToDouble()
     : v.toStringAsFixed(2).replaceAll('.', decimalMark());
 
 /// Money-correct rendering of a raw goal value (major units) for financial goals.
-String formatGoalMoney(Goal g, double value) {
+String formatGoalMoney(
+  Goal g,
+  double value, {
+  MoneyDecimals decimals = MoneyDecimals.always,
+}) {
   final m = goalMoneyMeta(g);
-  return formatMoney((value * m.subunit).round(), m.currency, m.subunit);
+  return formatMoney(
+    (value * m.subunit).round(),
+    m.currency,
+    m.subunit,
+    decimals: decimals,
+  );
+}
+
+/// Where a goal card's money switches to the compact form (major units):
+/// "₺47,5B / ₺50B" from a target of 100.000 up (design-analysis §7.11).
+const goalCompactMoneyFrom = 100000;
+
+/// The card's value line: "24 / 50 ders", or money with its decimals only
+/// when there are any ("₺47.500 / ₺50.000") — compact from
+/// [goalCompactMoneyFrom]. [current] overrides the goal's own value (a step
+/// not yet answered).
+String goalValueLabel(Goal g, {double? current}) {
+  final now = current ?? g.currentValue;
+  if (!goalIsFinancial(g)) return goalProgressLabel(g, current: now);
+  final m = goalMoneyMeta(g);
+  if (g.targetValue >= goalCompactMoneyFrom) {
+    String compact(double v) =>
+        formatMoneyCompact((v * m.subunit).round(), m.currency, m.subunit);
+    return '${compact(now)} / ${compact(g.targetValue)}';
+  }
+  final auto = MoneyDecimals.auto;
+  return '${formatGoalMoney(g, now, decimals: auto)} / '
+      '${formatGoalMoney(g, g.targetValue, decimals: auto)}';
 }
 
 /// "42 / 100 kg" or, for financial goals, money on both sides. The unit comes
 /// from the server (the user typed it), so it is not translated.
-String goalProgressLabel(Goal g) {
+/// [current] overrides the goal's own value (a step not yet answered).
+String goalProgressLabel(Goal g, {double? current}) {
+  final now = current ?? g.currentValue;
   if (goalIsFinancial(g)) {
-    return '${formatGoalMoney(g, g.currentValue)} / ${formatGoalMoney(g, g.targetValue)}';
+    return '${formatGoalMoney(g, now)} / ${formatGoalMoney(g, g.targetValue)}';
   }
-  final unit = g.unit.isEmpty ? '' : ' ${g.unit}';
-  return '${formatGoalNumber(g.currentValue)} / ${formatGoalNumber(g.targetValue)}$unit';
+  final unit = g.unit.isEmpty ? '' : '$nbsp${g.unit}';
+  return '${formatGoalNumber(now)} / ${formatGoalNumber(g.targetValue)}$unit';
 }
 
 /// Target-only label used in the achieved/abandoned rows.
@@ -161,7 +216,21 @@ String goalTargetLabel(Goal g) {
   return '${formatGoalNumber(g.targetValue)}$unit';
 }
 
-/// Scales the ProgressRing smoothly during the Hero flight (72dp ↔ 160dp).
+/// A ring's centre label kept to the circle's middle two thirds: a square
+/// inside the stroke still lets a wide label's corners cross the circle at
+/// large text, so it shrinks rather than touch the ring.
+Widget goalRingCenter(double ringSize, Widget label) => SizedBox(
+  width: ringSize * 0.66,
+  child: FittedBox(fit: BoxFit.scaleDown, child: label),
+);
+
+/// The goal ring's Hero tag: the grid card's 72 dp ring flies to the
+/// detail's 160 dp one (design-analysis §5.2).
+String goalRingTag(int id) => 'goal-ring-$id';
+
+/// The flight of the goal ring: the detail's ring at its value — never
+/// sweeping from zero — scaled to the flight's rect, on a transparent
+/// Material so its text keeps its style.
 Widget goalRingFlightShuttle(
   BuildContext flightContext,
   Animation<double> animation,
@@ -172,8 +241,20 @@ Widget goalRingFlightShuttle(
   final hero =
       (direction == HeroFlightDirection.push ? toContext : fromContext).widget
           as Hero;
+  final child = hero.child;
+  final ring = child is ProgressRing
+      ? ProgressRing(
+          value: child.value,
+          color: child.color,
+          size: child.size,
+          strokeWidth: child.strokeWidth,
+          center: child.center,
+          sweepOnMount: false,
+          semanticsValue: '',
+        )
+      : child;
   return Material(
-    color: Colors.transparent,
-    child: FittedBox(fit: BoxFit.contain, child: hero.child),
+    type: MaterialType.transparency,
+    child: FittedBox(fit: BoxFit.contain, child: ring),
   );
 }

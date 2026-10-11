@@ -499,7 +499,7 @@ class _HabitDetailSheetState extends ConsumerState<_HabitDetailSheet> {
               Align(
                 alignment: AlignmentDirectional.centerStart,
                 child: TextButton.icon(
-                  onPressed: () => openGoalForm(context),
+                  onPressed: () => openGoalForm(context, habitId: habit.id),
                   icon: const Icon(Icons.flag_outlined, size: 18),
                   label: Text(l.habitsSetGoal),
                 ),

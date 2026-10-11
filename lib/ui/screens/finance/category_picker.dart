@@ -10,6 +10,8 @@ import '../../../l10n/app_l10n.dart';
 import '../../../models/finance_category.dart';
 import '../../../models/transaction.dart';
 import '../../../theme/app_colors.dart';
+import '../../../theme/app_metrics.dart';
+import '../../widgets/nok_sheet.dart';
 import '../../widgets/sync_hint.dart';
 import 'category_sheet.dart';
 import 'finance_utils.dart';
@@ -34,11 +36,50 @@ final class OneCategory extends CategoryChoice {
   const OneCategory(this.category);
 }
 
+/// The categories of [kind] a new transaction most likely takes, for the
+/// transaction form's chips (design-analysis §7.7, D28): the ones [recent]
+/// transactions of that kind used most (the latest use breaking a tie),
+/// then the rest in list order (`position`), [count] at most. [recent] is
+/// newest first; [categories] is every category there is — one not among
+/// them (deleted since) is skipped.
+List<TxCategory> frequentCategories({
+  required List<Transaction> recent,
+  required List<TxCategory> categories,
+  required String kind,
+  int count = 6,
+}) {
+  final byId = {
+    for (final category in categories)
+      if (category.kind == kind) category.id: category,
+  };
+  final uses = <int, int>{};
+  final latest = <int, int>{};
+  for (var i = 0; i < recent.length; i++) {
+    final tx = recent[i];
+    final id = tx.category?.id;
+    if (tx.kind != kind || id == null || !byId.containsKey(id)) continue;
+    uses[id] = (uses[id] ?? 0) + 1;
+    latest.putIfAbsent(id, () => i);
+  }
+  final ranked = uses.keys.toList()
+    ..sort((a, b) {
+      final byUses = uses[b]!.compareTo(uses[a]!);
+      return byUses != 0 ? byUses : latest[a]!.compareTo(latest[b]!);
+    });
+  final out = [for (final id in ranked.take(count)) byId[id]!];
+  for (final entry in categoryTree(byId.values, kind: kind)) {
+    if (out.length >= count) break;
+    if (!out.any((c) => c.id == entry.category.id)) out.add(entry.category);
+  }
+  return out;
+}
+
 /// The category picker: "Kategorisiz", then the categories of [kind] (both
 /// kinds, under their own headings, when null) with their subcategories
 /// indented, and "+ Yeni kategori" at the end, which turns the sheet into
-/// the category form — in the same sheet, never a sheet on a sheet — and
-/// picks the category it creates.
+/// the category form — in the same sheet, never a sheet on a sheet (the
+/// step slides in along the horizontal axis) — and picks the category it
+/// creates.
 ///
 /// [selected] marks the current choice. [allowAny] adds "Tüm kategoriler"
 /// (the transactions filter); [allowNone] "Kategorisiz"; [allowCreate] the
@@ -52,11 +93,8 @@ Future<CategoryChoice?> showCategoryPicker(
   bool allowNone = true,
   bool allowCreate = true,
 }) {
-  return showModalBottomSheet<CategoryChoice>(
-    context: context,
-    isScrollControlled: true,
-    useSafeArea: true,
-    barrierColor: const Color(0xFF171310).withValues(alpha: 0.6),
+  return showNokSheet<CategoryChoice>(
+    context,
     builder: (_) => _CategoryPicker(
       title: title,
       kind: kind,
@@ -108,42 +146,57 @@ class _CategoryPickerState extends ConsumerState<_CategoryPicker> {
 
   @override
   Widget build(BuildContext context) {
+    final c = context.nok;
     final text = Theme.of(context).textTheme;
     final l = context.l10n;
     return Padding(
       padding: EdgeInsets.only(bottom: MediaQuery.viewInsetsOf(context).bottom),
       child: SafeArea(
+        top: false,
         child: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             Padding(
-              padding: const EdgeInsets.fromLTRB(8, 0, 20, 8),
+              padding: const EdgeInsets.fromLTRB(Gap.sm, 0, Gap.sm, Gap.sm),
               child: Row(
                 children: [
                   if (_creating)
                     IconButton(
-                      icon: const Icon(Icons.arrow_back),
+                      icon: const Icon(Icons.arrow_back_rounded),
                       tooltip: l.actionBack,
                       onPressed: () => setState(() => _creating = false),
                     )
                   else
-                    const SizedBox(width: 12),
+                    const SizedBox(width: Gap.md),
                   Expanded(
-                    child: Text(
-                      _creating ? l.categoryFormNewTitle : widget.title,
-                      style: text.titleLarge,
+                    child: Semantics(
+                      header: true,
+                      child: Text(
+                        _creating ? l.categoryFormNewTitle : widget.title,
+                        style: text.titleLarge,
+                      ),
                     ),
+                  ),
+                  // The form takes input: it can always be closed (§4.15).
+                  IconButton(
+                    onPressed: () => Navigator.of(context).maybePop(),
+                    tooltip: l.actionClose,
+                    icon: Icon(Icons.close_rounded, size: 24, color: c.inkMid),
                   ),
                 ],
               ),
             ),
             Flexible(
-              child: AnimatedSwitcher(
-                duration: MediaQuery.disableAnimationsOf(context)
-                    ? Duration.zero
-                    : const Duration(milliseconds: 200),
-                child: _creating ? _form() : _list(context),
+              child: SheetStepSwitcher(
+                reverse: !_creating,
+                // Each step on its own (clear) Material: the switch paints
+                // surface3 under it, which would hide the rows' ripples.
+                child: Material(
+                  key: ValueKey(_creating),
+                  type: MaterialType.transparency,
+                  child: _creating ? _form() : _list(context),
+                ),
               ),
             ),
           ],
@@ -268,8 +321,8 @@ class _CategoryPickerState extends ConsumerState<_CategoryPicker> {
     return ListTile(
       selected: selected,
       contentPadding: EdgeInsetsDirectional.only(
-        start: indent ? 40 : 16,
-        end: 16,
+        start: indent ? 44 : Insets.sheetH,
+        end: Insets.sheetH,
       ),
       leading: icon != null
           ? Icon(icon, color: c.inkMid)
@@ -279,7 +332,8 @@ class _CategoryPickerState extends ConsumerState<_CategoryPicker> {
               decoration: BoxDecoration(color: color, shape: BoxShape.circle),
             ),
       title: Text(label, style: indent ? text.bodyLarge : text.titleMedium),
-      trailing: selected ? Icon(Icons.check, color: c.gold, size: 20) : null,
+      trailing:
+          selected ? Icon(Icons.check_rounded, color: c.gold, size: 20) : null,
       onTap: () => _pick(choice),
     );
   }

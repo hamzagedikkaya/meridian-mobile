@@ -25,6 +25,12 @@ class SwipeSpec {
   /// its record by then — optimistically); false: the row slides back.
   final Future<bool> Function() onSwipe;
 
+  /// Runs once a row [onSwipe] let go has folded away — where a caller
+  /// that wants the fold seen removes the record instead (a transaction's
+  /// delete with "Geri al"). A screen reader's action runs it right after
+  /// [onSwipe].
+  final VoidCallback? onDismissed;
+
   const SwipeSpec({
     required this.container,
     required this.fill,
@@ -32,6 +38,7 @@ class SwipeSpec {
     required this.icon,
     required this.label,
     required this.onSwipe,
+    this.onDismissed,
   });
 
   /// The background at [t] of the way to the threshold (0–1): the
@@ -93,6 +100,7 @@ class SwipeSpec {
     NokturnColors c, {
     required String label,
     required Future<bool> Function() onSwipe,
+    VoidCallback? onDismissed,
   }) =>
       SwipeSpec(
         container: c.errorContainer,
@@ -101,6 +109,7 @@ class SwipeSpec {
         icon: Icons.delete_outline_rounded,
         label: label,
         onSwipe: onSwipe,
+        onDismissed: onDismissed,
       );
 }
 
@@ -171,6 +180,11 @@ class _SwipeActionState extends State<SwipeAction> {
     _progress.value = d.progress;
   }
 
+  /// A screen reader's action: the swipe without the gesture.
+  Future<void> _act(SwipeSpec spec) async {
+    if (await spec.onSwipe()) spec.onDismissed?.call();
+  }
+
   void _pointerUp(PointerEvent _) {
     if (_pointers > 0) _pointers--;
   }
@@ -202,6 +216,7 @@ class _SwipeActionState extends State<SwipeAction> {
         onUpdate: _onUpdate,
         confirmDismiss: (direction) async =>
             await _specFor(direction)?.onSwipe() ?? false,
+        onDismissed: (direction) => _specFor(direction)?.onDismissed?.call(),
         background: start == null
             ? const SizedBox.shrink()
             : _Background(
@@ -222,9 +237,9 @@ class _SwipeActionState extends State<SwipeAction> {
           child: Semantics(
             customSemanticsActions: {
               if (start != null)
-                CustomSemanticsAction(label: start.label): () => start.onSwipe(),
+                CustomSemanticsAction(label: start.label): () => _act(start),
               if (end != null)
-                CustomSemanticsAction(label: end.label): () => end.onSwipe(),
+                CustomSemanticsAction(label: end.label): () => _act(end),
             },
             child: widget.child,
           ),

@@ -17,6 +17,7 @@ import 'package:meridian_mobile/l10n/app_l10n.dart';
 import 'package:meridian_mobile/models/date_utils.dart';
 import 'package:meridian_mobile/models/habit.dart';
 import 'package:meridian_mobile/theme/app_theme.dart';
+import 'package:meridian_mobile/ui/screens/goals/goal_form.dart';
 import 'package:meridian_mobile/ui/screens/habits/archived_habits_screen.dart';
 import 'package:meridian_mobile/ui/screens/habits/habit_detail_sheet.dart';
 import 'package:meridian_mobile/ui/screens/habits/habit_form.dart';
@@ -465,6 +466,18 @@ void main() {
     await _openSheet(tester);
     expect(find.text('Arşivle'), findsOneWidget);
     expect(find.text('Alışkanlığı sil'), findsNothing);
+  });
+
+  testWidgets('"Bu alışkanlık için hedef koy" opens the goal form as a goal '
+      'for this habit', (tester) async {
+    final api = FakeApi()..on('GET /habits/7', {'habit': _detail()});
+    await _pump(tester, api, _opener());
+    await _openSheet(tester);
+    await tester.ensureVisible(find.text('Bu alışkanlık için hedef koy'));
+    await tester.tap(find.text('Bu alışkanlık için hedef koy'));
+    await _settle(tester);
+    final form = tester.widget<GoalFormScreen>(find.byType(GoalFormScreen));
+    expect(form.initialHabitId, 7);
   });
 
   testWidgets('delete, from the archive: the dialog says what goes — the '

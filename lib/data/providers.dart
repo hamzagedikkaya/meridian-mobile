@@ -25,6 +25,7 @@ import 'package:flutter_riverpod/misc.dart'
 
 import '../core/api.dart';
 import '../core/session.dart';
+import '../core/turkish_case.dart';
 import '../models/account.dart';
 import '../models/budget.dart';
 import '../models/currency.dart';
@@ -839,6 +840,16 @@ class TxFilters {
   final DateTime? from;
   final DateTime? to;
 
+  /// Text the description or the note contains (`q`, contract 13.2), as
+  /// sent: trimmed, at least [minQueryLength] characters — or null.
+  final String? q;
+
+  /// The shortest text İşlemler searches for (design-analysis §7.7).
+  static const minQueryLength = 2;
+
+  /// How long İşlemler's search waits after the last keystroke (§7.7).
+  static const searchDebounce = Duration(milliseconds: 300);
+
   const TxFilters({
     this.kind,
     this.accountId,
@@ -847,6 +858,7 @@ class TxFilters {
     this.includeIncomingTransfers = false,
     this.from,
     this.to,
+    this.q,
   });
 
   /// An account's history: its own transactions and the transfers into it.
@@ -856,7 +868,14 @@ class TxFilters {
         uncategorized = false,
         includeIncomingTransfers = true,
         from = null,
-        to = null;
+        to = null,
+        q = null;
+
+  /// [text] as İşlemler sends it: trimmed, and null below [minQueryLength].
+  static String? queryOf(String text) {
+    final trimmed = text.trim();
+    return trimmed.runes.length < minQueryLength ? null : trimmed;
+  }
 
   @override
   bool operator ==(Object other) =>
@@ -867,11 +886,24 @@ class TxFilters {
       other.uncategorized == uncategorized &&
       other.includeIncomingTransfers == includeIncomingTransfers &&
       other.from == from &&
-      other.to == to;
+      other.to == to &&
+      other.q == q;
 
   @override
   int get hashCode => Object.hash(kind, accountId, categoryId, uncategorized,
-      includeIncomingTransfers, from, to);
+      includeIncomingTransfers, from, to, q);
+}
+
+/// Whether [tx]'s description or note contains [query] as the server
+/// matches it (contract 13, "Text matching"): anywhere, in any case, the
+/// four Turkish i's as one letter, accents kept.
+bool txMatchesQuery(Transaction tx, String query) {
+  final needle = trFold(query.trim());
+  if (needle.isEmpty) return true;
+  for (final field in [tx.description, tx.note]) {
+    if (field != null && trFold(field).contains(needle)) return true;
+  }
+  return false;
 }
 
 /// Accumulated pages for the İşlemler feed.
@@ -1039,8 +1071,15 @@ class TransactionsNotifier extends AsyncNotifier<TransactionsFeed> {
       includeIncomingTransfers: _filters.includeIncomingTransfers,
       from: _filters.from,
       to: _filters.to,
+      q: _filters.q,
       page: page,
     );
+    final q = _filters.q;
+    if (q != null && !res.items.every((tx) => txMatchesQuery(tx, q))) {
+      // A server without `q` (before WP-15) lists every row: the search
+      // runs here instead, over this page, and its totals with it.
+      return _searchedHere(res, existing, q);
+    }
     final merged = _dedupe([...existing, ...res.items]);
     // Guard against an infinite paginate loop: stop when the server returns a
     // short (final) page, and require the dedupe to have actually appended new
@@ -1051,6 +1090,38 @@ class TransactionsNotifier extends AsyncNotifier<TransactionsFeed> {
       items: merged,
       meta: res.meta,
       hasMore: fullPage && addedNew,
+      at: DateTime.now(),
+    );
+  }
+
+  /// [res] searched for [q] on the phone, because the server ignored it:
+  /// the matching rows and their own totals. No more pages are asked for —
+  /// each would be the whole list again.
+  TransactionsFeed _searchedHere(
+    TransactionsPage res,
+    List<Transaction> existing,
+    String q,
+  ) {
+    final items = _dedupe([
+      ...existing,
+      ...res.items.where((tx) => txMatchesQuery(tx, q)),
+    ]);
+    var income = 0;
+    var expense = 0;
+    for (final tx in items) {
+      if (tx.kind == 'income') income += tx.amountCents;
+      if (tx.kind == 'expense') expense += tx.amountCents;
+    }
+    return TransactionsFeed(
+      items: items,
+      meta: TransactionMeta(
+        totalCount: items.length,
+        page: res.meta.page,
+        pageLimit: res.meta.pageLimit,
+        filteredIncomeCents: income,
+        filteredExpenseCents: expense,
+      ),
+      hasMore: false,
       at: DateTime.now(),
     );
   }
@@ -1188,6 +1259,8 @@ class TransactionsNotifier extends AsyncNotifier<TransactionsFeed> {
     if (to != null && day.isAfter(DateTime(to.year, to.month, to.day))) {
       return false;
     }
+    final q = f.q;
+    if (q != null && !txMatchesQuery(tx, q)) return false;
     return true;
   }
 
@@ -1235,5 +1308,36 @@ void forgetDeletedTransaction(ProviderContainer container, int id) {
     if (filters is! TxFilters) continue;
     container.read(transactionsProvider(filters).notifier).removeLocally(id);
   }
+}
+
+/// The latest transactions the app has on hand — every feed that is open
+/// and the dashboard's recent ones — newest first, at most [limit]: what
+/// the transaction form ranks its category chips by (D28), with no request
+/// of its own.
+List<Transaction> loadedRecentTransactions(
+  ProviderContainer container, {
+  int limit = 50,
+}) {
+  final byId = <int, Transaction>{};
+  for (final instance in container.allProviders(family: transactionsProvider)) {
+    final filters = instance.provider.argument;
+    if (filters is! TxFilters) continue;
+    final feed = container.read(transactionsProvider(filters)).value;
+    for (final tx in feed?.items ?? const <Transaction>[]) {
+      byId[tx.id] = tx;
+    }
+  }
+  if (container.exists(financeDashboardProvider)) {
+    final dashboard = container.read(financeDashboardProvider).value?.data;
+    for (final tx in dashboard?.recentTransactions ?? const <Transaction>[]) {
+      byId.putIfAbsent(tx.id, () => tx);
+    }
+  }
+  final recent = byId.values.toList()
+    ..sort((a, b) {
+      final byDate = b.date.compareTo(a.date);
+      return byDate != 0 ? byDate : b.id.compareTo(a.id);
+    });
+  return recent.length > limit ? recent.sublist(0, limit) : recent;
 }
 // endregion

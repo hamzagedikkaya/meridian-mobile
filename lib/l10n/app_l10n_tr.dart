@@ -1167,6 +1167,28 @@ class AppL10nTr extends AppL10n {
   String get txDeletedWithLinked => 'İşlem ve bağlı işlem silindi';
   @override
   String get txGone => 'Bu işlem silinmiş';
+  @override
+  String get txFilterKind => 'Tür';
+  @override
+  String txFilterKindValue(String kind) => 'Tür: $kind';
+  @override
+  String get txSearchHint => 'Açıklama ya da notta ara';
+  @override
+  String get txSearchClose => 'Aramayı kapat';
+  @override
+  String txSearchEmpty(String query) => 'Sonuç yok · “$query”';
+  @override
+  String get txSearchClear => 'Aramayı temizle';
+  @override
+  String get txSearchEverywhere => 'Her yerde ara';
+  @override
+  String get txCopyToToday => 'Bugüne kopyala';
+  @override
+  String get txCopiedToToday => 'Bugüne kopyalandı';
+  @override
+  String get txCopyFailed => 'Kopyalanamadı';
+  @override
+  String txDaySpent(String amount) => 'Gider $amount';
   // endregion
 
   // --- Transaction form ------------------------------------------------------
@@ -1218,6 +1240,26 @@ class AppL10nTr extends AppL10n {
   @override
   String get txFormAccountsFailed =>
       'Hesaplar yüklenemedi. Tekrar denemek için dokun.';
+  @override
+  String txFormAccountChip(String name) => 'Hesap: $name';
+  @override
+  String get txFormAddDescription => 'Açıklama';
+  @override
+  String get txFormMore => 'Daha fazla';
+  @override
+  String get txFormAllCategories => 'Tümü…';
+  @override
+  String get txFormPickDate => 'Tarih seç';
+  @override
+  String get txFormSource => 'Kaynak';
+  @override
+  String get txFormTarget => 'Hedef';
+  @override
+  String get txFormSwap => 'Hesapları değiştir';
+  @override
+  String txFormBalanceAfter(String amount) => 'sonra: $amount';
+  @override
+  String get txFormEditAmount => 'Tutarı düzenle';
   // endregion
 
   // --- Forms, keypad and undo -----------------------------------------------
@@ -1979,7 +2021,7 @@ class AppL10nTr extends AppL10n {
   // region goals (WP-12)
 
   @override
-  String get goalsTypeFinancial => 'FİNANSAL';
+  String get goalsTypeFinancial => 'BİRİKİM';
   @override
   String get goalsTypeHabit => 'ALIŞKANLIK';
   @override
@@ -2020,8 +2062,6 @@ class AppL10nTr extends AppL10n {
   @override
   String get goalsHabitProgress => 'Alışkanlık ilerlemesi';
   @override
-  String goalsStreakDays(int days) => '$days günlük seri';
-  @override
   String get goalsLinkedAccount => 'Bağlı hesap';
   @override
   String get goalsCurrentBalance => 'Güncel bakiye';
@@ -2052,12 +2092,6 @@ class AppL10nTr extends AppL10n {
   String get goalsFormDescription => 'Açıklama (isteğe bağlı)';
   @override
   String get goalsFormType => 'Tür';
-  @override
-  String get goalsFormTypeCustom => 'Özel';
-  @override
-  String get goalsFormTypeHabit => 'Alışkanlık';
-  @override
-  String get goalsFormTypeFinancial => 'Finansal';
   @override
   String get goalsFormColor => 'Renk';
   @override
@@ -2094,8 +2128,6 @@ class AppL10nTr extends AppL10n {
   @override
   String get goalsFormNoDeadline => 'Yok';
   @override
-  String get goalsFormClearDeadline => 'Bitiş tarihini kaldır';
-  @override
   String get goalsFormTypeChangeNote =>
       'Tür değişince eski bağlantı kalkar; hedef o anki değerini korur.';
   @override
@@ -2108,8 +2140,6 @@ class AppL10nTr extends AppL10n {
   String goalsReopenNeedsHigherTarget(String current) =>
       'İlerleme hedefe zaten ulaştı ($current). Yeniden açmak için daha '
       'yüksek bir hedef gir.';
-  @override
-  String get goalsReopenNewTarget => 'Yeni hedef değer';
   @override
   String goalsReopenTargetTooLow(String current) =>
       'Hedef, mevcut ilerlemeden ($current) büyük olmalı';
@@ -2149,6 +2179,44 @@ class AppL10nTr extends AppL10n {
   String goalsDaysOverdue(int days) => '$days gün geçti';
   @override
   String get goalsMore => 'Diğer işlemler';
+  @override
+  String get goalsNew => 'Yeni';
+  @override
+  String get goalsKindSavings => 'Birikim hedefi';
+  @override
+  String get goalsKindSavingsBody => 'Bir hesabın bakiyesi ya da gelirlerin';
+  @override
+  String get goalsKindHabit => 'Alışkanlık hedefi';
+  @override
+  String get goalsKindHabitBody => 'Bir alışkanlığın tamamlanan günleri';
+  @override
+  String get goalsKindCustom => 'Özel hedef';
+  @override
+  String get goalsKindCustomBody => 'İlerlemeyi sen girersin';
+  @override
+  String get goalsProgressNotSaved => 'İlerleme kaydedilemedi';
+  @override
+  String goalsStepAdd(String amount) => '$amount ekle';
+  @override
+  String goalsStepRemove(String amount) => '$amount çıkar';
+  @override
+  String get goalsMarkToday => 'Bugünü işaretle';
+  @override
+  String get goalsTodayDone => 'Bugün tamam';
+  @override
+  String get goalsOpenHabit => 'Alışkanlığa git';
+  @override
+  String get goalsOpenAccount => 'Hesaba git';
+  @override
+  String get goalsIncomeCounts => 'Tüm gelirlerin sayılır';
+  @override
+  String get goalsAddProgress => 'İlerleme ekle';
+  @override
+  String goalsDeadlineMonths(int months) => '$months ay';
+  @override
+  String get goalsDeadlinePick => 'Tarih';
+  @override
+  String get goalsFormMore => 'Daha fazla';
   // endregion
 
   // --- Journal --------------------------------------------------------------

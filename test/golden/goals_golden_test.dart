@@ -6,8 +6,13 @@
 library;
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:meridian_mobile/core/session.dart';
 import 'package:meridian_mobile/data/providers.dart';
+import 'package:meridian_mobile/models/account.dart';
 import 'package:meridian_mobile/models/goal.dart';
+import 'package:meridian_mobile/models/habit.dart';
+import 'package:meridian_mobile/ui/screens/goals/goal_detail_screen.dart';
+import 'package:meridian_mobile/ui/screens/goals/goal_form.dart';
 import 'package:meridian_mobile/ui/screens/goals/goals_screen.dart';
 
 import 'golden_harness.dart';
@@ -21,6 +26,9 @@ const _en = <String, String>{
   'antrenman': 'workouts',
   'Acil vergi ödemesi': 'Urgent tax payment',
   '3 ayda 50.000 ₺ biriktir': 'Save 50,000 ₺ in 3 months',
+  'Haftada iki ders, yaz bitmeden sınava hazır.':
+      'Two lessons a week, ready for the exam by summer.',
+  'Sabah koşusu': 'Morning run',
 };
 
 String _fx(String tr) => fx(tr, _en);
@@ -34,6 +42,9 @@ Map<String, dynamic> _goalJson({
   String status = 'active',
   required String color,
   String unit = '',
+  String description = '',
+  String progressSource = 'manual',
+  Map<String, dynamic>? related,
   String? deadline,
   required int daysRemaining,
   Map<String, dynamic>? badge,
@@ -44,7 +55,7 @@ Map<String, dynamic> _goalJson({
     {
       'id': id,
       'name': name,
-      'description': '',
+      'description': description,
       'target_type': targetType,
       'status': status,
       'color': color,
@@ -55,7 +66,8 @@ Map<String, dynamic> _goalJson({
       'target_value': targetValue,
       'current_value': currentValue,
       'progress_percent': progress,
-      'related': null,
+      'progress_source': progressSource,
+      'related': related,
     };
 
 GoalsBundle _goals() => GoalsBundle.fromJson({
@@ -71,15 +83,115 @@ GoalsBundle _goals() => GoalsBundle.fromJson({
       'abandoned': const [],
     });
 
+const _emptyGoals = GoalsBundle(active: [], achieved: [], abandoned: []);
+
+/// A goal logged by hand: the stepper, "Değer gir", "Tamamlandı olarak
+/// işaretle".
+Goal _manualGoal() => Goal.fromJson(_goalJson(
+      id: 32,
+      name: _fx('Almanca A2 seviyesine ulaş'),
+      description: _fx('Haftada iki ders, yaz bitmeden sınava hazır.'),
+      color: '#6B8FA0',
+      unit: _fx('ders'),
+      deadline: ymd(daysAhead(5)),
+      daysRemaining: 5,
+      badge: {'state': 'soon', 'days': 5},
+      targetValue: 50,
+      currentValue: 24,
+      progress: 48,
+    ));
+
+/// A goal its habit counts: the habit with its streak, "Bugünü işaretle".
+Goal _habitGoal() => Goal.fromJson(_goalJson(
+      id: 33,
+      name: _fx('İlk 5K koşuma hazırlan'),
+      targetType: 'habit',
+      color: '#B8860B',
+      unit: _fx('antrenman'),
+      progressSource: 'habit',
+      related: {
+        'type': 'Habit',
+        'id': 1,
+        'name': _fx('Sabah koşusu'),
+        'current_streak': 12,
+        'completed_days': 30,
+      },
+      deadline: ymd(daysAhead(53)),
+      daysRemaining: 53,
+      badge: {'state': 'far', 'days': 53},
+      targetValue: 40,
+      currentValue: 30,
+      progress: 75,
+    ));
+
+HabitsBundle _habits() => HabitsBundle.fromJson({
+      'habits': [
+        {'id': 1, 'name': _fx('Sabah koşusu'), 'description': '', 'frequency': 'daily', 'target_count': 1, 'color': '#6B8E5A', 'goal_id': 33, 'current_streak': 12, 'longest_streak': 21, 'completion_rate_30d': 0.86, 'today': {'date': ymd(goldenNow), 'completed': false, 'count': 0}, 'chain': const []},
+      ],
+      'meta': {'completed_today': 0, 'total_active': 1},
+    });
+
+/// The detail of [goal], loaded, opened from the grid with its preview.
+Future<void> _detail(WidgetTester tester, Goal goal) async {
+  await tester.pumpWidget(goldenHost(
+    GoalDetailScreen(goalId: goal.id, preview: goal),
+    [
+      sharedPrefsProvider.overrideWithValue(goldenPrefs),
+      goalDetailProvider(goal.id)
+          .overrideWith((ref) async => Fetched(goal, goldenNow)),
+      habitsProvider.overrideWithBuild(
+        (ref, _) async => Fetched(_habits(), goldenNow),
+      ),
+    ],
+  ));
+  await tester.pumpAndSettle();
+}
+
 void main() {
   setUpGoldens();
 
-  // WP-12: switch to `variants: GoldenVariant.withLargeText` once the screen
-  // lays out at 200 % text without overflow (§8.3); today it does not.
-  goldenScreen('goals', (tester, _) async {
+  goldenScreen('goals', variants: GoldenVariant.withLargeText,
+      (tester, _) async {
     await tester.pumpWidget(goldenHost(
       const GoalsScreen(),
       [goalsProvider.overrideWith((ref) async => Fetched(_goals(), goldenNow))],
+    ));
+    await tester.pumpAndSettle();
+  });
+
+  goldenScreen('goals_empty', variants: GoldenVariant.withLargeText,
+      (tester, _) async {
+    await tester.pumpWidget(goldenHost(
+      const GoalsScreen(),
+      [
+        goalsProvider
+            .overrideWith((ref) async => Fetched(_emptyGoals, goldenNow)),
+      ],
+    ));
+    await tester.pumpAndSettle();
+  });
+
+  goldenScreen('goal_detail_manual', variants: GoldenVariant.withLargeText,
+      (tester, _) => _detail(tester, _manualGoal()));
+
+  goldenScreen('goal_detail_habit', variants: GoldenVariant.withLargeText,
+      (tester, _) => _detail(tester, _habitGoal()));
+
+  // An edit: every field filled, "Daha fazla" open for the description.
+  goldenScreen('goal_form', variants: GoldenVariant.withLargeText,
+      (tester, _) async {
+    await tester.pumpWidget(goldenHost(
+      GoalFormScreen(goal: _manualGoal()),
+      [
+        sharedPrefsProvider.overrideWithValue(goldenPrefs),
+        currentUserProvider.overrideWithValue(null),
+        accountsProvider.overrideWith(
+          (ref) async => Fetched(const <Account>[], goldenNow),
+        ),
+        habitsProvider.overrideWithBuild(
+          (ref, _) async => Fetched(_habits(), goldenNow),
+        ),
+      ],
     ));
     await tester.pumpAndSettle();
   });

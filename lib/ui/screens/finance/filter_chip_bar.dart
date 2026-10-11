@@ -3,11 +3,25 @@ import 'package:flutter/material.dart';
 import '../../../core/haptics.dart';
 import '../../../l10n/app_l10n.dart';
 import '../../../theme/app_colors.dart';
+import '../../../theme/app_metrics.dart';
+import '../../../theme/app_motion.dart';
+import '../../widgets/picker_sheet.dart';
 import '../../widgets/pressable_scale.dart';
 
-/// Sticky filter chip bar for the transactions feed (design §4.4): kind chips
-/// (all / income / expense / transfer) + account, category and date pickers.
-class FilterChipBar extends StatelessWidget {
+/// İşlemler's filter row (design-analysis §4.12, §7.7): four dropdown chips
+/// — [Tür ▾] [Hesap ▾] [Kategori ▾] [Tarih ▾] — and, while any filter is
+/// on, a 48 dp × that clears them all, after a hairline.
+///
+/// A chip whose filter is on turns gold and says its value ("Tür: Gider ▾",
+/// "Cüzdan ▾", "Bu ay ▾"). The four fit a 360 dp phone at rest; when they
+/// and the × no longer fit one line (a filter on, longer English labels,
+/// larger text) the row wraps onto a second one, so every chip and the ×
+/// always stay in sight — never scrolled away or hidden behind the ×.
+///
+/// The kind chip opens its own picker (Tümü · Gelir · Gider · Transfer);
+/// the others call back. Each chip is one screen-reader button that says
+/// its value and whether its filter is on.
+class FilterChipBar extends StatefulWidget {
   final String? kind; // null = every kind
   final ValueChanged<String?> onKind;
   final String? accountLabel;
@@ -17,7 +31,7 @@ class FilterChipBar extends StatelessWidget {
   final VoidCallback onCategoryTap;
   final VoidCallback onDateTap;
 
-  /// Clears every filter; shown as the first chip while any is set.
+  /// Clears every filter; the × is shown while any is set.
   final VoidCallback? onClear;
 
   const FilterChipBar({
@@ -34,127 +48,180 @@ class FilterChipBar extends StatelessWidget {
   });
 
   @override
+  State<FilterChipBar> createState() => _FilterChipBarState();
+}
+
+class _FilterChipBarState extends State<FilterChipBar> {
+  String _kindName(AppL10n l, String kind) => switch (kind) {
+        'income' => l.financeIncome,
+        'expense' => l.financeExpense,
+        _ => l.financeTransfer,
+      };
+
+  Future<void> _pickKind() async {
+    final l = context.l10n;
+    final picked = await showPickerSheet<String>(
+      context,
+      title: l.txFilterKind,
+      selected: widget.kind ?? 'all',
+      options: [
+        PickerOption(value: 'all', label: l.labelAll, icon: Icons.all_inclusive),
+        PickerOption(
+            value: 'income',
+            label: l.financeIncome,
+            icon: Icons.south_west_rounded),
+        PickerOption(
+            value: 'expense',
+            label: l.financeExpense,
+            icon: Icons.north_east_rounded),
+        PickerOption(
+            value: 'transfer',
+            label: l.financeTransfer,
+            icon: Icons.swap_horiz_rounded),
+      ],
+    );
+    if (picked == null || !mounted) return;
+    widget.onKind(picked == 'all' ? null : picked);
+  }
+
+  @override
   Widget build(BuildContext context) {
     final c = context.nok;
     final l = context.l10n;
-    return Container(
+    final kind = widget.kind;
+    final clear = widget.onClear;
+    return ColoredBox(
       color: c.bg,
-      // Each chip's 48 dp target reaches past its pill above and below, so
-      // the bar keeps the height an 8 dp padding gave it.
-      padding: const EdgeInsets.symmetric(vertical: 3),
-      child: SingleChildScrollView(
-        scrollDirection: Axis.horizontal,
-        padding: const EdgeInsets.symmetric(horizontal: 20),
-        child: Row(
-          children: [
-            if (onClear != null)
-              _chip(context,
-                  label: l.txFilterClear,
-                  active: false,
-                  icon: Icons.close,
-                  onTap: onClear!),
-            _chip(context, label: l.labelAll, active: kind == null,
-                onTap: () => onKind(null)),
-            _chip(context, label: l.financeIncome, active: kind == 'income',
-                onTap: () => onKind('income')),
-            _chip(context, label: l.financeExpense, active: kind == 'expense',
-                onTap: () => onKind('expense')),
-            _chip(context, label: l.financeTransfer, active: kind == 'transfer',
-                onTap: () => onKind('transfer')),
-            _divider(c),
-            _chip(context,
-                label: accountLabel ?? l.txFilterAccount,
-                active: accountLabel != null,
-                dropdown: true,
-                onTap: onAccountTap),
-            _chip(context,
-                label: categoryLabel ?? l.txFilterCategory,
-                active: categoryLabel != null,
-                dropdown: true,
-                onTap: onCategoryTap),
-            _chip(context,
-                label: dateLabel ?? l.txFilterDate,
-                active: dateLabel != null,
-                dropdown: true,
-                onTap: onDateTap),
-          ],
+      child: Padding(
+        padding: const EdgeInsetsDirectional.only(
+          start: Gap.lg,
+          end: Gap.xs,
+        ),
+        // From the leading edge, whatever the column around it centres.
+        child: Align(
+          alignment: AlignmentDirectional.centerStart,
+          child: Wrap(
+            spacing: 6,
+            crossAxisAlignment: WrapCrossAlignment.center,
+            children: [
+              _FilterChip(
+                label: kind == null
+                    ? l.txFilterKind
+                    : l.txFilterKindValue(_kindName(l, kind)),
+                active: kind != null,
+                onTap: _pickKind,
+              ),
+              _FilterChip(
+                label: widget.accountLabel ?? l.txFilterAccount,
+                active: widget.accountLabel != null,
+                onTap: widget.onAccountTap,
+              ),
+              _FilterChip(
+                label: widget.categoryLabel ?? l.txFilterCategory,
+                active: widget.categoryLabel != null,
+                onTap: widget.onCategoryTap,
+              ),
+              _FilterChip(
+                label: widget.dateLabel ?? l.txFilterDate,
+                active: widget.dateLabel != null,
+                onTap: widget.onDateTap,
+              ),
+              if (clear != null)
+                Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Container(width: 1, height: 24, color: c.hairline),
+                    IconButton(
+                      onPressed: () {
+                        Haptics.tick();
+                        clear();
+                      },
+                      tooltip: l.txFilterClear,
+                      icon: Icon(Icons.close_rounded, color: c.inkMid),
+                    ),
+                  ],
+                ),
+            ],
+          ),
         ),
       ),
     );
   }
+}
 
-  Widget _divider(NokturnColors c) => Container(
-        width: 1,
-        height: 24,
-        margin: const EdgeInsets.symmetric(horizontal: 8),
-        color: c.hairline,
-      );
+/// A dropdown filter chip, drawn as `NokChip` draws one but a little
+/// tighter (9 / 7 dp inside, the arrow 2 dp after the label), so the four fit
+/// a 360 dp row: 36 dp tall in a 48 dp target, a 1 dp hairline on surface2
+/// at rest; goldContainer with a goldDim edge and an onGoldContainer w600
+/// label when its filter is on. Colours change in 200 ms; it presses to
+/// 0.95.
+class _FilterChip extends StatelessWidget {
+  final String label;
+  final bool active;
+  final VoidCallback onTap;
 
-  Widget _chip(
-    BuildContext context, {
-    required String label,
-    required bool active,
-    required VoidCallback onTap,
-    bool dropdown = false,
-    IconData? icon,
-  }) {
+  const _FilterChip({
+    required this.label,
+    required this.active,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
     final c = context.nok;
     final text = Theme.of(context).textTheme;
+    final duration = Motion.orInstant(context, Motion.quick);
+    final fg = active ? c.onGoldContainer : c.inkMid;
     void tap() {
       Haptics.tick();
       onTap();
     }
 
-    final pill = Container(
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-      decoration: BoxDecoration(
+    final pill = AnimatedContainer(
+      duration: duration,
+      curve: Motion.enter,
+      // 9 / 7 dp inside, the 1 dp edge included: 36 dp tall.
+      padding: const EdgeInsets.fromLTRB(8, 7, 6, 7),
+      decoration: ShapeDecoration(
         color: active ? c.goldContainer : c.surface2,
-        borderRadius: BorderRadius.circular(999),
-        border: Border.all(color: active ? c.goldContainer : c.hairline),
+        shape: StadiumBorder(
+          side: BorderSide(color: active ? c.goldDim : c.hairline),
+        ),
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          if (icon != null) ...[
-            Icon(icon, size: 16, color: c.inkMid),
-            const SizedBox(width: 4),
-          ],
-          Text(
-            label,
-            style: text.labelLarge!.copyWith(
-              color: active ? c.onGoldContainer : c.inkMid,
+          // A long name (larger text) ends in "…" rather than running
+          // past a line of its own.
+          Flexible(
+            child: AnimatedDefaultTextStyle(
+              duration: duration,
+              style: text.labelLarge!.copyWith(
+                color: fg,
+                fontWeight: active ? FontWeight.w600 : FontWeight.w500,
+              ),
+              child: Text(label, maxLines: 1, overflow: TextOverflow.ellipsis),
             ),
           ),
-          if (dropdown) ...[
-            const SizedBox(width: 4),
-            Icon(
-              Icons.keyboard_arrow_down,
-              size: 16,
-              color: active ? c.onGoldContainer : c.inkMid,
-            ),
-          ],
+          const SizedBox(width: Gap.xxs),
+          Icon(Icons.keyboard_arrow_down_rounded, size: 16, color: fg),
         ],
       ),
     );
-    return Padding(
-      padding: const EdgeInsets.only(right: 8),
-      // One node per chip for screen readers, saying whether it is on. The
-      // chip's own detector is left out of the tree, so this node answers
-      // the double-tap itself.
-      child: Semantics(
-        button: true,
-        selected: active,
-        label: label,
+    // One node per chip for screen readers, saying its value and whether
+    // its filter is on; it answers the double-tap itself.
+    return Semantics(
+      button: true,
+      selected: active,
+      label: label,
+      onTap: tap,
+      excludeSemantics: true,
+      child: PressableScale.small(
         onTap: tap,
-        excludeSemantics: true,
-        // A 48 dp target (design-research §6.2) around the pill, which
-        // keeps its size.
-        child: PressableScale(
-          onTap: tap,
-          child: ConstrainedBox(
-            constraints: const BoxConstraints(minHeight: 48),
-            child: Center(widthFactor: 1, heightFactor: 1, child: pill),
-          ),
+        excludeFromSemantics: true,
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(minHeight: Hit.min),
+          child: Center(widthFactor: 1, heightFactor: 1, child: pill),
         ),
       ),
     );

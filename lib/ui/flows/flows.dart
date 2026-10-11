@@ -24,12 +24,16 @@ import '../../l10n/app_l10n.dart';
 import '../../models/account.dart';
 import '../../models/event.dart';
 import '../../models/finance_dashboard.dart';
+import '../../models/goal.dart';
+import '../../models/habit.dart';
 import '../../models/quick_capture.dart';
 import '../../models/subscription.dart';
 import '../../models/todo.dart';
 import '../../models/transaction.dart';
 import '../screens/events/event_form.dart' as event_form;
 import '../screens/finance/transaction_form_screen.dart' as tx_form;
+import '../screens/goals/goal_form.dart' as goal_form;
+import '../screens/habits/habit_detail_sheet.dart' as habit_detail;
 import '../screens/habits/habit_log_sheet.dart' as habit_log;
 import '../screens/today/widgets/quick_capture_sheet.dart' as quick_capture;
 import '../screens/todos/todo_sheet.dart' as todo_sheet;
@@ -261,6 +265,25 @@ Future<Event?> openEventForm(
   return event_form.openEventForm(context, existing: existing, day: day);
 }
 
+// --- Goals ----------------------------------------------------------------------
+
+/// Opens the goal form: [existing] to edit, or a new goal of [type]
+/// (`financial`, `habit`, `custom`). With [habitId], a new habit goal
+/// already linked to that habit (`related: Habit-<id>`) — the habit's "Bu
+/// alışkanlık için hedef koy". The goal as saved, or null.
+Future<Goal?> openGoalForm(
+  BuildContext context, {
+  Goal? existing,
+  String? type,
+  int? habitId,
+}) =>
+    goal_form.openGoalForm(
+      context,
+      goal: existing,
+      type: type,
+      habitId: habitId,
+    );
+
 // --- Habits ---------------------------------------------------------------------
 
 /// Opens habit [habitId]'s log for [date] (today without one): set the day's
@@ -271,3 +294,8 @@ Future<void> openHabitLog(
   DateTime? date,
 }) =>
     habit_log.showHabitLogSheet(context, habitId: habitId, date: date);
+
+/// Opens [habit]'s detail sheet — from another screen, such as a habit
+/// goal's "Alışkanlığa git" (WP-12). Resolves when it is closed.
+Future<void> openHabitDetail(BuildContext context, Habit habit) =>
+    habit_detail.showHabitDetailSheet(context, habit);

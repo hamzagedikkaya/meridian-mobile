@@ -240,7 +240,8 @@ class MeridianRepository {
   /// One page of transactions. [uncategorized] asks for the ones without a
   /// category (`category_id=none`) instead of [categoryId];
   /// [includeIncomingTransfers] adds, to an [accountId] filter, the other
-  /// accounts' transfers into it.
+  /// accounts' transfers into it; [q] keeps the ones whose description or
+  /// note contains it (WP-15; an older server ignores it).
   Future<TransactionsPage> fetchTransactions({
     String? kind,
     int? accountId,
@@ -249,6 +250,7 @@ class MeridianRepository {
     bool includeIncomingTransfers = false,
     DateTime? from,
     DateTime? to,
+    String? q,
     int page = 1,
   }) =>
       _get(
@@ -262,6 +264,7 @@ class MeridianRepository {
           'category_id': uncategorized ? 'none' : categoryId,
           'from': from == null ? null : isoDate(from),
           'to': to == null ? null : isoDate(to),
+          'q': q,
           'page': page,
         }),
       );

@@ -21,6 +21,7 @@ import 'package:meridian_mobile/ui/screens/finance/transaction_form_screen.dart'
 import 'package:meridian_mobile/ui/screens/finance/transactions_screen.dart';
 import 'package:meridian_mobile/ui/widgets/pressable_scale.dart';
 
+import '../support/app_fonts.dart';
 import '../support/fake_api.dart';
 import '../support/finance_harness.dart';
 
@@ -85,12 +86,14 @@ void main() {
       tester.semantics.tap(find.semantics.byLabel(key));
       await tester.pump();
     }
+    // The amount rolls in as it is typed: let it come to rest.
+    await settleFrames(tester);
     expect(find.text('₺125'), findsOneWidget);
     tester.semantics.tap(find.semantics.byLabel('Son rakamı sil'));
-    await tester.pump();
+    await settleFrames(tester);
     expect(find.text('₺12'), findsOneWidget);
     tester.semantics.longPress(find.semantics.byLabel('Son rakamı sil'));
-    await tester.pump();
+    await settleFrames(tester);
     expect(find.text('₺0'), findsOneWidget);
 
     for (final key in ['4', 'Ondalık virgül', '5']) {
@@ -132,7 +135,7 @@ void main() {
   });
 
   testWidgets('İşlemler\'s filter chips: each is one stop saying whether it '
-      'is on, and a double-tap filters', (tester) async {
+      'is on, and a double-tap opens its picker', (tester) async {
     tallPhone(tester);
     final handle = tester.ensureSemantics();
     final kinds = <Object?>[];
@@ -145,15 +148,19 @@ void main() {
         };
       });
     await pumpFinance(tester, api, const TransactionsScreen());
-    for (final chip in ['Tümü', 'Gelir', 'Gider', 'Transfer', 'Hesap']) {
+    for (final chip in ['Tür', 'Hesap', 'Kategori', 'Tarih']) {
       expect(_canTap(chip), isTrue, reason: chip);
+      expect(_selected(chip), isFalse, reason: chip);
     }
-    expect(_selected('Tümü'), isTrue);
 
-    await _doubleTap(tester, 'Gelir');
+    // The kind chip picks in a sheet, then says what it picked.
+    await _doubleTap(tester, 'Tür');
+    expect(find.byType(BottomSheet), findsOneWidget);
+    await tester.tap(find.descendant(
+        of: find.byType(BottomSheet), matching: find.text('Gelir')));
+    await settleFrames(tester);
     expect(kinds.last, 'income');
-    expect(_selected('Gelir'), isTrue);
-    expect(_selected('Tümü'), isFalse);
+    expect(_selected('Tür: Gelir'), isTrue);
 
     // A picker chip opens its picker.
     await _doubleTap(tester, 'Hesap');
@@ -293,7 +300,7 @@ void main() {
     testWidgets('İşlemler\'s filter chips', (tester) async {
       tallPhone(tester);
       await pumpFinance(tester, FakeApi(), const TransactionsScreen());
-      for (final chip in ['Tümü', 'Gelir', 'Gider', 'Transfer']) {
+      for (final chip in ['Tür', 'Hesap', 'Kategori', 'Tarih']) {
         final target = find.ancestor(
           of: find.text(chip),
           matching: find.byType(PressableScale),
@@ -301,7 +308,8 @@ void main() {
         expect(tester.getSize(target).height, greaterThanOrEqualTo(48),
             reason: chip);
         final pill = find
-            .ancestor(of: find.text(chip), matching: find.byType(Container))
+            .ancestor(
+                of: find.text(chip), matching: find.byType(AnimatedContainer))
             .first;
         expect(tester.getSize(pill).height, lessThan(48),
             reason: '$chip: the pill keeps its size');
@@ -309,27 +317,22 @@ void main() {
     });
 
     testWidgets('the kind pill\'s segments', (tester) async {
+      // The pill is as wide as its labels: measured in the app's fonts.
+      await loadAppFonts();
       tallPhone(tester);
+      final handle = tester.ensureSemantics();
       await _open(tester, FakeApi(), (context) => openTransactionForm(context));
       for (final kind in ['Gider', 'Gelir', 'Transfer']) {
-        final target = find.ancestor(
-          of: find.text(kind),
-          matching: find.byType(GestureDetector),
-        );
-        expect(tester.getSize(target.first).height, greaterThanOrEqualTo(48),
-            reason: kind);
+        final target = tester.getRect(find.bySemanticsLabel(kind));
+        expect(target.height, greaterThanOrEqualTo(48), reason: kind);
       }
       // A tap at the top edge of a segment's target picks it.
-      final gelir = find
-          .ancestor(of: find.text('Gelir'), matching: find.byType(GestureDetector))
-          .first;
-      await tester.tapAt(tester.getRect(gelir).topCenter + const Offset(0, 2));
+      final gelir = tester.getRect(find.bySemanticsLabel('Gelir'));
+      await tester.tapAt(gelir.topCenter + const Offset(0, 2));
       await settleFrames(tester);
-      final selected = tester.widget<AnimatedContainer>(find
-          .ancestor(of: find.text('Gelir'), matching: find.byType(AnimatedContainer))
-          .first);
-      expect((selected.decoration! as BoxDecoration).color,
-          isNot(Colors.transparent));
+      expect(_selected('Gelir'), isTrue);
+      expect(_selected('Gider'), isFalse);
+      handle.dispose();
     });
   });
 }
