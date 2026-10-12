@@ -35,6 +35,7 @@ import '../../widgets/row_motion.dart';
 import '../../widgets/skeletons.dart';
 import '../../widgets/sync_hint.dart';
 import '../shell/app_tabs.dart';
+import '../search/search_entry_button.dart';
 import 'agenda_days.dart';
 import 'agenda_tiles.dart';
 import 'event_sheet.dart';
@@ -434,12 +435,8 @@ class _AgendaTabScreenState extends ConsumerState<AgendaTabScreen>
         appBar: AppBar(
           title: Text(l.tabAgenda, style: text.headlineLarge),
           actions: [
-            if (kSearchEnabled)
-              IconButton(
-                icon: const Icon(Icons.search_rounded),
-                tooltip: l.actionSearch,
-                onPressed: () => context.push('/search'),
-              ),
+            // Hidden when the server has no search (contract §13).
+            const SearchEntryButton(),
             PopupMenuButton<String>(
               icon: const Icon(Icons.more_vert_rounded),
               tooltip: l.actionMoreOptions,

@@ -10,6 +10,7 @@ import 'package:meridian_mobile/l10n/app_l10n.dart';
 import 'package:meridian_mobile/theme/app_theme.dart';
 import 'package:meridian_mobile/ui/screens/agenda/agenda_screen.dart';
 import 'package:meridian_mobile/ui/screens/agenda/todo_lists_screen.dart';
+import 'package:meridian_mobile/ui/screens/search/search_screen.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'fake_api.dart';
@@ -67,6 +68,11 @@ Future<GoRouter> pumpWithRoutes(
       GoRoute(
         path: '/agenda/lists',
         builder: (_, _) => const TodoListsScreen(),
+      ),
+      GoRoute(
+        path: '/search',
+        builder: (_, state) =>
+            SearchScreen(query: state.uri.queryParameters['q'] ?? ''),
       ),
     ],
   );

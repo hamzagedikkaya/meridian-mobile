@@ -10,6 +10,7 @@ import '../../../data/current_day.dart';
 import '../../../data/data_scope.dart';
 import '../../../data/deferred_deletes.dart';
 import '../../../data/providers.dart';
+import '../../../data/search.dart';
 import '../../../l10n/app_l10n.dart';
 import '../../../models/account.dart';
 import '../../../models/date_utils.dart';
@@ -708,7 +709,7 @@ class _TransactionsScreenState extends ConsumerState<TransactionsScreen> {
           title: l.txSearchEmpty(query),
           secondaryLabel: l.txSearchClear,
           onSecondary: _clearSearch,
-          chips: kSearchEnabled
+          chips: ref.watch(searchOfferedProvider)
               ? [
                   NokChip(
                     label: l.txSearchEverywhere,

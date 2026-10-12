@@ -774,8 +774,10 @@ final todoListsProvider = FutureProvider.autoDispose<Fetched<TodoListsBundle>>(
 
 // region shell (WP-4)
 /// Whether global search (`/search`, WP-16) is offered: Today's and
-/// Agenda's search icons are drawn only when it is. WP-16 turns it on.
-const kSearchEnabled = false;
+/// Agenda's search icons are drawn only when it is. On since WP-16; a
+/// server without search still hides them (`searchOfferedProvider`, drawn
+/// by `SearchEntryButton`).
+const kSearchEnabled = true;
 
 /// The overdue todo count as the Agenda tab last read it (its open todos'
 /// `meta.counts.overdue`), with when — reported by the Agenda screen as its

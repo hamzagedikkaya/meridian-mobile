@@ -122,14 +122,62 @@ class AppL10nEn extends AppL10n {
   @override
   String get titleSearch => 'Search';
   @override
-  String get searchComingSoon => 'Search across everything is coming here';
-  @override
   String get subscriptionUndoFailed =>
       "Couldn't undo the payment. You can delete it under Transactions.";
   // endregion
 
   // --- Search ----------------------------------------------------------------
   // region search (WP-16)
+
+  @override
+  String get searchHint => 'Search transactions, tasks, journal…';
+  @override
+  String get searchClear => 'Clear';
+  @override
+  String searchGroup(String type) => switch (type) {
+        'transaction' => 'Transactions',
+        'todo' => 'Tasks',
+        'event' => 'Events',
+        'journal_entry' => 'Journal',
+        'goal' => 'Goals',
+        'habit' => 'Habits',
+        'subscription' => 'Subscriptions',
+        _ => type,
+      };
+  @override
+  String searchKind(String type) => switch (type) {
+        'transaction' => 'Transaction',
+        'todo' => 'Task',
+        'event' => 'Event',
+        'journal_entry' => 'Journal entry',
+        'goal' => 'Goal',
+        'habit' => 'Habit',
+        'subscription' => 'Subscription',
+        _ => type,
+      };
+  @override
+  String searchNoResults(String query) => 'No results for “$query”';
+  @override
+  String get searchRecent => 'Recent searches';
+  @override
+  String get searchRecentRemove => 'Remove from recent searches';
+  @override
+  String get searchStartTitle => 'Search everything';
+  @override
+  String get searchStartBody =>
+      'Transactions, tasks, events, journal, goals, habits and '
+      'subscriptions in one place.';
+  @override
+  String get searchUnavailableTitle => 'This server has no search';
+  @override
+  String get searchUnavailableBody =>
+      'Search will work here once the server is updated.';
+  @override
+  String get searchFailed => "Couldn't search";
+  @override
+  String get searchOpenFailed => "Couldn't open it";
+  @override
+  String get searchResultGone => 'This was deleted; it is off the results';
   // endregion
 
   // --- Errors, offline, session ---------------------------------------------

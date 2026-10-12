@@ -16,6 +16,7 @@ import '../../../widgets/pressable_scale.dart';
 import '../../../widgets/skeletons.dart';
 import '../../events/agenda_screen.dart';
 import '../../events/event_sheet.dart';
+import '../../search/search_entry_button.dart';
 import 'start_card.dart';
 import 'today_clock.dart';
 import 'today_common.dart';
@@ -70,17 +71,17 @@ class TodayHeader extends ConsumerWidget {
                       l.todayDateLine(today),
                       style: text.bodyMedium!.copyWith(color: c.inkMid),
                     ),
-                    Text(
-                      l.todayGreeting(l.greeting(now.hour), firstName),
-                      style: text.headlineLarge,
-                      // At large text the greeting alone fills two lines:
-                      // the name keeps a third.
-                      maxLines: large ? 3 : 2,
-                      overflow: TextOverflow.ellipsis,
+                    TodayGreeting(
+                      text: l.todayGreeting(l.greeting(now.hour), firstName),
+                      style: text.headlineLarge!,
+                      large: large,
                     ),
                   ],
                 ),
               ),
+              // Global search (design-analysis §7.2 row 1): draws nothing
+              // when the server has no search.
+              const SearchEntryButton(),
               _Avatar(
                 initials: user?.initials ?? '',
                 onTap: () => context.push('/profile'),
@@ -209,6 +210,68 @@ class _ChipBone extends StatelessWidget {
       child: Bone(width: 128, height: 36, shape: BoneShape.block),
     ),
   );
+}
+
+/// The greeting. The search button and the avatar share its row
+/// (design-analysis §7.2 row 1), so a greeting a little too wide for one
+/// line is set up to 15 % smaller instead of taking a second line, which
+/// would push the habits below the fold. A longer one wraps as before, and
+/// so does every greeting at large text: text the reader enlarged is never
+/// made smaller.
+class TodayGreeting extends StatelessWidget {
+  const TodayGreeting({
+    super.key,
+    required this.text,
+    required this.style,
+    required this.large,
+  });
+
+  final String text;
+  final TextStyle style;
+  final bool large;
+
+  /// The smallest share of [style]'s size the greeting is set at to stay on
+  /// one line.
+  static const minFit = 0.85;
+
+  @override
+  Widget build(BuildContext context) {
+    final wrapped = Text(
+      text,
+      style: style,
+      // At large text the greeting alone fills two lines: the name keeps a
+      // third.
+      maxLines: large ? 3 : 2,
+      overflow: TextOverflow.ellipsis,
+    );
+    if (large) return wrapped;
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final painter = TextPainter(
+          text: TextSpan(text: text, style: style),
+          textDirection: Directionality.of(context),
+          textScaler: MediaQuery.textScalerOf(context),
+          locale: Localizations.maybeLocaleOf(context),
+          maxLines: 1,
+        )..layout();
+        final width = painter.width;
+        painter.dispose();
+        final room = constraints.maxWidth;
+        if (width <= room) return wrapped;
+        // A hair under the exact ratio: glyph widths do not scale quite
+        // linearly with the size.
+        final fit = room / width * 0.98;
+        if (fit < minFit) return wrapped;
+        return Text(
+          text,
+          style: style.copyWith(fontSize: style.fontSize! * fit),
+          maxLines: 1,
+          softWrap: false,
+          overflow: TextOverflow.ellipsis,
+        );
+      },
+    );
+  }
 }
 
 class _Avatar extends StatelessWidget {

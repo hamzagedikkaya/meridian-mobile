@@ -829,6 +829,58 @@ Object? Function(RequestOptions request) transactionsFeed(
 // endregion
 
 // region search (WP-16)
+
+/// One row of `GET /search` (contract §13.1).
+Map<String, dynamic> searchResultJson({
+  required String type,
+  required int id,
+  required String title,
+  required String subtitle,
+}) =>
+    {'type': type, 'id': id, 'title': title, 'subtitle': subtitle};
+
+/// Every record the fake serves by default, as `GET /search` words it (tr):
+/// one per type, each opening a record the fake has (transaction 316, todo
+/// 39, event 12, journal entry 20, goal 3, habit 7, subscription 6).
+List<Map<String, dynamic>> searchCorpus() => [
+      searchResultJson(type: 'transaction', id: 316, title: 'Kahve', subtitle: '4 Eki 2026 · Cüzdan · −₺138,74'),
+      searchResultJson(type: 'todo', id: 39, title: 'Faturayı öde', subtitle: 'Bekliyor · Son gün 4 Eki 2026'),
+      searchResultJson(type: 'event', id: 12, title: 'Yoga', subtitle: '4 Eki 2026 18:00 · Stüdyo'),
+      searchResultJson(type: 'journal_entry', id: 20, title: 'Sakin bir gün', subtitle: '4 Eki 2026'),
+      searchResultJson(type: 'goal', id: 3, title: 'Kitap', subtitle: '40% tamamlandı'),
+      searchResultJson(type: 'habit', id: 7, title: 'Koşu', subtitle: 'Günlük · 2 gün seri'),
+      searchResultJson(type: 'subscription', id: 6, title: 'Netflix', subtitle: 'Aylık · ₺229,99 · Sonraki 15 Eki 2026'),
+    ];
+
+/// The answer to `GET /search?q=` [query]: [results] (by default the rows
+/// of [searchCorpus] whose title contains it, in any case — the server also
+/// reads notes and bodies, the fake only titles). Without a query, every
+/// row: the shape the live suite compares.
+Map<String, dynamic> searchJson(String? query, {List<Map<String, dynamic>>? results}) {
+  String fold(String s) => s
+      .replaceAll('I', 'ı')
+      .replaceAll('İ', 'i')
+      .toLowerCase()
+      .replaceAll('ı', 'i');
+  final q = query?.trim() ?? '';
+  return {
+    'query': q,
+    'results': results ??
+        [
+          for (final row in searchCorpus())
+            if (fold(row['title'] as String).contains(fold(q))) row,
+        ],
+  };
+}
+
+/// `GET /search` refusing a query under two characters, as the server does.
+const searchTooShortJson = {
+  'errors': {
+    'q': ['Aramak için en az 2 karakter yaz.'],
+  },
+  'code': 'query_too_short',
+  'min_length': 2,
+};
 // endregion
 
 /// Answers for routes with ids or dates in the path that no test set.
@@ -961,6 +1013,11 @@ final Map<String, _Route> _defaults = {
   // endregion
 
   // region search (WP-16)
+  // Without a query (the live suite's shape check), every row.
+  'GET /search': _Route(
+      respond: (request) => searchJson(request.uri.queryParameters['q'])),
+  // What a todo found by search opens its sheet with.
+  'GET /todos/39': _Route(body: {'todo': todoJson()}),
   // endregion
 
   // Writes.

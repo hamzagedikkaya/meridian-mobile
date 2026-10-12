@@ -15,6 +15,7 @@ import '../models/home.dart';
 import '../models/journal.dart';
 import '../models/me_options.dart';
 import '../models/quick_capture.dart';
+import '../models/search_result.dart';
 import '../models/todo.dart';
 import '../models/transaction.dart';
 import '../models/user.dart';
@@ -1076,6 +1077,22 @@ class MeridianRepository {
 
   // --- Search ----------------------------------------------------------------
   // region search (WP-16)
+
+  /// Global search (`GET /search`, contract §13.1): the user's records of
+  /// seven types whose text contains [query], grouped by type, at most five
+  /// each, worded for display. [query] must be 2 to 100 characters once
+  /// trimmed — the screen never sends less (`query_too_short`). A server
+  /// without global search answers 404.
+  Future<SearchResults> search(String query) => _get(
+        '/search',
+        (data) => SearchResults.fromJson(data),
+        query: {'q': query},
+      );
+
+  /// One todo (`GET /todos/:id`): what a search result opens the todo
+  /// sheet with.
+  Future<Todo> fetchTodo(int id) =>
+      _get('/todos/$id', (data) => Todo.fromJson(_entity(data, 'todo')));
   // endregion
 
   // --- Plumbing -------------------------------------------------------------

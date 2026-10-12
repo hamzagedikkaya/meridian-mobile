@@ -121,14 +121,62 @@ class AppL10nTr extends AppL10n {
   @override
   String get titleSearch => 'Ara';
   @override
-  String get searchComingSoon => 'Her yerde arama yakında burada';
-  @override
   String get subscriptionUndoFailed =>
       'Ödeme geri alınamadı. İşlemler sayfasından silebilirsin.';
   // endregion
 
   // --- Search ----------------------------------------------------------------
   // region search (WP-16)
+
+  @override
+  String get searchHint => 'Ara: işlem, görev, günlük…';
+  @override
+  String get searchClear => 'Temizle';
+  @override
+  String searchGroup(String type) => switch (type) {
+        'transaction' => 'İşlemler',
+        'todo' => 'Görevler',
+        'event' => 'Etkinlikler',
+        'journal_entry' => 'Günlük',
+        'goal' => 'Hedefler',
+        'habit' => 'Alışkanlıklar',
+        'subscription' => 'Abonelikler',
+        _ => type,
+      };
+  @override
+  String searchKind(String type) => switch (type) {
+        'transaction' => 'İşlem',
+        'todo' => 'Görev',
+        'event' => 'Etkinlik',
+        'journal_entry' => 'Günlük kaydı',
+        'goal' => 'Hedef',
+        'habit' => 'Alışkanlık',
+        'subscription' => 'Abonelik',
+        _ => type,
+      };
+  @override
+  String searchNoResults(String query) => '“$query” için sonuç yok';
+  @override
+  String get searchRecent => 'Son aramalar';
+  @override
+  String get searchRecentRemove => 'Son aramalardan kaldır';
+  @override
+  String get searchStartTitle => 'Her yerde ara';
+  @override
+  String get searchStartBody =>
+      'İşlemler, görevler, etkinlikler, günlük, hedefler, alışkanlıklar ve '
+      'abonelikler bir arada.';
+  @override
+  String get searchUnavailableTitle => 'Bu sunucuda arama yok';
+  @override
+  String get searchUnavailableBody =>
+      'Sunucu güncellenince her yerde arama burada çalışacak.';
+  @override
+  String get searchFailed => 'Arama yapılamadı';
+  @override
+  String get searchOpenFailed => 'Kayıt açılamadı';
+  @override
+  String get searchResultGone => 'Bu kayıt silinmiş; sonuçlardan çıkarıldı';
   // endregion
 
   // --- Errors, offline, session ---------------------------------------------

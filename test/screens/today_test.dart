@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart' show RenderParagraph;
 import 'package:flutter/semantics.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
@@ -471,6 +472,111 @@ void main() {
       }
     }
     handle.dispose();
+  });
+
+  group('the greeting shares its row with search and the avatar', () {
+    final style = buildTheme(Brightness.dark).textTheme.headlineLarge!;
+    const greeting = 'İyi akşamlar, Demo';
+
+    Future<double> fullWidth(WidgetTester tester) async {
+      final painter = TextPainter(
+        text: TextSpan(text: greeting, style: style),
+        textDirection: TextDirection.ltr,
+        maxLines: 1,
+      )..layout();
+      final width = painter.width;
+      painter.dispose();
+      return width;
+    }
+
+    Future<void> pumpGreeting(
+      WidgetTester tester, {
+      required double width,
+      double scale = 1,
+    }) async {
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: buildTheme(Brightness.dark),
+          home: MediaQuery(
+            data: MediaQueryData(textScaler: TextScaler.linear(scale)),
+            child: Center(
+              child: SizedBox(
+                width: width,
+                child: TodayGreeting(
+                  text: greeting,
+                  style: style,
+                  large: scale > 1.3,
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
+    }
+
+    double sizeOf(WidgetTester tester) =>
+        tester.widget<Text>(find.text(greeting)).style!.fontSize!;
+    int linesOf(WidgetTester tester) => tester
+        .renderObject<RenderParagraph>(
+          find.descendant(
+            of: find.text(greeting),
+            matching: find.byType(RichText),
+          ),
+        )
+        .getBoxesForSelection(
+          const TextSelection(baseOffset: 0, extentOffset: greeting.length),
+        )
+        .map((box) => box.top.round())
+        .toSet()
+        .length;
+
+    testWidgets('a little too wide: one line, set a little smaller', (
+      tester,
+    ) async {
+      final full = await fullWidth(tester);
+      await pumpGreeting(tester, width: full * 0.92);
+      expect(linesOf(tester), 1);
+      expect(sizeOf(tester), lessThan(style.fontSize!));
+      expect(
+        sizeOf(tester),
+        greaterThanOrEqualTo(style.fontSize! * TodayGreeting.minFit),
+      );
+    });
+
+    testWidgets('far too wide: full size, on two lines', (tester) async {
+      final full = await fullWidth(tester);
+      await pumpGreeting(tester, width: full * 0.7);
+      expect(sizeOf(tester), style.fontSize);
+      expect(linesOf(tester), 2);
+    });
+
+    testWidgets('at large text: never set smaller', (tester) async {
+      final full = await fullWidth(tester);
+      await pumpGreeting(tester, width: full * 1.2, scale: 1.5);
+      expect(sizeOf(tester), style.fontSize);
+      expect(linesOf(tester), greaterThan(1));
+    });
+  });
+
+  testWidgets('the header offers search, just before the avatar', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(1170, 3900);
+    tester.view.devicePixelRatio = 3.0;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    await pumpToday(tester, populatedHome(), accounts: [todayAccountJson()]);
+    final search = find.byTooltip('Ara');
+    expect(search, findsOneWidget);
+    final avatar = find.byWidgetPredicate(
+      (w) => w.runtimeType.toString() == '_Avatar',
+    );
+    expect(tester.getCenter(search).dx, lessThan(tester.getCenter(avatar).dx));
+    expect(
+      (tester.getCenter(search).dy - tester.getCenter(avatar).dy).abs(),
+      lessThan(24),
+      reason: 'on the greeting row',
+    );
   });
 
   testWidgets('a new account while the accounts and the journal load: no '

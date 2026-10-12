@@ -35,6 +35,7 @@ import 'package:meridian_mobile/models/finance_dashboard.dart';
 import 'package:meridian_mobile/models/goal.dart';
 import 'package:meridian_mobile/models/habit.dart';
 import 'package:meridian_mobile/models/journal.dart';
+import 'package:meridian_mobile/models/search_result.dart';
 import 'package:meridian_mobile/models/subscription.dart';
 import 'package:meridian_mobile/models/todo.dart';
 import 'package:meridian_mobile/models/transaction.dart';
@@ -1894,6 +1895,68 @@ void main() {
     for (final id in [spent.recordId!, earned.recordId!]) {
       await repo().deleteTransaction(id);
     }
+  });
+
+  // --- Search (WP-16) --------------------------------------------------------
+
+  test('search: worded rows by type, Turkish case, and what each opens',
+      () async {
+    // Every record of this run carries [run]: the query echoes it trimmed.
+    final found = await repo().search('  $run ');
+    expect(found.query, run);
+    final order = [for (final r in found.results) r.type.index];
+    expect(order, orderedEquals([...order]..sort()), reason: 'type order');
+    for (final type in SearchResultType.values) {
+      expect(found.results.where((r) => r.type == type).length,
+          lessThanOrEqualTo(5),
+          reason: type.wire);
+    }
+    for (final r in found.results) {
+      expect(r.title, isNotEmpty);
+      expect(r.subtitle, isNotEmpty);
+    }
+
+    // Any case by Turkish rules: "SU İÇ" finds "LT Su iç".
+    final upper = await repo().search('SU İÇ ${run.toUpperCase()}');
+    expect(
+        upper.results
+            .where((r) => r.type == SearchResultType.habit && r.id == water.id),
+        hasLength(1));
+    Future<void> finds(String query, SearchResultType type, int id) async {
+      final answer = await repo().search(query);
+      expect(answer.results.where((r) => r.type == type && r.id == id),
+          hasLength(1),
+          reason: query);
+    }
+
+    await finds(trip.name, SearchResultType.goal, trip.id);
+    await finds(bill.title, SearchResultType.todo, bill.id);
+    await finds(spotify.name, SearchResultType.subscription, spotify.id);
+    await finds('kategorisiz $run', SearchResultType.transaction, looseTx.id);
+
+    // Each row's id opens its record on the type's own endpoint (§13.1).
+    final subscriptions = await repo().fetchSubscriptions();
+    for (final r in found.results) {
+      final opened = switch (r.type) {
+        SearchResultType.transaction =>
+          (await repo().fetchTransaction(r.id)).transaction.id,
+        SearchResultType.todo => (await repo().fetchTodo(r.id)).id,
+        SearchResultType.event => (await repo().fetchEvent(r.id)).id,
+        SearchResultType.journalEntry =>
+          (await repo().fetchJournalEntry(r.id)).id,
+        SearchResultType.goal => (await repo().fetchGoal(r.id)).id,
+        SearchResultType.habit => (await repo().fetchHabit(r.id)).id,
+        SearchResultType.subscription => [
+            ...subscriptions.active,
+            ...subscriptions.inactive,
+          ].firstWhere((s) => s.id == r.id).id,
+      };
+      expect(opened, r.id, reason: '${r.type.wire} ${r.id}');
+    }
+
+    // Under two characters once trimmed: refused, never sent by the app.
+    final short = await refused(repo().search(' k '), code: 'query_too_short');
+    expect(short.kind, ApiErrorKind.validation);
   });
 
   // --- Deletes and what they leave behind -----------------------------------

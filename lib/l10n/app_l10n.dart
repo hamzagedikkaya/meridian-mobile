@@ -116,9 +116,8 @@ abstract class AppL10n {
   /// The Agenda tab's two lists until it merges them by day (WP-7).
   String get titleEvents;
 
-  /// The search page while search is not offered yet (WP-16).
+  /// The search page's name: the search icon's tooltip (WP-16).
   String get titleSearch;
-  String get searchComingSoon;
 
   /// "Ödendi" taken back: the payment and the due date could not be put back.
   String get subscriptionUndoFailed;
@@ -126,6 +125,47 @@ abstract class AppL10n {
 
   // --- Search ----------------------------------------------------------------
   // region search (WP-16)
+
+  /// The search field's hint (§7.14).
+  String get searchHint;
+
+  /// The search field's clear button.
+  String get searchClear;
+
+  /// A result group's heading, by the result `type` (contract §13.1:
+  /// `transaction`, `todo`, `event`, `journal_entry`, `goal`, `habit`,
+  /// `subscription`): "İşlemler".
+  String searchGroup(String type);
+
+  /// One result's kind, read before it by screen readers: "İşlem".
+  String searchKind(String type);
+
+  /// Nothing matches [query]: "“kahve” için sonuç yok".
+  String searchNoResults(String query);
+
+  /// The heading of the last searches, shown before anything is typed.
+  String get searchRecent;
+
+  /// Takes a search off the recent ones: its button's tooltip and the
+  /// screen-reader action of its long press.
+  String get searchRecentRemove;
+
+  /// The page before anything has been searched.
+  String get searchStartTitle;
+  String get searchStartBody;
+
+  /// The server has no global search (one from before WP-15).
+  String get searchUnavailableTitle;
+  String get searchUnavailableBody;
+
+  /// The search failed with an answer from the server.
+  String get searchFailed;
+
+  /// A result could not be opened.
+  String get searchOpenFailed;
+
+  /// A result's record was deleted after the search; its row goes.
+  String get searchResultGone;
   // endregion
 
   // --- Errors, offline, session ---------------------------------------------

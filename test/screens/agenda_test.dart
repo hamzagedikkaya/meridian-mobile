@@ -15,6 +15,7 @@ import 'package:meridian_mobile/ui/screens/agenda/agenda_days.dart';
 import 'package:meridian_mobile/ui/screens/agenda/agenda_screen.dart';
 import 'package:meridian_mobile/ui/screens/agenda/event_form.dart';
 import 'package:meridian_mobile/ui/screens/agenda/event_sheet.dart';
+import 'package:meridian_mobile/ui/screens/search/search_screen.dart';
 import 'package:meridian_mobile/ui/widgets/capture_bar.dart';
 import 'package:meridian_mobile/ui/widgets/check_pop.dart';
 import 'package:meridian_mobile/ui/widgets/primary_button.dart';
@@ -128,6 +129,20 @@ void main() {
   });
 
   group('the Agenda tab', () {
+    testWidgets('its app bar offers search, which opens the search page', (
+      tester,
+    ) async {
+      await pumpWithRoutes(tester, FakeApi(), initialLocation: '/agenda');
+      final search = find.descendant(
+        of: find.byType(AppBar),
+        matching: find.byTooltip('Ara'),
+      );
+      expect(search, findsOneWidget);
+      await tester.tap(search);
+      await tester.pumpAndSettle();
+      expect(find.byType(SearchScreen), findsOneWidget);
+    });
+
     testWidgets('adds through its capture bar, with "Etkinlik ekle" beside '
         'it — no FAB', (tester) async {
       await pumpWithRoutes(tester, FakeApi(), initialLocation: '/agenda');
