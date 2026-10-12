@@ -5,9 +5,12 @@
 /// run and refresh. Owned by WP-13.
 library;
 
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:meridian_mobile/data/providers.dart';
 import 'package:meridian_mobile/models/journal.dart';
+import 'package:meridian_mobile/ui/screens/journal/journal_detail_screen.dart';
+import 'package:meridian_mobile/ui/screens/journal/journal_editor.dart';
 import 'package:meridian_mobile/ui/screens/journal/journal_screen.dart';
 
 import 'golden_harness.dart';
@@ -28,6 +31,10 @@ const _en = <String, String>{
   'Parçalı bulutlu': 'Partly cloudy',
   'iş': 'work',
   'proje': 'project',
+  'Sahilde pazar': 'Sunday by the sea',
+  'Sabah erkenden sahile indim. Deniz durgundu, birkaç balıkçıdan başka kimse yoktu.\n\nKahvemi alıp bir saat kadar yürüdüm. Uzun zamandır bu kadar sakin hissetmemiştim.\n\nÖğleden sonra annemi aradım; haftaya bize gelecek.': 'I went down to the shore early. The sea was still, nobody around but a few fishermen.\n\nI got a coffee and walked for an hour or so. I had not felt this calm in a long time.\n\nIn the afternoon I called my mother; she is visiting next week.',
+  'Sakin bir sabah ve sıcak bir kahve.': 'A calm morning and a warm coffee.',
+  'deniz': 'sea',
 };
 
 String _fx(String tr) => fx(tr, _en);
@@ -44,15 +51,48 @@ JournalBundle _journal() => JournalBundle.fromJson({
       'meta': {
         'entries_count': 4,
         'journal_streak': 8,
+        // WP-15 (contract §13.4).
+        'journal_streak_weeks': 6,
         'mood_counts': {'great': 1, 'good': 2, 'neutral': 1, 'bad': 0, 'awful': 0},
         'range': '30d',
       },
     });
 
+/// A range with no entries — today asks "Bugün nasıldı?".
+JournalBundle _empty() => JournalBundle.fromJson({
+      'entries': const <Object>[],
+      'meta': {
+        'entries_count': 0,
+        'journal_streak': 0,
+        'journal_streak_weeks': 0,
+        'mood_counts': {'great': 0, 'good': 0, 'neutral': 0, 'bad': 0, 'awful': 0},
+        'range': '30d',
+      },
+    });
+
+/// The full entry (`GET /journal_entries/:id`): paragraphs, mood, energy,
+/// weather, gratitude and tags.
+JournalEntry _full() {
+  final body = _fx('Sabah erkenden sahile indim. Deniz durgundu, birkaç balıkçıdan başka kimse yoktu.\n\nKahvemi alıp bir saat kadar yürüdüm. Uzun zamandır bu kadar sakin hissetmemiştim.\n\nÖğleden sonra annemi aradım; haftaya bize gelecek.');
+  return JournalEntry.fromJson({
+    'id': 41, 'date': ymd(goldenNow), 'title': _fx('Sahilde pazar'),
+    'body_plain': body, 'body_text': body, 'body_html': '',
+    'body_format': 'plain', 'body_formatting': const <String>[],
+    'mood': 'good', 'mood_emoji': '🙂', 'energy_level': 4,
+    'weather': _fx('Güneşli'), 'tags': [_fx('deniz'), _fx('aile')],
+    'has_gratitude': true,
+    'gratitude': _fx('Sakin bir sabah ve sıcak bir kahve.'),
+    'created_at': '${ymd(goldenNow)}T08:10:00.000Z',
+    'updated_at': '${ymd(goldenNow)}T08:10:00.000Z',
+  });
+}
+
 void main() {
   setUpGoldens();
+  setUp(() => FlutterSecureStorage.setMockInitialValues({}));
 
-  goldenScreen('journal', (tester, _) async {
+  goldenScreen('journal', variants: GoldenVariant.withLargeText,
+      (tester, _) async {
     await tester.pumpWidget(goldenHost(
       const JournalScreen(),
       [
@@ -63,5 +103,45 @@ void main() {
     await tester.pumpAndSettle();
     // Past the longest staggered entrance (6 × 50 ms delay + 300 ms).
     await tester.pump(const Duration(milliseconds: 700));
+  });
+
+  goldenScreen('journal_empty', (tester, _) async {
+    await tester.pumpWidget(goldenHost(
+      const JournalScreen(),
+      [
+        journalProvider
+            .overrideWith((ref, range) => Fetched(_empty(), goldenNow)),
+      ],
+    ));
+    await tester.pumpAndSettle();
+    await tester.pump(const Duration(milliseconds: 700));
+  });
+
+  // An edit with the keyboard up (300 dp): the accessory bar and Save
+  // ride it.
+  goldenScreen('journal_editor', (tester, _) async {
+    tester.view.viewInsets = const FakeViewPadding(bottom: 900);
+    addTearDown(tester.view.resetViewInsets);
+    final entry = _full();
+    await tester.pumpWidget(goldenHost(
+      JournalEditorScreen(editEntry: entry),
+      [
+        journalEntryProvider
+            .overrideWith((ref, id) => Fetched(entry, goldenNow)),
+      ],
+    ));
+    await tester.pumpAndSettle();
+  });
+
+  goldenScreen('journal_detail', (tester, _) async {
+    final entry = _full();
+    await tester.pumpWidget(goldenHost(
+      const JournalDetailScreen(entryId: 41),
+      [
+        journalEntryProvider
+            .overrideWith((ref, id) => Fetched(entry, goldenNow)),
+      ],
+    ));
+    await tester.pumpAndSettle();
   });
 }

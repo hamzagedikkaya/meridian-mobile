@@ -10,13 +10,15 @@ import '../../../data/sync.dart';
 import '../../../l10n/app_l10n.dart';
 import '../../../models/journal.dart';
 import '../../../theme/app_colors.dart';
+import '../../../theme/app_metrics.dart';
+import '../../../theme/app_typography.dart';
 import '../../../ui/widgets/app_snackbar.dart';
 import '../../../ui/widgets/empty_state.dart';
 import '../../../ui/widgets/offline_banner.dart';
 import '../../../ui/widgets/skeletons.dart';
 import '../../../ui/widgets/sync_hint.dart';
 import 'journal_editor.dart';
-import 'widgets/energy_dots.dart';
+import 'widgets/energy_bars.dart';
 import 'widgets/journal_card.dart';
 import 'widgets/mood.dart';
 
@@ -104,7 +106,7 @@ class _JournalDetailScreenState extends ConsumerState<JournalDetailScreen> {
       // A retry could only answer 404 again: say what happened instead of
       // blaming the connection.
       body = EmptyState(
-        icon: Icons.delete_outline,
+        icon: Icons.delete_outline_rounded,
         title: l.journalGone,
         subtitle: l.errRecordGoneBody,
         actionLabel: l.actionBack,
@@ -115,16 +117,13 @@ class _JournalDetailScreenState extends ConsumerState<JournalDetailScreen> {
         children: [
           // A refresh failed: the entry shown may be out of date.
           if (async.refreshFailed)
-            OfflineBanner(
-              lastUpdated: async.value!.at,
-              onRetry: _retry,
-            ),
+            OfflineBanner(lastUpdated: async.value!.at, onRetry: _retry),
           Expanded(child: _DetailBody(entry: entry)),
         ],
       );
     } else if (async.hasFailed) {
       body = EmptyState(
-        icon: Icons.cloud_off,
+        icon: Icons.cloud_off_rounded,
         title: l.journalLoadFailed,
         subtitle: l.errCheckWifi,
         actionLabel: l.actionRetry,
@@ -136,7 +135,13 @@ class _JournalDetailScreenState extends ConsumerState<JournalDetailScreen> {
 
     return Scaffold(
       appBar: AppBar(
-        title: Text(l.titleJournalEntry),
+        // The page is the entry: its date is the title (§6.4).
+        title: Text(
+          entry == null
+              ? l.titleJournalEntry
+              : '${formatDate(entry.date, withYear: true)}, '
+                    '${formatWeekdayShort(entry.date)}',
+        ),
         actions: [
           if (entry != null) ...[
             IconButton(
@@ -170,26 +175,31 @@ class _JournalDetailScreenState extends ConsumerState<JournalDetailScreen> {
       ref.read(dataSyncProvider).refresh([journalEntryProvider(entryId)]);
 
   Widget _loading(BuildContext context) {
-    return NokSkeleton(
-      enabled: true,
-      child: ListView(
-        padding: const EdgeInsets.all(20),
-        children: [
-          // Bones under shimmer: shape only, no language.
-          Text('███ █████ ████',
-              style: Theme.of(context).textTheme.headlineLarge),
-          const SizedBox(height: 20),
-          Text(
-            '████ ███████ ████ ██████ ███████ ████ ████████ ██ ███ ████ '
-            '██████ ████ ██████ ████ ████ ███████ ██ █████ ██████.',
-            style: Theme.of(context).textTheme.bodyLarge,
-          ),
-        ],
+    return ListView(
+      physics: const NeverScrollableScrollPhysics(),
+      padding: const EdgeInsets.fromLTRB(
+        Insets.gutter,
+        Gap.lg,
+        Insets.gutter,
+        Gap.lg,
       ),
+      children: [
+        const Bone.text(width: 220, lineHeight: 28),
+        const SizedBox(height: Gap.lg),
+        const Bone.circle(size: 28),
+        const SizedBox(height: Gap.xl),
+        for (var i = 0; i < 6; i++)
+          const Bone.text(width: double.infinity, lineHeight: 28),
+        const Bone.text(width: 160, lineHeight: 28),
+      ],
     );
   }
 }
 
+/// The entry, for reading (design-analysis §7.12): its title, the mood,
+/// energy and weather, the body in the reading style — paragraphs as
+/// paragraphs, web formatting as formatted — then the gratitude box and
+/// the tags.
 class _DetailBody extends StatelessWidget {
   final JournalEntry entry;
   const _DetailBody({required this.entry});
@@ -198,39 +208,53 @@ class _DetailBody extends StatelessWidget {
   Widget build(BuildContext context) {
     final c = context.nok;
     final text = Theme.of(context).textTheme;
+    final reading = context.nokText.reading;
     final hasTitle = (entry.title ?? '').trim().isNotEmpty;
+    final html = entry.bodyHtml ?? '';
+    final plain = (entry.bodyText ?? entry.bodyPlain ?? '').trim();
+    final paragraphs = plain
+        .split(RegExp(r'\n\s*\n'))
+        .map((p) => p.trim())
+        .where((p) => p.isNotEmpty)
+        .toList();
 
     return ListView(
-      padding: const EdgeInsets.fromLTRB(20, 8, 20, 40),
+      padding: const EdgeInsets.fromLTRB(
+        Insets.gutter,
+        Gap.sm,
+        Insets.gutter,
+        Gap.x4,
+      ),
       children: [
-        Text(formatWeekday(entry.date),
-            style: text.labelMedium!.copyWith(color: c.inkMid)),
-        const SizedBox(height: 4),
-        Text(formatDate(entry.date, withYear: true),
-            style: text.headlineLarge),
         if (hasTitle) ...[
-          const SizedBox(height: 8),
-          Text(entry.title!, style: text.titleLarge),
+          Semantics(
+            header: true,
+            child: Text(entry.title!, style: text.headlineMedium),
+          ),
+          const SizedBox(height: Gap.md),
         ],
-        const SizedBox(height: 16),
         _moodEnergyRow(context),
-        const SizedBox(height: 20),
-        if ((entry.bodyHtml ?? '').isNotEmpty)
-          HtmlWidget(
-            entry.bodyHtml!,
-            textStyle: text.bodyLarge!.copyWith(color: c.inkHi),
-          )
-        else if ((entry.bodyPlain ?? '').isNotEmpty)
-          Text(entry.bodyPlain!, style: text.bodyLarge),
+        if (entry.weather != null) ...[
+          const SizedBox(height: Gap.sm),
+          _weatherRow(context),
+        ],
+        const SizedBox(height: Gap.xl),
+        if (html.isNotEmpty)
+          HtmlWidget(html, textStyle: reading.copyWith(color: c.inkHi))
+        else
+          for (final (i, p) in paragraphs.indexed) ...[
+            if (i > 0) const SizedBox(height: Gap.lg),
+            Text(p, style: reading),
+          ],
         if ((entry.gratitude ?? '').isNotEmpty) ...[
-          const SizedBox(height: 24),
+          const SizedBox(height: Gap.xxl),
           _gratitudeBox(context),
         ],
         if (entry.tags.isNotEmpty) ...[
-          const SizedBox(height: 24),
+          const SizedBox(height: Gap.xxl),
           Wrap(
-            spacing: 6,
-            runSpacing: 6,
+            spacing: Gap.sm,
+            runSpacing: Gap.sm,
             children: [for (final t in entry.tags) TagPill(t)],
           ),
         ],
@@ -242,67 +266,90 @@ class _DetailBody extends StatelessWidget {
     final c = context.nok;
     final text = Theme.of(context).textTheme;
     final l = context.l10n;
+    final energy = entry.energyLevel ?? 0;
     final children = <Widget>[];
     if (entry.mood != null) {
-      children.add(MoodEmoji(
-        emoji: moodEmojiFor(entry.mood, serverEmoji: entry.moodEmoji),
-        size: 28,
-      ));
-      children.add(const SizedBox(width: 8));
-      children.add(Text(
-        l.moodLabel(entry.mood!),
-        style: text.titleMedium,
-      ));
+      children.add(
+        MoodEmoji(
+          emoji: moodEmojiFor(entry.mood, serverEmoji: entry.moodEmoji),
+          size: 28,
+        ),
+      );
+      children.add(const SizedBox(width: Gap.sm));
+      children.add(Text(l.moodLabel(entry.mood!), style: text.titleMedium));
     }
-    if (entry.energyLevel != null) {
+    if (energy > 0) {
       if (children.isNotEmpty) {
-        children.add(const SizedBox(width: 16));
+        children.add(const SizedBox(width: Gap.lg));
         children.add(Container(width: 1, height: 16, color: c.divider));
-        children.add(const SizedBox(width: 16));
+        children.add(const SizedBox(width: Gap.lg));
       }
-      children.add(Text(l.journalEnergy,
-          style: text.bodySmall!.copyWith(color: c.inkMid)));
-      children.add(const SizedBox(width: 8));
-      children.add(EnergyDots(level: entry.energyLevel!, size: 8));
-    }
-    if (entry.weather != null) {
-      children.add(const Spacer());
-      children.add(Flexible(
-        child: Text(entry.weather!,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: text.bodySmall!.copyWith(color: c.inkMid)),
-      ));
+      children.add(
+        Text(l.journalEnergy, style: text.bodySmall!.copyWith(color: c.inkMid)),
+      );
+      children.add(const SizedBox(width: Gap.sm));
+      children.add(EnergyBars(level: energy));
     }
     if (children.isEmpty) return const SizedBox.shrink();
-    return Row(children: children);
+    return Wrap(
+      crossAxisAlignment: WrapCrossAlignment.center,
+      runSpacing: Gap.sm,
+      children: children,
+    );
   }
 
+  Widget _weatherRow(BuildContext context) {
+    final c = context.nok;
+    return Row(
+      children: [
+        Icon(
+          journalWeatherIcon(entry.weather, context.l10n),
+          size: 16,
+          color: c.inkMid,
+        ),
+        const SizedBox(width: Gap.sm),
+        Expanded(
+          child: Text(
+            entry.weather!,
+            style: Theme.of(
+              context,
+            ).textTheme.bodySmall!.copyWith(color: c.inkMid),
+          ),
+        ),
+      ],
+    );
+  }
+
+  /// "MİNNET": goldContainer, a 1 dp goldDim edge.
   Widget _gratitudeBox(BuildContext context) {
     final c = context.nok;
     final text = Theme.of(context).textTheme;
     return Container(
       width: double.infinity,
-      padding: const EdgeInsets.all(16),
+      padding: const EdgeInsets.all(Gap.lg),
       decoration: BoxDecoration(
         color: c.goldContainer,
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: c.goldDim.withValues(alpha: 0.4)),
+        borderRadius: Radii.lgAll,
+        border: Border.all(color: c.goldDim),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
             children: [
-              Icon(Icons.favorite, size: 14, color: c.onGoldContainer),
+              Icon(Icons.favorite_rounded, size: 14, color: c.onGoldContainer),
               const SizedBox(width: 6),
-              Text(context.l10n.journalGratitude,
-                  style: text.labelMedium!.copyWith(color: c.onGoldContainer)),
+              Text(
+                context.l10n.journalGratitude,
+                style: text.labelMedium!.copyWith(color: c.onGoldContainer),
+              ),
             ],
           ),
-          const SizedBox(height: 8),
-          Text(entry.gratitude!,
-              style: text.bodyMedium!.copyWith(color: c.onGoldContainer)),
+          const SizedBox(height: Gap.sm),
+          Text(
+            entry.gratitude!,
+            style: text.bodyLarge!.copyWith(color: c.onGoldContainer),
+          ),
         ],
       ),
     );

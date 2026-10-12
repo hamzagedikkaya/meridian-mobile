@@ -372,7 +372,7 @@ class AppL10nEn extends AppL10n {
   @override
   String get loginPassword => 'Password';
   @override
-  String get loginSubmit => 'Sign In';
+  String get loginSubmit => 'Sign in';
   @override
   String get serverAddress => 'Server address';
   @override
@@ -380,6 +380,37 @@ class AppL10nEn extends AppL10n {
   @override
   String get serverAddressUnreachable =>
       'Couldn\'t reach the server — check the address and your Wi-Fi or Tailscale connection';
+  @override
+  String get loginEmailRequired => 'Enter your email';
+  @override
+  String get loginPasswordRequired => 'Enter your password';
+  @override
+  String get loginRateLimited =>
+      'Too many attempts — wait a little and try again';
+  @override
+  String get serverAddressHint =>
+      'http://192.168.1.20:3000 or http://mac.tailnet.ts.net:3000';
+  @override
+  String get serverHelpAction => 'Where do I find the address?';
+  @override
+  String get serverHelpTitle => 'Find your server address';
+  @override
+  String get serverHelpLanTitle => 'On the same network: the local IP';
+  @override
+  String get serverHelpLanBody =>
+      'On the computer running Meridian, open the Wi-Fi details: an address '
+      'like 192.168.1.20.';
+  @override
+  String get serverHelpTailscaleTitle => 'Anywhere else: the Tailscale name';
+  @override
+  String get serverHelpTailscaleBody =>
+      'In the Tailscale app, copy the computer\'s MagicDNS name, like '
+      'mac.tailnet.ts.net. This phone needs Tailscale on too.';
+  @override
+  String get serverHelpPortTitle => 'Add the port: 3000';
+  @override
+  String get serverHelpPortBody =>
+      'Start with http:// and end with :3000 — http://192.168.1.20:3000';
   // endregion
 
   // --- Dates and relative days ----------------------------------------------
@@ -2453,6 +2484,47 @@ class AppL10nEn extends AppL10n {
         '1y' => '1y',
         _ => 'All',
       };
+  @override
+  String journalRangeLong(String range) => switch (range) {
+        '7d' => 'Last 7 days',
+        '30d' => 'Last 30 days',
+        '6mo' => 'Last 6 months',
+        '1y' => 'Last year',
+        _ => 'All',
+      };
+  @override
+  String get journalRangeTitle => 'Range';
+  @override
+  String journalStreakWeeks(int weeks) =>
+      weeks == 1 ? 'Writing for 1 week' : 'Writing for $weeks weeks';
+  @override
+  String get journalTodayOverline => 'TODAY';
+  @override
+  String get journalEmptyRange => 'No entries in this range';
+  @override
+  String get journalAllEntries => 'All entries';
+  @override
+  String journalTagFilter(String tag) => 'Tag: $tag';
+  @override
+  String get journalNoEntryForFilter => 'No entries match this filter';
+  @override
+  String get journalClearFilters => 'Clear filters';
+  @override
+  String get journalFabWrite => 'Write';
+  @override
+  String journalEnergyValue(int level) => 'Energy $level / 5';
+  @override
+  String journalDraftSavedAt(String time) => 'Draft $time';
+  @override
+  String get journalChipTags => 'Tags';
+  @override
+  String get journalChipGratitude => 'Gratitude';
+  @override
+  String get journalChipWeather => 'Weather';
+  @override
+  String journalEditorDateLabel(String date) => 'Date: $date. Change';
+  @override
+  String get journalEditorWeatherClear => 'Remove weather';
   // endregion
 
   // --- Profile and server settings ------------------------------------------
@@ -2480,7 +2552,7 @@ class AppL10nEn extends AppL10n {
   String get profileTimeZone => 'Time zone';
   @override
   String profileTimeZoneValue(String zone, String offset) =>
-      '$zone (UTC$offset)';
+      '$zone, UTC$offset';
   @override
   String profileTimeZoneDeviceDiffers(String deviceOffset) =>
       'This device is on UTC$deviceOffset. Days and times follow your '
@@ -2492,19 +2564,17 @@ class AppL10nEn extends AppL10n {
   @override
   String get profileVersion => 'Version';
   @override
-  String get profileApiStatus => 'API status';
-  @override
-  String get profileApiOnline => 'Online';
+  String get profileApiOnline => 'Connected';
   @override
   String get profileApiUnreachable => 'Unreachable';
   @override
-  String get profileSignOut => 'Sign Out';
+  String get profileSignOut => 'Sign out';
   @override
   String get profileSignOutTitle => 'Sign out?';
   @override
   String get profileSignOutBody =>
-      'This signs out every device signed in to this account: each account '
-      'has a single session key. The server address stays on this phone.';
+      'You\'re signed out on this device and your session on the server is '
+      'revoked (on every device).';
   @override
   String get profileFallbackName => 'User';
   @override
@@ -2517,7 +2587,7 @@ class AppL10nEn extends AppL10n {
   String get profileSignOutEverywhere => 'Signs out on every device';
   @override
   String get profileSignOutDraft =>
-      'Your unsaved journal draft will be deleted from this phone.';
+      'Your unsaved journal draft is deleted too.';
   @override
   String get noticeSignOutNotRevoked =>
       'Signed out on this phone, but the server couldn\'t be reached: the '
@@ -2617,7 +2687,7 @@ class AppL10nEn extends AppL10n {
   @override
   String serverVersion(String version) => 'Meridian v$version';
   @override
-  String serverLatency(int ms) => '$ms ms';
+  String serverLatency(int ms) => '$ms\u00A0ms';
   @override
   String get serverCantConnect =>
       'Couldn\'t connect — check the address and your Wi-Fi or Tailscale connection';
@@ -2632,5 +2702,26 @@ class AppL10nEn extends AppL10n {
   String get serverSaveAnyway => 'Save anyway';
   @override
   String get serverSaved => 'Server address saved';
+  @override
+  String get profileSectionData => 'Data';
+  @override
+  String get profileDataAccounts => 'Accounts';
+  @override
+  String get profileDataCategories => 'Categories';
+  @override
+  String get profileDataSubscriptions => 'Subscriptions';
+  @override
+  String get profileDataLists => 'Task lists';
+  @override
+  String get profileDataArchivedHabits => 'Archived habits';
+  @override
+  String get profileDataGoals => 'Goals';
+  @override
+  String get profileReduceMotion => 'Reduce motion';
+  @override
+  String get profileReduceMotionNote =>
+      'Transitions and numbers change instantly';
+  @override
+  String get profileServerChecking => 'Checking';
   // endregion
 }

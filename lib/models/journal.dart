@@ -90,6 +90,11 @@ class JournalBundle {
   final List<JournalEntry> entries;
   final int entriesCount;
   final int journalStreak;
+
+  /// Consecutive Monday–Sunday weeks with an entry (`meta.journal_streak_weeks`,
+  /// WP-15); null from a server without it — the meta line then falls back
+  /// to the day streak.
+  final int? journalStreakWeeks;
   final Map<String, int> moodCounts;
   final String range;
 
@@ -97,6 +102,7 @@ class JournalBundle {
     required this.entries,
     required this.entriesCount,
     required this.journalStreak,
+    this.journalStreakWeeks,
     required this.moodCounts,
     required this.range,
   });
@@ -110,6 +116,9 @@ class JournalBundle {
           .toList(),
       entriesCount: readInt(meta['entries_count']),
       journalStreak: readInt(meta['journal_streak']),
+      journalStreakWeeks: meta.containsKey('journal_streak_weeks')
+          ? readInt(meta['journal_streak_weeks'])
+          : null,
       moodCounts:
           rawMoods.map((key, value) => MapEntry('$key', readInt(value))),
       range: (meta['range'] as String?) ?? '30d',

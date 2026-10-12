@@ -80,8 +80,8 @@ class SettingsRow extends StatelessWidget {
 
     final row = LayoutBuilder(
       builder: (context, constraints) {
-        var below = valuePlacement == ValuePlacement.below ||
-            scaler.scale(1) > 1.3;
+        final large = scaler.scale(1) > 1.3;
+        var below = valuePlacement == ValuePlacement.below || large;
         if (!below && value != null && constraints.hasBoundedWidth) {
           final painter = TextPainter(
             text: TextSpan(text: value, style: valueStyle),
@@ -96,7 +96,10 @@ class SettingsRow extends StatelessWidget {
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(title, style: titleStyle, maxLines: 2),
+            // Two lines at most — except in large text, where a long word
+            // breaks over more and must not be cut (§8.3). A WP-14 seam:
+            // WP-2/WP-17 to carry it into §4.7 ("en çok 2 satır").
+            Text(title, style: titleStyle, maxLines: large ? null : 2),
             if (subtitle != null) Text(subtitle!, style: text.bodySmall),
             if (below && value != null) Text(value, style: valueStyle),
           ],

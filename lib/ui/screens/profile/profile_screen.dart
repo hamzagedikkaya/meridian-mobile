@@ -4,6 +4,7 @@ import 'package:go_router/go_router.dart';
 
 import '../../../core/formats.dart';
 import '../../../core/locale_mode.dart';
+import '../../../core/reduce_motion.dart';
 import '../../../core/session.dart';
 import '../../../core/theme_mode.dart';
 import '../../../core/turkish_case.dart';
@@ -14,15 +15,17 @@ import '../../../l10n/app_l10n.dart';
 import '../../../models/date_utils.dart';
 import '../../../models/user.dart';
 import '../../../theme/app_colors.dart';
+import '../../../theme/app_metrics.dart';
 import '../../widgets/app_snackbar.dart';
 import '../../widgets/nokturn_card.dart';
 import '../../widgets/picker_sheet.dart';
 import '../../widgets/section_header.dart';
+import '../../widgets/settings_row.dart';
 import 'profile_editors.dart';
 
 const _appVersion = '1.0.0';
 
-/// Bare health ping for the API-status row (re-pings when the URL changes).
+/// Bare health ping for the server row (re-pings when the URL changes).
 /// Public so widget tests can override it with a fixed [HealthResult] instead
 /// of hitting the network (a live ping would spin forever under pumpAndSettle).
 final apiHealthProvider = FutureProvider.autoDispose<HealthResult>((ref) async {
@@ -30,12 +33,23 @@ final apiHealthProvider = FutureProvider.autoDispose<HealthResult>((ref) async {
   return pingHealth(url);
 });
 
-/// Profile & settings — pushed from the Today avatar (design-research §5.7).
+/// Profile & settings — pushed from the Today avatar (design-analysis
+/// §7.13).
 ///
-/// A calm list of labelled values: every setting is one row — its name, what
-/// it is set to, a chevron — and tapping it opens its editor (a sheet; see
-/// `profile_editors.dart`). Pull to refresh re-reads the account (`GET /me`),
-/// which the web may have changed, and pings the server again.
+/// A calm list of labelled values in [SettingsRow]s: every setting is one
+/// row — its name, what it is set to, a chevron — and tapping it opens its
+/// editor (a sheet; see `profile_editors.dart`). Long values (the e-mail,
+/// the time zone, the server) sit under their name and are never cut.
+///
+/// * **Hesap** — name, e-mail, password, currency, time zone, weekly review.
+/// * **Uygulama** — theme, language, and "Hareketi azalt", the app's own
+///   reduce-motion switch (it applies at once, on top of the system's).
+/// * **Veri** — every management page, one row away (§6.7).
+/// * **Sunucu** — one row: the address, whether it answers, how fast.
+/// * **Hakkında**, then signing out on its own card.
+///
+/// Pull to refresh re-reads the account (`GET /me`), which the web may have
+/// changed, and pings the server again.
 class ProfileScreen extends ConsumerWidget {
   const ProfileScreen({super.key});
 
@@ -53,8 +67,6 @@ class ProfileScreen extends ConsumerWidget {
     final c = context.nok;
     final l = context.l10n;
     final user = ref.watch(currentUserProvider);
-    final host =
-        ref.watch(serverUrlProvider).replaceFirst(RegExp(r'^https?://'), '');
     final weeklyDay = user?.weeklyReviewDay;
 
     // Account rows edit what the server last said; until it has answered
@@ -68,49 +80,51 @@ class ProfileScreen extends ConsumerWidget {
         onRefresh: () => _refresh(ref),
         child: ListView(
           physics: const AlwaysScrollableScrollPhysics(),
-          padding: const EdgeInsets.fromLTRB(20, 8, 20, 40),
+          padding: const EdgeInsets.fromLTRB(
+            Insets.gutter,
+            Gap.sm,
+            Insets.gutter,
+            Gap.x4,
+          ),
           children: [
             _Header(
               user: user,
               onTap: edit((context, user) => showNameEditor(context, user: user)),
             ),
-            const SizedBox(height: 32),
+            const SizedBox(height: Gap.xxl),
             SectionHeader(l.profileSectionAccount),
-            _GroupCard(children: [
-              _SettingRow(
+            _Group([
+              SettingsRow(
                 icon: Icons.badge_outlined,
                 title: l.profileName,
                 value: user?.displayName ?? '—',
+                valuePlacement: ValuePlacement.below,
                 onTap:
                     edit((context, user) => showNameEditor(context, user: user)),
               ),
-              _divider(c),
-              _SettingRow(
-                icon: Icons.alternate_email,
+              SettingsRow(
+                icon: Icons.alternate_email_rounded,
                 title: l.profileEmail,
                 value: user?.email ?? '—',
+                valuePlacement: ValuePlacement.below,
                 onTap: edit(
                     (context, user) => showEmailEditor(context, user: user)),
               ),
-              _divider(c),
-              _SettingRow(
-                icon: Icons.lock_outline,
+              SettingsRow(
+                icon: Icons.lock_outline_rounded,
                 title: l.profilePassword,
                 value: l.profilePasswordAction,
                 onTap: () => showPasswordEditor(context),
               ),
-              _divider(c),
-              _SettingRow(
+              SettingsRow(
                 icon: Icons.payments_outlined,
                 title: l.profileCurrency,
-                value: _currencyLabel(user?.currency),
+                value: _currencyLabel(user?.currency, l),
                 onTap: edit(
                     (context, user) => showCurrencyEditor(context, user: user)),
               ),
-              _divider(c),
               _TimeZoneRow(user: user),
-              _divider(c),
-              _SettingRow(
+              SettingsRow(
                 icon: Icons.event_repeat_outlined,
                 title: l.profileWeeklyReview,
                 value: weeklyDay == null
@@ -120,42 +134,43 @@ class ProfileScreen extends ConsumerWidget {
                     showWeeklyReviewEditor(context, user: user)),
               ),
             ]),
-            const SizedBox(height: 32),
+            const SizedBox(height: Gap.xxl),
             SectionHeader(l.profileSectionApp),
-            _GroupCard(children: [
-              const _ThemeRow(),
-              _divider(c),
-              const _LanguageRow(),
+            const _Group([
+              _ThemeRow(),
+              _LanguageRow(),
+              _ReduceMotionRow(),
             ]),
-            const SizedBox(height: 32),
+            const SizedBox(height: Gap.xxl),
+            SectionHeader(l.profileSectionData),
+            _Group([
+              for (final (icon, title, location) in _dataPages(l))
+                SettingsRow(
+                  icon: icon,
+                  title: title,
+                  onTap: () => context.push(location),
+                ),
+            ]),
+            const SizedBox(height: Gap.xxl),
             SectionHeader(l.profileSectionServer),
-            _GroupCard(children: [
-              _SettingRow(
-                icon: Icons.dns_outlined,
-                title: l.serverAddressShort,
-                value: host,
-                onTap: () => context.push('/profile/server'),
-              ),
-            ]),
-            const SizedBox(height: 32),
+            const _Group([_ServerRow()]),
+            const SizedBox(height: Gap.xxl),
             SectionHeader(l.profileSectionAbout),
-            _GroupCard(children: [
-              _SettingRow(
-                icon: Icons.info_outline,
+            _Group([
+              SettingsRow(
+                icon: Icons.info_outline_rounded,
                 title: l.profileVersion,
                 value: _appVersion,
               ),
-              _divider(c),
-              const _ApiStatusRow(),
             ]),
-            const SizedBox(height: 32),
-            _GroupCard(children: [
-              _SettingRow(
-                icon: Icons.logout,
+            const SizedBox(height: Gap.x3),
+            _Group([
+              SettingsRow(
+                icon: Icons.logout_rounded,
                 iconColor: c.inkHi,
                 title: l.profileSignOut,
                 subtitle: l.profileSignOutEverywhere,
-                showChevron: false,
+                chevron: false,
                 onTap: () => showSignOutSheet(context),
               ),
             ]),
@@ -166,11 +181,38 @@ class ProfileScreen extends ConsumerWidget {
   }
 }
 
-String _currencyLabel(String? currency) =>
-    currency == null ? '—' : '$currency (${currencySymbol(currency)})';
+/// The management pages, each also reachable from its own area
+/// (design-analysis §6.7, "two homes").
+List<(IconData, String, String)> _dataPages(AppL10n l) => [
+  (Icons.account_balance_outlined, l.profileDataAccounts, '/finance/accounts'),
+  (Icons.category_outlined, l.profileDataCategories, '/finance/categories'),
+  (
+    Icons.autorenew_rounded,
+    l.profileDataSubscriptions,
+    '/finance/subscriptions',
+  ),
+  (Icons.checklist_rounded, l.profileDataLists, '/agenda/lists'),
+  (Icons.archive_outlined, l.profileDataArchivedHabits, '/habits/archived'),
+  (Icons.flag_outlined, l.profileDataGoals, '/goals'),
+];
 
-Divider _divider(NokturnColors c) =>
-    Divider(height: 1, thickness: 1, indent: 58, color: c.divider);
+/// "TRY · ₺" — the code, then its symbol when it has another one.
+String _currencyLabel(String? currency, AppL10n l) {
+  if (currency == null) return '—';
+  final symbol = currencySymbol(currency, locale: l.localeCode);
+  return symbol == currency ? currency : '$currency · $symbol';
+}
+
+/// "+3", "+5:30", "-4": a zone's offset as people say it.
+String _shortOffset(Duration offset) {
+  final minutes = offset.inMinutes.abs();
+  final sign = offset.isNegative ? '-' : '+';
+  final hours = minutes ~/ 60;
+  final rest = minutes % 60;
+  return rest == 0
+      ? '$sign$hours'
+      : '$sign$hours:${rest.toString().padLeft(2, '0')}';
+}
 
 // --- Header ------------------------------------------------------------------
 
@@ -187,61 +229,64 @@ class _Header extends StatelessWidget {
     final l = context.l10n;
     final name = user?.displayName ?? l.profileFallbackName;
     final email = user?.email ?? '';
-    return Semantics(
-      button: onTap != null,
-      hint: onTap == null ? null : l.profileEditName,
-      child: NokturnCard(
-        padding: EdgeInsets.zero,
-        child: InkWell(
-          onTap: onTap,
-          borderRadius: BorderRadius.circular(16),
-          splashColor: c.gold.withValues(alpha: 0.08),
-          child: Padding(
-            padding: const EdgeInsets.all(16),
-            child: Row(
-              children: [
-                ExcludeSemantics(
-                  child: _InitialsAvatar(initials: _initialsFor(user, name)),
-                ),
-                const SizedBox(width: 16),
-                Expanded(
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    crossAxisAlignment: CrossAxisAlignment.start,
+    final avatar = ExcludeSemantics(
+      child: _InitialsAvatar(initials: _initialsFor(user, name)),
+    );
+    final editIcon = onTap == null
+        ? null
+        : Icon(Icons.edit_outlined, size: 20, color: c.inkLow);
+    final words = Column(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(name, style: text.headlineMedium),
+        if (email.isNotEmpty) ...[
+          const SizedBox(height: Gap.xxs),
+          Text(email, style: text.bodySmall!.copyWith(color: c.inkMid)),
+        ],
+      ],
+    );
+    // In large text the name gets the card's whole width, under the avatar,
+    // so it breaks between words rather than inside them.
+    final large = MediaQuery.textScalerOf(context).scale(1) > 1.3;
+    return NokturnCard(
+      padding: const EdgeInsets.all(Gap.lg),
+      onTap: onTap,
+      child: Semantics(
+        hint: onTap == null ? null : l.profileEditName,
+        child: large
+            ? Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Row(
                     children: [
-                      Text(
-                        name,
-                        style: text.headlineMedium,
-                        maxLines: 2,
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                      if (email.isNotEmpty) ...[
-                        const SizedBox(height: 2),
-                        Text(
-                          email,
-                          style: text.bodySmall!.copyWith(color: c.inkMid),
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                      ],
+                      avatar,
+                      const Spacer(),
+                      ?editIcon,
                     ],
                   ),
-                ),
-                if (onTap != null) ...[
-                  const SizedBox(width: 8),
-                  Icon(Icons.edit_outlined, size: 20, color: c.inkLow),
+                  const SizedBox(height: Gap.md),
+                  words,
                 ],
-              ],
-            ),
-          ),
-        ),
+              )
+            : Row(
+                children: [
+                  avatar,
+                  const SizedBox(width: Gap.lg),
+                  Expanded(child: words),
+                  if (editIcon != null) ...[
+                    const SizedBox(width: Gap.sm),
+                    editIcon,
+                  ],
+                ],
+              ),
       ),
     );
   }
 
   String _initialsFor(User? user, String name) {
     final fromApi = user?.initials ?? '';
-    if (fromApi.isNotEmpty) return fromApi;
+    if (fromApi.isNotEmpty) return trUpper(fromApi);
     final words = name.trim().split(RegExp(r'\s+')).where((w) => w.isNotEmpty);
     if (words.isEmpty) return '?';
     // Turkish casing: "ilker" → "İ", not "I".
@@ -265,9 +310,18 @@ class _InitialsAvatar extends StatelessWidget {
       height: 64,
       alignment: Alignment.center,
       decoration: BoxDecoration(color: c.goldContainer, shape: BoxShape.circle),
-      child: Text(
-        initials,
-        style: text.headlineMedium!.copyWith(color: c.gold, height: 1),
+      child: FittedBox(
+        fit: BoxFit.scaleDown,
+        child: Padding(
+          padding: const EdgeInsets.all(Gap.sm),
+          child: Text(
+            initials,
+            style: text.headlineMedium!.copyWith(
+              color: c.onGoldContainer,
+              height: 1,
+            ),
+          ),
+        ),
       ),
     );
   }
@@ -275,124 +329,31 @@ class _InitialsAvatar extends StatelessWidget {
 
 // --- Rows --------------------------------------------------------------------
 
-/// A grouped surface1 card whose rows clip to the 16dp radius.
-class _GroupCard extends StatelessWidget {
+/// A section's card: [SettingsRow]s on surface1, 1 dp dividers between them.
+class _Group extends StatelessWidget {
   final List<Widget> children;
-  const _GroupCard({required this.children});
+  const _Group(this.children);
 
   @override
   Widget build(BuildContext context) {
     return NokturnCard(
-      padding: EdgeInsets.zero,
-      child: ClipRRect(
-        borderRadius: BorderRadius.circular(16),
-        child: Column(children: children),
-      ),
-    );
-  }
-}
-
-/// A settings row, at least 56dp tall (it grows with the text size): icon,
-/// title (and an optional line under it), the value on the right, and a
-/// chevron when tapping it opens an editor. Read out as one item: "Para
-/// birimi, TRY (₺), button".
-class _SettingRow extends StatelessWidget {
-  final IconData icon;
-  final Color? iconColor;
-  final String title;
-  final String? subtitle;
-  final String? value;
-  final Widget? trailing;
-  final bool showChevron;
-  final VoidCallback? onTap;
-
-  const _SettingRow({
-    required this.icon,
-    required this.title,
-    this.iconColor,
-    this.subtitle,
-    this.value,
-    this.trailing,
-    this.showChevron = true,
-    this.onTap,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final c = context.nok;
-    final text = Theme.of(context).textTheme;
-    final value = this.value;
-    final row = ConstrainedBox(
-      constraints: const BoxConstraints(minHeight: 56),
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
-        child: Row(
-          children: [
-            Icon(icon, size: 22, color: iconColor ?? c.inkMid),
-            const SizedBox(width: 16),
-            Expanded(
-              child: LayoutBuilder(
-                builder: (context, constraints) => Row(
-                  children: [
-                    // The title takes what it needs, up to 60% of the row;
-                    // the value gets the rest, so a long server address or
-                    // e-mail is cut on the right, never the label.
-                    ConstrainedBox(
-                      constraints: BoxConstraints(
-                        maxWidth: constraints.maxWidth * 0.6,
-                      ),
-                      child: Column(
-                        mainAxisSize: MainAxisSize.min,
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(title, style: text.titleMedium),
-                          if (subtitle != null)
-                            Text(
-                              subtitle!,
-                              style: text.bodySmall!.copyWith(color: c.inkMid),
-                            ),
-                        ],
-                      ),
-                    ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: Align(
-                        alignment: AlignmentDirectional.centerEnd,
-                        child:
-                            trailing ??
-                            (value == null
-                                ? const SizedBox.shrink()
-                                : _ValueText(value)),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-            if (showChevron && onTap != null) ...[
-              const SizedBox(width: 4),
-              Icon(Icons.chevron_right, size: 20, color: c.inkLow),
-            ],
+      variant: NokCardVariant.list,
+      child: Column(
+        children: [
+          for (final (i, row) in children.indexed) ...[
+            if (i > 0) SettingsRow.divider(),
+            row,
           ],
-        ),
-      ),
-    );
-    return MergeSemantics(
-      child: Semantics(
-        button: onTap != null,
-        child: InkWell(
-          onTap: onTap,
-          splashColor: c.gold.withValues(alpha: 0.08),
-          child: row,
-        ),
+        ],
       ),
     );
   }
 }
 
 /// The account's time zone — the one every day and time in the app follows
-/// (see `data/current_day.dart`) — and, when this phone is in another one,
-/// a line saying so. Tapping it opens the time-zone picker.
+/// (see `data/current_day.dart`): "Europe/Istanbul, UTC+3" under the title,
+/// and, when this phone is in another zone, a line saying so. Tapping it
+/// opens the time-zone picker.
 class _TimeZoneRow extends ConsumerWidget {
   final User? user;
   const _TimeZoneRow({required this.user});
@@ -408,46 +369,48 @@ class _TimeZoneRow extends ConsumerWidget {
         ? '—'
         : offset == null
             ? user.zoneName
-            : l.profileTimeZoneValue(user.zoneName, formatUtcOffset(offset));
+            : l.profileTimeZoneValue(user.zoneName, _shortOffset(offset));
     final mismatch = ref.watch(zoneMismatchProvider);
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        _SettingRow(
-          icon: Icons.schedule,
+        SettingsRow(
+          icon: Icons.schedule_rounded,
           title: l.profileTimeZone,
           value: value,
+          valuePlacement: ValuePlacement.below,
           onTap: user == null
               ? null
               : () => showTimeZoneEditor(context, user: user),
         ),
         if (mismatch != null)
           Padding(
-            padding: const EdgeInsets.fromLTRB(58, 0, 20, 14),
-            child: Text(
-              l.profileTimeZoneDeviceDiffers(formatUtcOffset(mismatch.device)),
-              style: text.bodySmall!.copyWith(color: c.warning),
+            // Under the title, past the icon (20 + 24 + 16).
+            padding: const EdgeInsets.fromLTRB(60, 0, Insets.rowH, 14),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Padding(
+                  padding: const EdgeInsets.only(top: 1),
+                  child: Icon(
+                    Icons.info_outline_rounded,
+                    size: 16,
+                    color: c.warning,
+                  ),
+                ),
+                const SizedBox(width: Gap.xs),
+                Expanded(
+                  child: Text(
+                    l.profileTimeZoneDeviceDiffers(
+                      formatUtcOffset(mismatch.device),
+                    ),
+                    style: text.bodySmall!.copyWith(color: c.warning),
+                  ),
+                ),
+              ],
             ),
           ),
       ],
-    );
-  }
-}
-
-class _ValueText extends StatelessWidget {
-  final String value;
-  const _ValueText(this.value);
-
-  @override
-  Widget build(BuildContext context) {
-    final c = context.nok;
-    final text = Theme.of(context).textTheme;
-    return Text(
-      value,
-      textAlign: TextAlign.end,
-      maxLines: 1,
-      overflow: TextOverflow.ellipsis,
-      style: text.bodyMedium!.copyWith(color: c.inkMid),
     );
   }
 }
@@ -491,7 +454,7 @@ class _ThemeRow extends ConsumerWidget {
     final l = context.l10n;
     final mode = ref.watch(themeModeProvider);
     final label = _options(l).firstWhere((o) => o.$1 == mode).$2;
-    return _SettingRow(
+    return SettingsRow(
       icon: Icons.brightness_6_outlined,
       title: l.profileTheme,
       value: label,
@@ -521,14 +484,9 @@ class _LanguageRow extends ConsumerWidget {
     if (picked == null || picked == now.languageCode || !context.mounted) {
       return;
     }
-    final messenger = ScaffoldMessenger.of(context);
     final saved = await ref.read(localeProvider.notifier).set(Locale(picked));
     if (!saved && context.mounted) {
-      messenger
-        ..hideCurrentSnackBar()
-        ..showSnackBar(
-          SnackBar(content: Text(context.l10n.profileLanguageSaveFailed)),
-        );
+      showAppSnack(context, context.l10n.profileLanguageSaveFailed);
     }
   }
 
@@ -536,8 +494,8 @@ class _LanguageRow extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final l = context.l10n;
     final locale = ref.watch(localeProvider);
-    return _SettingRow(
-      icon: Icons.language,
+    return SettingsRow(
+      icon: Icons.language_rounded,
       title: l.profileLanguage,
       value: locale.languageCode == 'en'
           ? l.profileLanguageEn
@@ -547,56 +505,141 @@ class _LanguageRow extends ConsumerWidget {
   }
 }
 
-class _ApiStatusRow extends ConsumerWidget {
-  const _ApiStatusRow();
+/// "Hareketi azalt": the app's own reduce-motion switch, on top of the
+/// system's "Remove animations" (design-analysis §5.9). It applies at once
+/// — `MeridianApp` folds it into `MediaQuery.disableAnimations` — and stays
+/// on this device.
+class _ReduceMotionRow extends ConsumerWidget {
+  const _ReduceMotionRow();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final l = context.l10n;
+    final on = ref.watch(reduceMotionProvider);
+    void set(bool value) => ref.read(reduceMotionProvider.notifier).set(value);
+    return SettingsRow(
+      icon: Icons.motion_photos_off_outlined,
+      title: l.profileReduceMotion,
+      subtitle: l.profileReduceMotionNote,
+      trailing: Switch(value: on, onChanged: set),
+      onTap: () => set(!on),
+    );
+  }
+}
+
+/// The server, in one row (design-analysis §7.13): its address under the
+/// title, then a dot — income when it answers, error when not — the word
+/// for it and the round trip: "192.168.1.24:3000 · ● Bağlı · 38 ms". Opens
+/// the server settings.
+class _ServerRow extends ConsumerWidget {
+  const _ServerRow();
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final c = context.nok;
     final text = Theme.of(context).textTheme;
     final l = context.l10n;
+    final host =
+        ref.watch(serverUrlProvider).replaceFirst(RegExp(r'^https?://'), '');
     final health = ref.watch(apiHealthProvider);
-
-    Widget status(Color color, String label) => Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Container(
-              width: 8,
-              height: 8,
-              decoration: BoxDecoration(color: color, shape: BoxShape.circle),
-            ),
-            const SizedBox(width: 8),
-            Flexible(
-              child: Text(
-                label,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: text.bodyMedium!.copyWith(color: color),
+    // The last answer stays up while a new ping is out.
+    final last = health.value;
+    final (Color dot, String status, int? latency) = last != null
+        ? last.ok
+            ? (c.income, l.profileApiOnline, last.latencyMs)
+            : (c.error, l.profileApiUnreachable, null)
+        : health.hasError
+            ? (c.error, l.profileApiUnreachable, null)
+            : (c.inkDisabled, l.profileServerChecking, null);
+    final valueStyle = text.bodyMedium!.copyWith(color: c.inkMid);
+    final large = MediaQuery.textScalerOf(context).scale(1) > 1.3;
+    final value = Text.rich(
+      TextSpan(
+        style: valueStyle,
+        children: [
+          TextSpan(text: '$host · '),
+          WidgetSpan(
+            alignment: PlaceholderAlignment.middle,
+            child: ExcludeSemantics(
+              child: Container(
+                width: 8,
+                height: 8,
+                margin: const EdgeInsets.only(right: Gap.xs),
+                decoration: BoxDecoration(color: dot, shape: BoxShape.circle),
               ),
             ),
-          ],
-        );
-
-    final trailing = health.when(
-      loading: () => const SizedBox(
-        width: 16,
-        height: 16,
-        child: CircularProgressIndicator(strokeWidth: 2),
+          ),
+          TextSpan(text: status),
+          // No-break spaces around the second dot: "Bağlı · 38 ms" wraps
+          // as one piece, never starting a line with "· 38 ms".
+          if (latency != null)
+            TextSpan(text: '\u00A0·\u00A0${l.serverLatency(latency)}'),
+        ],
       ),
-      error: (_, _) => status(c.error, l.profileApiUnreachable),
-      data: (r) => r.ok
-          ? status(c.income, l.profileApiOnline)
-          : status(c.error, l.profileApiUnreachable),
     );
 
-    return _SettingRow(
-      icon: Icons.cloud_outlined,
-      title: l.profileApiStatus,
-      trailing: trailing,
-      showChevron: false,
-      // The ping runs once per visit; a tap checks again (e.g. once the Mac
-      // is awake), keeping the last answer up meanwhile.
-      onTap: () => ref.invalidate(apiHealthProvider),
+    final words = Column(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          l.serverAddressShort,
+          style: text.titleMedium,
+          maxLines: large ? null : 2,
+        ),
+        value,
+      ],
+    );
+    final icon = SizedBox(
+      width: 24,
+      child: Icon(Icons.dns_outlined, size: 22, color: c.inkMid),
+    );
+    final chevron =
+        Icon(Icons.chevron_right_rounded, size: 20, color: c.inkLow);
+
+    return MergeSemantics(
+      child: Semantics(
+        button: true,
+        child: InkWell(
+          onTap: () => context.push('/profile/server'),
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(minHeight: 64),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(
+                horizontal: Insets.rowH,
+                vertical: Insets.rowV,
+              ),
+              // In large text the words get the row's whole width, under
+              // the icon and the chevron, so the address does not break
+              // a few letters at a time.
+              child: large
+                  ? Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        Row(
+                          children: [
+                            icon,
+                            const Spacer(),
+                            chevron,
+                          ],
+                        ),
+                        const SizedBox(height: Gap.xs),
+                        words,
+                      ],
+                    )
+                  : Row(
+                      children: [
+                        icon,
+                        const SizedBox(width: Gap.lg),
+                        Expanded(child: words),
+                        const SizedBox(width: Gap.xs),
+                        chevron,
+                      ],
+                    ),
+            ),
+          ),
+        ),
+      ),
     );
   }
 }

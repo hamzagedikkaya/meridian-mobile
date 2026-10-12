@@ -14,12 +14,18 @@ import '../../../l10n/app_l10n.dart';
 import '../../../models/date_utils.dart';
 import '../../../models/journal.dart';
 import '../../../theme/app_colors.dart';
+import '../../../theme/app_metrics.dart';
+import '../../../theme/app_motion.dart';
+import '../../../theme/app_typography.dart';
 import '../../../ui/widgets/app_snackbar.dart';
 import '../../../ui/widgets/confirm_dialog.dart';
+import '../../../ui/widgets/nok_chip.dart';
 import '../../../ui/widgets/picker_sheet.dart';
+import '../../../ui/widgets/primary_button.dart';
+import '../../../ui/widgets/skeletons.dart';
 import '../../../ui/widgets/slide_up_route.dart';
 import '../../../ui/widgets/sync_hint.dart';
-import 'widgets/energy_dots.dart';
+import 'widgets/energy_bars.dart';
 import 'widgets/mood.dart';
 
 /// Weather is free text on the server (the web app has a plain input), so the
@@ -28,11 +34,13 @@ const _weatherOptions = <(String, IconData)>[
   ('sunny', Icons.wb_sunny_outlined),
   ('partly_cloudy', Icons.wb_cloudy_outlined),
   ('cloudy', Icons.cloud_outlined),
-  ('rainy', Icons.grain),
-  ('snowy', Icons.ac_unit),
+  ('rainy', Icons.water_drop_outlined),
+  ('snowy', Icons.ac_unit_rounded),
 ];
 
-IconData _weatherIcon(String? weather, AppL10n l) {
+/// The icon of a weather label picked in the editor; a cloud for any other
+/// text (typed on the web).
+IconData journalWeatherIcon(String? weather, AppL10n l) {
   for (final (key, icon) in _weatherOptions) {
     if (l.weatherLabel(key) == weather) return icon;
   }
@@ -75,6 +83,13 @@ const journalDraftInterval = Duration(seconds: 5);
 ///   changed elsewhere since;
 /// * an entry deleted elsewhere while it is being edited keeps the editor
 ///   and its text, which can be saved as a new entry.
+///
+/// Its layout (design-analysis §7.12): the date chip as the title and a
+/// quiet "Taslak 12:41" stamp; the title, an inline five-mood strip that
+/// folds into a chip once picked, the body in the reading style; and the
+/// accessory bar — Ruh hali · Enerji · Etiket · Minnet · Hava and "Kaydet"
+/// — at the bottom of the body, so it rides the keyboard. X and the back
+/// gesture keep the draft and close; they never ask and never throw away.
 class JournalEditorScreen extends ConsumerStatefulWidget {
   final JournalEntry? editEntry;
 
@@ -93,6 +108,15 @@ class _JournalEditorScreenState extends ConsumerState<JournalEditorScreen> {
   final _gratitudeCtrl = TextEditingController();
   final _tagsCtrl = TextEditingController();
   final _bodyFocus = FocusNode();
+  final _tagsFocus = FocusNode();
+  final _gratitudeFocus = FocusNode();
+
+  /// The optional sections, scrolled into view when the accessory bar
+  /// reveals them.
+  final _moodKey = GlobalKey();
+  final _energyKey = GlobalKey();
+  final _tagsKey = GlobalKey();
+  final _gratitudeKey = GlobalKey();
 
   late DateTime _date;
   String? _mood;
@@ -100,8 +124,17 @@ class _JournalEditorScreenState extends ConsumerState<JournalEditorScreen> {
   int _energy = 0;
   bool _gratitudeOn = false;
   bool _tagsOn = false;
-  bool _showMoodOverlay = false;
+  bool _energyOn = false;
+
+  /// The five-mood strip is open (it folds into a chip once a mood is
+  /// picked, or skipped).
+  bool _moodOpen = false;
+  Timer? _foldTimer;
   bool _saving = false;
+
+  /// When what is typed was last put aside as a draft — the app bar stamp.
+  DateTime? _draftSavedAt;
+  String? _lastDraft;
 
   /// Saved: nothing is put aside as a draft any more.
   bool _saved = false;
@@ -179,6 +212,7 @@ class _JournalEditorScreenState extends ConsumerState<JournalEditorScreen> {
     _gratitudeOn = (e.gratitude ?? '').isNotEmpty;
     _tagsCtrl.text = e.tags.join(', ');
     _tagsOn = e.tags.isNotEmpty;
+    _energyOn = _energy > 0;
   }
 
   Future<void> _loadFull(int id) async {
@@ -201,15 +235,18 @@ class _JournalEditorScreenState extends ConsumerState<JournalEditorScreen> {
     _baseline = jsonEncode(_snapshot());
     _restoreDraft().then((_) {
       if (!mounted) return;
-      // The mood step only for a fresh new entry without a mood — decided
-      // once the draft is in, so it never pops over restored text.
-      setState(() =>
-          _showMoodOverlay = showMood && _mood == null && !_draftRestored);
+      setState(() {
+        // A mood picked on the way in wins over a draft's.
+        final picked = widget.initialMood;
+        if (picked != null && !_isEditing) _mood = picked;
+        // The mood strip opens only for a fresh new entry without a mood —
+        // decided once the draft is in.
+        _moodOpen = showMood && _mood == null && !_draftRestored;
+      });
       // A new entry is for writing: the keyboard comes up. An edit opens
       // at the top, reading, with no keyboard over it.
-      if (!_isEditing && !_showMoodOverlay) _focusBody();
-      _draftTimer ??=
-          Timer.periodic(journalDraftInterval, (_) => _saveDraft());
+      if (!_isEditing) _focusBody();
+      _draftTimer ??= Timer.periodic(journalDraftInterval, (_) => _saveDraft());
     });
   }
 
@@ -222,6 +259,7 @@ class _JournalEditorScreenState extends ConsumerState<JournalEditorScreen> {
   @override
   void dispose() {
     _draftTimer?.cancel();
+    _foldTimer?.cancel();
     // Closing the editor keeps what was typed (it never asks): the draft
     // brings it back next time. Also while a save is on its way: should it
     // fail, nothing is lost; should it succeed, it clears the draft after.
@@ -232,19 +270,21 @@ class _JournalEditorScreenState extends ConsumerState<JournalEditorScreen> {
     _gratitudeCtrl.dispose();
     _tagsCtrl.dispose();
     _bodyFocus.dispose();
+    _tagsFocus.dispose();
+    _gratitudeFocus.dispose();
     super.dispose();
   }
 
   Map<String, Object?> _snapshot() => {
-        'date': isoDate(_date),
-        'title': _titleCtrl.text,
-        'body': _bodyCtrl.text,
-        'mood': _mood,
-        'weather': _weather,
-        'energy': _energy,
-        'gratitude': _gratitudeCtrl.text,
-        'tags': _tagsCtrl.text,
-      };
+    'date': isoDate(_date),
+    'title': _titleCtrl.text,
+    'body': _bodyCtrl.text,
+    'mood': _mood,
+    'weather': _weather,
+    'energy': _energy,
+    'gratitude': _gratitudeCtrl.text,
+    'tags': _tagsCtrl.text,
+  };
 
   /// Brings back a draft: only the fields changed in it (from what the
   /// draft started from), so a field edited elsewhere since — and not
@@ -274,7 +314,8 @@ class _JournalEditorScreenState extends ConsumerState<JournalEditorScreen> {
       if (jsonEncode(merged) == _baseline) return;
       final savedAt = DateTime.tryParse('${stored['updated_at']}');
       final updatedAt = _entry?.updatedAt;
-      final stale = savedAt != null &&
+      final stale =
+          savedAt != null &&
           updatedAt != null &&
           !updatedAt.isAtSameMomentAs(savedAt);
       setState(() {
@@ -288,6 +329,7 @@ class _JournalEditorScreenState extends ConsumerState<JournalEditorScreen> {
         _gratitudeOn = _gratitudeCtrl.text.isNotEmpty;
         _tagsCtrl.text = '${merged['tags']}';
         _tagsOn = _tagsCtrl.text.isNotEmpty;
+        _energyOn = _energy > 0;
         _draftRestored = true;
         _draftStale = stale;
       });
@@ -298,15 +340,15 @@ class _JournalEditorScreenState extends ConsumerState<JournalEditorScreen> {
 
   /// A stored draft in the shape of [_snapshot], to compare with it.
   static Map<String, Object?> _snapshotOf(Map<String, dynamic> d) => {
-        'date': '${d['date']}',
-        'title': '${d['title'] ?? ''}',
-        'body': '${d['body'] ?? ''}',
-        'mood': d['mood'],
-        'weather': d['weather'],
-        'energy': (d['energy'] as num?)?.toInt() ?? 0,
-        'gratitude': '${d['gratitude'] ?? ''}',
-        'tags': '${d['tags'] ?? ''}',
-      };
+    'date': '${d['date']}',
+    'title': '${d['title'] ?? ''}',
+    'body': '${d['body'] ?? ''}',
+    'mood': d['mood'],
+    'weather': d['weather'],
+    'energy': (d['energy'] as num?)?.toInt() ?? 0,
+    'gratitude': '${d['gratitude'] ?? ''}',
+    'tags': '${d['tags'] ?? ''}',
+  };
 
   /// Puts what is typed aside — or, when it is what the editor opened with,
   /// drops any draft. Never once saved, nor on a tick while saving: that
@@ -322,6 +364,11 @@ class _JournalEditorScreenState extends ConsumerState<JournalEditorScreen> {
     // With what it started from and the entry's version, so a later
     // restore brings back only what was changed, and knows when the entry
     // moved on meanwhile.
+    // The quiet stamp moves only when the text did.
+    if (now != baseline && now != _lastDraft && !closing && mounted) {
+      setState(() => _draftSavedAt = DateTime.now());
+    }
+    _lastDraft = now;
     final write = now == baseline
         ? _drafts.clear(entryId: key)
         : _drafts.write(
@@ -353,12 +400,12 @@ class _JournalEditorScreenState extends ConsumerState<JournalEditorScreen> {
         _gratitudeOn = false;
         _tagsCtrl.clear();
         _tagsOn = false;
+        _energyOn = false;
       }
       _draftRestored = false;
       _draftStale = false;
     });
-    unawaited(
-        _drafts.clear(entryId: _draftKey).catchError((Object _) {}));
+    unawaited(_drafts.clear(entryId: _draftKey).catchError((Object _) {}));
   }
 
   /// The entry was deleted elsewhere (a 404, or a refresh found it gone):
@@ -367,7 +414,7 @@ class _JournalEditorScreenState extends ConsumerState<JournalEditorScreen> {
   /// bring back a draft of an entry that is gone.
   void _markGone() {
     if (_gone || _saved || !mounted || widget.editEntry == null) return;
-    Haptics.danger();
+    Haptics.reject();
     setState(() {
       _gone = true;
       _saving = false;
@@ -440,46 +487,71 @@ class _JournalEditorScreenState extends ConsumerState<JournalEditorScreen> {
     if (picked != null) setState(() => _weather = picked);
   }
 
-  /// The mood, changed or cleared at any time (the first step only asks
-  /// once).
-  Future<void> _pickMood() async {
-    final l = context.l10n;
-    final text = Theme.of(context).textTheme;
-    const clear = '';
-    final picked = await showModalBottomSheet<String>(
-      context: context,
-      barrierColor: const Color(0xFF171310).withValues(alpha: 0.6),
-      builder: (sheet) => SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(12, 0, 12, 16),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Text(l.journalEditorMoodPrompt, style: text.titleLarge),
-              const SizedBox(height: 20),
-              FittedBox(
-                fit: BoxFit.scaleDown,
-                child: MoodPicker(
-                  selected: _mood,
-                  size: 44,
-                  onSelected: (m) => Navigator.of(sheet).pop(m),
-                ),
-              ),
-              if (_mood != null) ...[
-                const SizedBox(height: 12),
-                TextButton(
-                  onPressed: () => Navigator.of(sheet).pop(clear),
-                  style: TextButton.styleFrom(minimumSize: const Size(48, 48)),
-                  child: Text(l.journalEditorMoodClear),
-                ),
-              ],
-            ],
-          ),
-        ),
-      ),
-    );
-    if (picked == null || !mounted) return;
-    setState(() => _mood = picked == clear ? null : picked);
+  /// A mood from the strip: it grows, then the strip folds into a chip.
+  void _selectMood(String mood) {
+    _foldTimer?.cancel();
+    setState(() => _mood = mood);
+    _foldTimer = Timer(Motion.orInstant(context, Motion.quick), () {
+      if (mounted) setState(() => _moodOpen = false);
+    });
+  }
+
+  void _clearMood() {
+    Haptics.tick();
+    _foldTimer?.cancel();
+    setState(() => _mood = null);
+  }
+
+  void _toggleMoodStrip() {
+    _foldTimer?.cancel();
+    setState(() => _moodOpen = !_moodOpen);
+    if (_moodOpen) _reveal(_moodKey);
+  }
+
+  /// The accessory bar's Enerji: shows the picker, or — once a level is
+  /// set, when the picker stays — brings it into view.
+  void _onEnergy() {
+    if (_energy > 0) {
+      _reveal(_energyKey);
+      return;
+    }
+    setState(() => _energyOn = !_energyOn);
+    if (_energyOn) _reveal(_energyKey);
+  }
+
+  void _onTags() {
+    setState(() => _tagsOn = !_tagsOn);
+    if (_tagsOn) _reveal(_tagsKey, focus: _tagsFocus);
+  }
+
+  void _onGratitude() {
+    setState(() => _gratitudeOn = !_gratitudeOn);
+    if (_gratitudeOn) _reveal(_gratitudeKey, focus: _gratitudeFocus);
+  }
+
+  /// Once the section under [key] is built, scrolls it into view — down to
+  /// it, or up to it, only as far as needed; a jump under reduced motion —
+  /// and puts the cursor in its field ([focus]).
+  void _reveal(GlobalKey key, {FocusNode? focus}) {
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      final target = key.currentContext;
+      if (!mounted || target == null) return;
+      focus?.requestFocus();
+      final duration = Motion.orInstant(context, Motion.standard);
+      await Scrollable.ensureVisible(
+        target,
+        duration: duration,
+        curve: Motion.enter,
+        alignmentPolicy: ScrollPositionAlignmentPolicy.keepVisibleAtEnd,
+      );
+      if (!mounted || !target.mounted) return;
+      await Scrollable.ensureVisible(
+        target,
+        duration: duration,
+        curve: Motion.enter,
+        alignmentPolicy: ScrollPositionAlignmentPolicy.keepVisibleAtStart,
+      );
+    });
   }
 
   /// The kinds of web formatting ([kinds], `body_formatting` values) in
@@ -492,12 +564,12 @@ class _JournalEditorScreenState extends ConsumerState<JournalEditorScreen> {
   }
 
   Future<bool> _confirmDropFormatting(List<String> kinds) => showConfirmDialog(
-        context,
-        title: context.l10n.journalRichConfirmTitle,
-        message: context.l10n.journalRichConfirmBody(_formattingOf(kinds)),
-        confirmLabel: context.l10n.journalRichConfirmAction,
-        destructive: true,
-      );
+    context,
+    title: context.l10n.journalRichConfirmTitle,
+    message: context.l10n.journalRichConfirmBody(_formattingOf(kinds)),
+    confirmLabel: context.l10n.journalRichConfirmAction,
+    destructive: true,
+  );
 
   Future<void> _save() async {
     if (_saving) return;
@@ -545,8 +617,11 @@ class _JournalEditorScreenState extends ConsumerState<JournalEditorScreen> {
       if (before == null) {
         await repo.createJournalEntry(input);
       } else {
-        await repo.updateJournalEntry(before, input,
-            discardFormatting: discard);
+        await repo.updateJournalEntry(
+          before,
+          input,
+          discardFormatting: discard,
+        );
       }
       await _finish(changed: true);
     } on ApiException catch (e) {
@@ -561,8 +636,7 @@ class _JournalEditorScreenState extends ConsumerState<JournalEditorScreen> {
         if (!await _confirmDropFormatting(kinds) || !mounted) return;
         setState(() => _saving = true);
         try {
-          await repo.updateJournalEntry(before, input,
-              discardFormatting: true);
+          await repo.updateJournalEntry(before, input, discardFormatting: true);
           await _finish(changed: true);
         } on ApiException catch (e) {
           if (e.kind == ApiErrorKind.notFound) return _markGone();
@@ -594,7 +668,7 @@ class _JournalEditorScreenState extends ConsumerState<JournalEditorScreen> {
     if (!mounted) return;
     final l = context.l10n;
     if (changed) {
-      Haptics.success();
+      Haptics.confirm();
       showAppSnack(context, _isEditing ? l.journalUpdated : l.journalAdded);
     }
     Navigator.of(context).pop(changed);
@@ -615,10 +689,7 @@ class _JournalEditorScreenState extends ConsumerState<JournalEditorScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final c = context.nok;
-    final text = Theme.of(context).textTheme;
     final l = context.l10n;
-    final entry = _entry;
     final editId = widget.editEntry?.id;
     // Deleted on the web or another device while being edited.
     if (editId != null) {
@@ -626,134 +697,314 @@ class _JournalEditorScreenState extends ConsumerState<JournalEditorScreen> {
         if (next.isGone && !_loadingFull) _markGone();
       });
     }
-    return Scaffold(
-      appBar: AppBar(
-        titleTextStyle: text.titleLarge,
-        leading: IconButton(
-          icon: const Icon(Icons.close),
-          tooltip: MaterialLocalizations.of(context).closeButtonTooltip,
-          onPressed: () => Navigator.of(context).pop(),
+    return PopScope(
+      // Never blocks the back gesture: what is typed is put aside first.
+      onPopInvokedWithResult: (didPop, _) {
+        if (didPop) _saveDraft(closing: true);
+      },
+      child: Scaffold(
+        appBar: AppBar(
+          leading: IconButton(
+            icon: const Icon(Icons.close_rounded),
+            tooltip: MaterialLocalizations.of(context).closeButtonTooltip,
+            onPressed: () => Navigator.of(context).pop(),
+          ),
+          titleSpacing: 0,
+          title: _dateChip(context),
+          actions: [_draftStamp(context)],
         ),
-        title: Text(_isEditing ? l.journalEditorEditTitle : l.journalEditorNewTitle),
-        actions: [
-          _saving
-              ? Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 20),
-                  child: SizedBox(
-                    width: 20,
-                    height: 20,
-                    child: CircularProgressIndicator(
-                        strokeWidth: 2, color: c.gold),
+        // The accessory bar is the body's last child, not the scaffold's
+        // bottom bar: the body shrinks above the keyboard, so Save rides it.
+        body: _loadingFull
+            ? _loadingView(context)
+            : Column(
+                children: [
+                  Expanded(child: _fields(context)),
+                  _AccessoryBar(
+                    mood: _mood != null || _moodOpen,
+                    energy: _energy > 0 || _energyOn,
+                    tags: _tagsCtrl.text.trim().isNotEmpty || _tagsOn,
+                    gratitude: _gratitudeOn,
+                    weatherSet: _weather != null,
+                    weatherIcon: journalWeatherIcon(_weather, l),
+                    saving: _saving,
+                    onMood: _toggleMoodStrip,
+                    onEnergy: _onEnergy,
+                    onTags: _onTags,
+                    onGratitude: _onGratitude,
+                    onWeather: _pickWeather,
+                    onSave: _save,
                   ),
-                )
-              : TextButton(
-                  onPressed: _loadingFull ? null : _save,
-                  child: Text(l.actionSave),
-                ),
+                ],
+              ),
+      ),
+    );
+  }
+
+  Widget _loadingView(BuildContext context) {
+    final error = _loadError;
+    if (error != null) {
+      final l = context.l10n;
+      return Center(
+        child: Padding(
+          padding: const EdgeInsets.all(Gap.x3),
+          child: Text(
+            failureMessage(error, l, fallback: l.journalLoadFailed),
+            textAlign: TextAlign.center,
+          ),
+        ),
+      );
+    }
+    // The whole body is on its way (GET /journal_entries/:id).
+    return ListView(
+      physics: const NeverScrollableScrollPhysics(),
+      padding: const EdgeInsets.fromLTRB(
+        Insets.formH,
+        Gap.lg,
+        Insets.formH,
+        Gap.lg,
+      ),
+      children: [
+        const Bone.text(width: 200, lineHeight: 28),
+        const SizedBox(height: Gap.xxl),
+        for (var i = 0; i < 6; i++)
+          const Bone.text(width: double.infinity, lineHeight: 28),
+        const Bone.text(width: 180, lineHeight: 28),
+      ],
+    );
+  }
+
+  Widget _fields(BuildContext context) {
+    final c = context.nok;
+    final text = Theme.of(context).textTheme;
+    final l = context.l10n;
+    final entry = _entry;
+    const bare = InputDecoration(
+      filled: false,
+      border: InputBorder.none,
+      enabledBorder: InputBorder.none,
+      focusedBorder: InputBorder.none,
+      contentPadding: EdgeInsets.zero,
+    );
+    // Not lazy: the sections after a long body are built, so the
+    // accessory bar can scroll them into view.
+    return SingleChildScrollView(
+      keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.manual,
+      padding: const EdgeInsets.fromLTRB(
+        Insets.formH,
+        Gap.sm,
+        Insets.formH,
+        Gap.x3,
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          if (_gone) _goneBanner(context),
+          if (_draftRestored) _draftBanner(context),
+          if (entry != null && entry.isRich) _richNotice(context, entry),
+          TextField(
+            controller: _titleCtrl,
+            style: text.headlineMedium,
+            textCapitalization: TextCapitalization.sentences,
+            textInputAction: TextInputAction.next,
+            onSubmitted: (_) => _bodyFocus.requestFocus(),
+            decoration: bare.copyWith(
+              hintText: l.journalEditorTitleHint,
+              hintStyle: text.headlineMedium!.copyWith(color: c.inkLow),
+            ),
+          ),
+          AnimatedSize(
+            key: _moodKey,
+            duration: Motion.orInstant(context, Motion.quick),
+            curve: Motion.enter,
+            alignment: Alignment.topCenter,
+            child: _moodSection(context),
+          ),
+          if (_weather != null) _weatherChip(context),
+          const SizedBox(height: Gap.sm),
+          TextField(
+            controller: _bodyCtrl,
+            focusNode: _bodyFocus,
+            style: context.nokText.reading,
+            minLines: 8,
+            maxLines: null,
+            keyboardType: TextInputType.multiline,
+            textCapitalization: TextCapitalization.sentences,
+            decoration: bare.copyWith(
+              hintText: l.journalEditorBodyHint,
+              hintStyle: context.nokText.reading.copyWith(color: c.inkLow),
+            ),
+          ),
+          if (_energyOn || _energy > 0)
+            _section(_energyKey, [
+              const SizedBox(height: Gap.lg),
+              _overline(context, l.journalEnergy),
+              EnergyBars(
+                level: _energy,
+                scale: 1.6,
+                onChanged: (v) => setState(() => _energy = v),
+              ),
+            ]),
+          if (_tagsOn)
+            _section(_tagsKey, [
+              const SizedBox(height: Gap.lg),
+              _overline(context, l.journalEditorTags),
+              const SizedBox(height: Gap.sm),
+              TextField(
+                controller: _tagsCtrl,
+                focusNode: _tagsFocus,
+                style: text.bodyLarge,
+                onChanged: (_) => setState(() {}),
+                decoration: InputDecoration(hintText: l.journalEditorTagsHint),
+              ),
+            ]),
+          if (_gratitudeOn)
+            _section(_gratitudeKey, [
+              const SizedBox(height: Gap.lg),
+              _gratitudeBox(context),
+            ]),
         ],
       ),
-      bottomNavigationBar: _loadingFull
-          ? null
-          : _AccessoryBar(
-              gratitudeOn: _gratitudeOn,
-              tagsOn: _tagsCtrl.text.trim().isNotEmpty || _tagsOn,
-              weatherSet: _weather != null,
-              weatherIcon: _weatherIcon(_weather, l),
-              energy: _energy,
-              onGratitude: () => setState(() => _gratitudeOn = !_gratitudeOn),
-              onTags: () => setState(() => _tagsOn = !_tagsOn),
-              onWeather: _pickWeather,
-              onEnergy: (v) => setState(() => _energy = v),
+    );
+  }
+
+  /// An optional section under [key], for [_reveal].
+  Widget _section(GlobalKey key, List<Widget> children) => Column(
+    key: key,
+    crossAxisAlignment: CrossAxisAlignment.stretch,
+    children: children,
+  );
+
+  /// The inline mood strip, or — once a mood is picked — the chip it folds
+  /// into (a tap opens the strip again).
+  Widget _moodSection(BuildContext context) {
+    final c = context.nok;
+    final text = Theme.of(context).textTheme;
+    final l = context.l10n;
+    final mood = _mood;
+    if (_moodOpen) {
+      return Padding(
+        key: const ValueKey('mood-strip'),
+        padding: const EdgeInsets.only(top: Gap.md),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              l.journalEditorMoodPrompt,
+              style: text.bodyMedium!.copyWith(color: c.inkMid),
             ),
-      body: _loadingFull
-          ? Center(
-              child: _loadError == null
-                  ? CircularProgressIndicator(color: c.gold)
-                  : Padding(
-                      padding: const EdgeInsets.all(32),
-                      child: Text(
-                        failureMessage(_loadError!, l,
-                            fallback: l.journalLoadFailed),
-                        textAlign: TextAlign.center,
-                      ),
+            const SizedBox(height: Gap.sm),
+            MoodStrip(selected: mood, onSelected: _selectMood),
+            Align(
+              alignment: Alignment.centerRight,
+              child: mood == null
+                  ? TextButton(
+                      onPressed: () => setState(() => _moodOpen = false),
+                      child: Text(l.labelSkip),
+                    )
+                  : TextButton(
+                      onPressed: _clearMood,
+                      child: Text(l.journalEditorMoodClear),
                     ),
-            )
-          : Stack(
-        children: [
-          ListView(
-            padding: const EdgeInsets.fromLTRB(20, 12, 20, 32),
-            children: [
-              if (_gone) _goneBanner(context),
-              if (_draftRestored) _draftBanner(context),
-              if (entry != null && entry.isRich) _richNotice(context, entry),
-              _dateRow(context),
-              _moodRow(context),
-              const SizedBox(height: 8),
-              TextField(
-                controller: _titleCtrl,
-                style: text.titleLarge,
-                textCapitalization: TextCapitalization.sentences,
-                textInputAction: TextInputAction.next,
-                onSubmitted: (_) => _bodyFocus.requestFocus(),
-                decoration: InputDecoration(
-                  hintText: l.journalEditorTitleHint,
-                  filled: false,
-                  border: InputBorder.none,
-                  enabledBorder: InputBorder.none,
-                  focusedBorder: InputBorder.none,
-                  contentPadding: EdgeInsets.zero,
+            ),
+          ],
+        ),
+      );
+    }
+    if (mood == null) {
+      return const SizedBox(key: ValueKey('mood-none'), width: double.infinity);
+    }
+    return Padding(
+      key: const ValueKey('mood-chip'),
+      padding: const EdgeInsets.only(top: Gap.xs),
+      child: Align(
+        alignment: Alignment.centerLeft,
+        child: Semantics(
+          button: true,
+          label: '${l.journalEditorMood}: ${l.moodLabel(mood)}',
+          onTap: _toggleMoodStrip,
+          excludeSemantics: true,
+          child: InkWell(
+            onTap: _toggleMoodStrip,
+            customBorder: const StadiumBorder(),
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(minHeight: Hit.min),
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: Gap.xs),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    MoodEmoji(emoji: moodEmojiFor(mood), size: 20),
+                    const SizedBox(width: Gap.sm),
+                    Text(
+                      l.moodLabel(mood),
+                      style: text.bodyMedium!.copyWith(color: c.inkMid),
+                    ),
+                  ],
                 ),
               ),
-              if (_weather != null) _weatherChip(context),
-              TextField(
-                controller: _bodyCtrl,
-                focusNode: _bodyFocus,
-                style: text.bodyLarge,
-                minLines: 8,
-                maxLines: null,
-                keyboardType: TextInputType.multiline,
-                textCapitalization: TextCapitalization.sentences,
-                decoration: InputDecoration(
-                  hintText: l.journalEditorBodyHint,
-                  filled: false,
-                  border: InputBorder.none,
-                  enabledBorder: InputBorder.none,
-                  focusedBorder: InputBorder.none,
-                  contentPadding: EdgeInsets.zero,
-                ),
-              ),
-              if (_tagsOn) ...[
-                const SizedBox(height: 16),
-                _overline(context, l.journalEditorTags),
-                const SizedBox(height: 8),
-                TextField(
-                  controller: _tagsCtrl,
-                  style: text.bodyMedium,
-                  onChanged: (_) => setState(() {}),
-                  decoration: InputDecoration(
-                    hintText: l.journalEditorTagsHint,
-                  ),
-                ),
-              ],
-              if (_gratitudeOn) ...[
-                const SizedBox(height: 16),
-                _overline(context, l.journalGratitude),
-                const SizedBox(height: 8),
-                TextField(
-                  controller: _gratitudeCtrl,
-                  style: text.bodyMedium,
-                  minLines: 2,
-                  maxLines: null,
-                  textCapitalization: TextCapitalization.sentences,
-                  decoration: InputDecoration(
-                    hintText: l.journalEditorGratitudeHint,
-                  ),
-                ),
-              ],
-            ],
+            ),
           ),
-          if (_showMoodOverlay) _moodOverlay(context),
-        ],
+        ),
+      ),
+    );
+  }
+
+  /// "4 Eki Paz ▾" — the entry's day; a tap picks another.
+  Widget _dateChip(BuildContext context) {
+    final c = context.nok;
+    final text = Theme.of(context).textTheme;
+    final l = context.l10n;
+    final label = '${formatDate(_date)} ${formatWeekdayShort(_date)}';
+    return Semantics(
+      button: true,
+      label: l.journalEditorDateLabel(
+        '${formatDate(_date, withYear: true)}, ${formatWeekday(_date)}',
+      ),
+      // Excluding the button's semantics drops its tap: keep it here.
+      onTap: _pickDate,
+      excludeSemantics: true,
+      child: TextButton.icon(
+        onPressed: _pickDate,
+        iconAlignment: IconAlignment.end,
+        style: TextButton.styleFrom(foregroundColor: c.inkHi),
+        icon: Icon(
+          Icons.keyboard_arrow_down_rounded,
+          size: 18,
+          color: c.inkMid,
+        ),
+        label: Text(label, style: text.titleMedium),
+      ),
+    );
+  }
+
+  /// "Taslak 12:41": when what is typed was last put aside. A fixed slot,
+  /// the time cross-fading in 200 ms on each autosave.
+  Widget _draftStamp(BuildContext context) {
+    final c = context.nok;
+    final at = _draftSavedAt;
+    return Padding(
+      padding: const EdgeInsets.only(right: Insets.formH),
+      child: SizedBox(
+        width: 88,
+        child: AnimatedSwitcher(
+          duration: Motion.orInstant(context, Motion.quick),
+          child: at == null
+              ? const SizedBox.shrink()
+              : Align(
+                  key: ValueKey(at),
+                  alignment: Alignment.centerRight,
+                  child: FittedBox(
+                    fit: BoxFit.scaleDown,
+                    child: Text(
+                      context.l10n.journalDraftSavedAt(formatTime(at)),
+                      style: Theme.of(
+                        context,
+                      ).textTheme.labelSmall!.copyWith(color: c.inkLow),
+                    ),
+                  ),
+                ),
+        ),
       ),
     );
   }
@@ -765,18 +1016,21 @@ class _JournalEditorScreenState extends ConsumerState<JournalEditorScreen> {
     // A draft of an entry changed elsewhere since stands out: check first.
     final ink = _draftStale ? c.onGoldContainer : c.inkMid;
     return Container(
-      margin: const EdgeInsets.only(bottom: 12),
-      padding: const EdgeInsets.fromLTRB(12, 4, 4, 4),
+      margin: const EdgeInsets.only(bottom: Gap.md),
+      padding: const EdgeInsets.fromLTRB(Gap.md, Gap.xs, Gap.xs, Gap.xs),
       decoration: BoxDecoration(
         color: _draftStale ? c.goldContainer : c.surface2,
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: c.hairline),
+        borderRadius: Radii.mdAll,
+        border: Border.all(color: _draftStale ? c.goldDim : c.hairline),
       ),
       child: Row(
         children: [
-          Icon(_draftStale ? Icons.history : Icons.restore,
-              size: 18, color: ink),
-          const SizedBox(width: 8),
+          Icon(
+            _draftStale ? Icons.history_rounded : Icons.restore_rounded,
+            size: 18,
+            color: ink,
+          ),
+          const SizedBox(width: Gap.sm),
           Expanded(
             child: Text(
               _draftStale
@@ -787,7 +1041,6 @@ class _JournalEditorScreenState extends ConsumerState<JournalEditorScreen> {
           ),
           TextButton(
             onPressed: _discardDraft,
-            style: TextButton.styleFrom(minimumSize: const Size(48, 48)),
             child: Text(l.journalDraftDiscard),
           ),
         ],
@@ -800,11 +1053,11 @@ class _JournalEditorScreenState extends ConsumerState<JournalEditorScreen> {
     final text = Theme.of(context).textTheme;
     final l = context.l10n;
     return Container(
-      margin: const EdgeInsets.only(bottom: 12),
-      padding: const EdgeInsets.fromLTRB(12, 12, 4, 4),
+      margin: const EdgeInsets.only(bottom: Gap.md),
+      padding: const EdgeInsets.fromLTRB(Gap.md, Gap.md, Gap.xs, Gap.xs),
       decoration: BoxDecoration(
         color: c.surface2,
-        borderRadius: BorderRadius.circular(12),
+        borderRadius: Radii.mdAll,
         border: Border.all(color: c.error),
       ),
       child: Column(
@@ -815,11 +1068,13 @@ class _JournalEditorScreenState extends ConsumerState<JournalEditorScreen> {
             child: Row(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Icon(Icons.delete_outline, size: 18, color: c.error),
-                const SizedBox(width: 8),
+                Icon(Icons.delete_outline_rounded, size: 18, color: c.error),
+                const SizedBox(width: Gap.sm),
                 Expanded(
-                  child: Text(l.journalEditorEntryGone,
-                      style: text.bodySmall!.copyWith(color: c.inkMid)),
+                  child: Text(
+                    l.journalEditorEntryGone,
+                    style: text.bodySmall!.copyWith(color: c.inkMid),
+                  ),
                 ),
               ],
             ),
@@ -828,7 +1083,6 @@ class _JournalEditorScreenState extends ConsumerState<JournalEditorScreen> {
             alignment: Alignment.centerRight,
             child: TextButton(
               onPressed: _saving ? null : _save,
-              style: TextButton.styleFrom(minimumSize: const Size(48, 48)),
               child: Text(l.journalEditorSaveAsNew),
             ),
           ),
@@ -841,21 +1095,23 @@ class _JournalEditorScreenState extends ConsumerState<JournalEditorScreen> {
     final c = context.nok;
     final text = Theme.of(context).textTheme;
     return Container(
-      margin: const EdgeInsets.only(bottom: 12),
-      padding: const EdgeInsets.all(12),
+      margin: const EdgeInsets.only(bottom: Gap.md),
+      padding: const EdgeInsets.all(Gap.md),
       decoration: BoxDecoration(
         color: c.goldContainer,
-        borderRadius: BorderRadius.circular(12),
+        borderRadius: Radii.mdAll,
+        border: Border.all(color: c.goldDim),
       ),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Icon(Icons.format_bold, size: 18, color: c.onGoldContainer),
-          const SizedBox(width: 8),
+          Icon(Icons.format_bold_rounded, size: 18, color: c.onGoldContainer),
+          const SizedBox(width: Gap.sm),
           Expanded(
             child: Text(
-              context.l10n
-                  .journalRichNotice(_formattingOf(entry.bodyFormatting)),
+              context.l10n.journalRichNotice(
+                _formattingOf(entry.bodyFormatting),
+              ),
               style: text.bodySmall!.copyWith(color: c.onGoldContainer),
             ),
           ),
@@ -864,164 +1120,152 @@ class _JournalEditorScreenState extends ConsumerState<JournalEditorScreen> {
     );
   }
 
-  Widget _dateRow(BuildContext context) {
-    final c = context.nok;
-    final text = Theme.of(context).textTheme;
-    return InkWell(
-      onTap: _pickDate,
-      borderRadius: BorderRadius.circular(8),
-      child: ConstrainedBox(
-        constraints: const BoxConstraints(minHeight: 48),
-        child: Row(
-          children: [
-            Icon(Icons.calendar_today_outlined, size: 18, color: c.inkMid),
-            const SizedBox(width: 8),
-            Text(
-              formatDate(_date, withYear: true),
-              style: text.bodyMedium!.copyWith(color: c.inkMid),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _moodRow(BuildContext context) {
-    final c = context.nok;
-    final text = Theme.of(context).textTheme;
-    final l = context.l10n;
-    final mood = _mood;
-    return Semantics(
-      button: true,
-      label: mood == null
-          ? l.journalEditorMood
-          : '${l.journalEditorMood}: ${l.moodLabel(mood)}',
-      // Excluding the row's semantics drops the InkWell's tap: keep it.
-      onTap: _pickMood,
-      excludeSemantics: true,
-      child: InkWell(
-        onTap: _pickMood,
-        borderRadius: BorderRadius.circular(8),
-        child: ConstrainedBox(
-          constraints: const BoxConstraints(minHeight: 48),
-          child: Row(
-            children: [
-              if (mood == null)
-                Icon(Icons.mood_outlined, size: 18, color: c.inkMid)
-              else
-                MoodEmoji(emoji: moodEmojiFor(mood), size: 18),
-              const SizedBox(width: 8),
-              Text(
-                mood == null ? l.journalEditorMood : l.moodLabel(mood),
-                style: text.bodyMedium!.copyWith(color: c.inkMid),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-
+  /// The weather as a pill, and a 48 dp button that removes it.
   Widget _weatherChip(BuildContext context) {
     final c = context.nok;
     final text = Theme.of(context).textTheme;
+    final l = context.l10n;
     return Padding(
-      padding: const EdgeInsets.only(top: 8, bottom: 4),
-      child: Align(
-        alignment: Alignment.centerLeft,
-        child: InputChip(
-          avatar: Icon(_weatherIcon(_weather, context.l10n),
-              size: 16, color: c.inkMid),
-          label: Text(_weather!,
-              style: text.labelSmall!.copyWith(color: c.inkMid)),
-          onDeleted: () => setState(() => _weather = null),
-          deleteButtonTooltipMessage:
-              MaterialLocalizations.of(context).deleteButtonTooltip,
-        ),
+      padding: const EdgeInsets.only(top: Gap.xs),
+      child: Row(
+        children: [
+          Flexible(
+            child: Container(
+              padding: const EdgeInsets.symmetric(
+                horizontal: Gap.md,
+                vertical: 6,
+              ),
+              decoration: ShapeDecoration(
+                color: c.surface2,
+                shape: StadiumBorder(side: BorderSide(color: c.hairline)),
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(
+                    journalWeatherIcon(_weather, l),
+                    size: 16,
+                    color: c.inkMid,
+                  ),
+                  const SizedBox(width: 6),
+                  Flexible(
+                    child: Text(
+                      _weather!,
+                      overflow: TextOverflow.ellipsis,
+                      style: text.labelLarge!.copyWith(color: c.inkMid),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+          IconButton(
+            tooltip: l.journalEditorWeatherClear,
+            onPressed: () => setState(() => _weather = null),
+            icon: const Icon(Icons.close_rounded, size: 18),
+          ),
+        ],
       ),
     );
   }
 
-  Widget _overline(BuildContext context, String label) => Text(
-        label,
-        style: Theme.of(context).textTheme.labelMedium,
-      );
-
-  Widget _moodOverlay(BuildContext context) {
+  /// "MİNNET": goldContainer, a 1 dp goldDim edge.
+  Widget _gratitudeBox(BuildContext context) {
     final c = context.nok;
     final text = Theme.of(context).textTheme;
-    return Positioned.fill(
-      child: Container(
-        color: c.bg,
-        child: SafeArea(
-          child: Column(
+    final l = context.l10n;
+    return Container(
+      padding: const EdgeInsets.fromLTRB(Gap.lg, Gap.md, Gap.lg, Gap.md),
+      decoration: BoxDecoration(
+        color: c.goldContainer,
+        borderRadius: Radii.lgAll,
+        border: Border.all(color: c.goldDim),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
             children: [
-              const Spacer(),
-              Text(context.l10n.journalEditorMoodPrompt,
-                  style: text.headlineMedium, textAlign: TextAlign.center),
-              const SizedBox(height: 32),
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 12),
-                child: FittedBox(
-                  fit: BoxFit.scaleDown,
-                  child: MoodPicker(
-                    selected: _mood,
-                    onSelected: (m) {
-                      setState(() {
-                        _mood = m;
-                        _showMoodOverlay = false;
-                      });
-                      _bodyFocus.requestFocus();
-                    },
-                  ),
-                ),
+              Icon(Icons.favorite_rounded, size: 14, color: c.onGoldContainer),
+              const SizedBox(width: 6),
+              Text(
+                l.journalGratitude,
+                style: text.labelMedium!.copyWith(color: c.onGoldContainer),
               ),
-              const SizedBox(height: 24),
-              TextButton(
-                onPressed: () {
-                  setState(() => _showMoodOverlay = false);
-                  _bodyFocus.requestFocus();
-                },
-                child: Text(context.l10n.labelSkip),
-              ),
-              const Spacer(),
             ],
           ),
-        ),
+          const SizedBox(height: Gap.sm),
+          TextField(
+            controller: _gratitudeCtrl,
+            focusNode: _gratitudeFocus,
+            style: text.bodyLarge!.copyWith(color: c.onGoldContainer),
+            minLines: 2,
+            maxLines: null,
+            textCapitalization: TextCapitalization.sentences,
+            decoration: InputDecoration(
+              hintText: l.journalEditorGratitudeHint,
+              hintStyle: text.bodyLarge!.copyWith(
+                color: c.onGoldContainer.withValues(alpha: 0.72),
+              ),
+              filled: false,
+              border: InputBorder.none,
+              enabledBorder: InputBorder.none,
+              focusedBorder: InputBorder.none,
+              contentPadding: EdgeInsets.zero,
+            ),
+          ),
+        ],
       ),
     );
   }
+
+  Widget _overline(BuildContext context, String label) =>
+      Text(label, style: Theme.of(context).textTheme.labelMedium);
 }
 
+/// The editor's accessory bar: Ruh hali · Enerji · Etiket · Minnet · Hava
+/// (scrolling sideways) and "Kaydet", above the keyboard.
 class _AccessoryBar extends StatelessWidget {
-  final bool gratitudeOn;
-  final bool tagsOn;
+  final bool mood;
+  final bool energy;
+  final bool tags;
+  final bool gratitude;
   final bool weatherSet;
   final IconData weatherIcon;
-  final int energy;
-  final VoidCallback onGratitude;
+  final bool saving;
+  final VoidCallback onMood;
+  final VoidCallback onEnergy;
   final VoidCallback onTags;
+  final VoidCallback onGratitude;
   final VoidCallback onWeather;
-  final ValueChanged<int> onEnergy;
+  final VoidCallback onSave;
 
   const _AccessoryBar({
-    required this.gratitudeOn,
-    required this.tagsOn,
+    required this.mood,
+    required this.energy,
+    required this.tags,
+    required this.gratitude,
     required this.weatherSet,
     required this.weatherIcon,
-    required this.energy,
-    required this.onGratitude,
-    required this.onTags,
-    required this.onWeather,
+    required this.saving,
+    required this.onMood,
     required this.onEnergy,
+    required this.onTags,
+    required this.onGratitude,
+    required this.onWeather,
+    required this.onSave,
   });
 
   @override
   Widget build(BuildContext context) {
     final c = context.nok;
-    final text = Theme.of(context).textTheme;
     final l = context.l10n;
-    return Container(
+    Widget chip(String label, IconData icon, bool on, VoidCallback onTap) =>
+        Padding(
+          padding: const EdgeInsets.only(right: Gap.sm),
+          child: NokChip(label: label, icon: icon, selected: on, onTap: onTap),
+        );
+    return DecoratedBox(
       decoration: BoxDecoration(
         color: c.surface2,
         border: Border(top: BorderSide(color: c.hairline)),
@@ -1029,44 +1273,60 @@ class _AccessoryBar extends StatelessWidget {
       child: SafeArea(
         top: false,
         child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+          padding: const EdgeInsets.fromLTRB(0, Gap.xs, Gap.md, Gap.xs),
           child: Row(
             children: [
-              _btn(context, Icons.favorite_border, l.journalGratitude,
-                  gratitudeOn, onGratitude),
-              _btn(context, Icons.sell_outlined, l.journalEditorTags, tagsOn,
-                  onTags),
-              _btn(context, weatherIcon, l.journalEditorWeather, weatherSet,
-                  onWeather),
-              const Spacer(),
-              Flexible(
-                child: Text(
-                  l.journalEnergy,
-                  style: text.labelSmall,
-                  overflow: TextOverflow.ellipsis,
+              Expanded(
+                child: SingleChildScrollView(
+                  scrollDirection: Axis.horizontal,
+                  padding: const EdgeInsets.only(left: Gap.md),
+                  child: Row(
+                    children: [
+                      chip(
+                        l.journalEditorMood,
+                        Icons.mood_rounded,
+                        mood,
+                        onMood,
+                      ),
+                      chip(
+                        l.journalEnergy,
+                        Icons.bolt_rounded,
+                        energy,
+                        onEnergy,
+                      ),
+                      chip(
+                        l.journalChipTags,
+                        Icons.sell_outlined,
+                        tags,
+                        onTags,
+                      ),
+                      chip(
+                        l.journalChipGratitude,
+                        Icons.favorite_border_rounded,
+                        gratitude,
+                        onGratitude,
+                      ),
+                      chip(
+                        l.journalChipWeather,
+                        weatherIcon,
+                        weatherSet,
+                        onWeather,
+                      ),
+                    ],
+                  ),
                 ),
               ),
-              const SizedBox(width: 8),
-              EnergyDots(level: energy, size: 12, gap: 2, onChanged: onEnergy),
+              const SizedBox(width: Gap.sm),
+              PrimaryButton(
+                label: l.actionSave,
+                expand: false,
+                loading: saving,
+                onPressed: onSave,
+              ),
             ],
           ),
         ),
       ),
-    );
-  }
-
-  Widget _btn(
-    BuildContext context,
-    IconData icon,
-    String tooltip,
-    bool active,
-    VoidCallback onTap,
-  ) {
-    final c = context.nok;
-    return IconButton(
-      tooltip: tooltip,
-      onPressed: onTap,
-      icon: Icon(icon, color: active ? c.gold : c.inkMid),
     );
   }
 }

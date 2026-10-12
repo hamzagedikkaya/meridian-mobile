@@ -27,7 +27,11 @@ import '../../../models/date_utils.dart';
 import '../../../models/me_options.dart';
 import '../../../models/user.dart';
 import '../../../theme/app_colors.dart';
+import '../../../theme/app_metrics.dart';
+import '../../widgets/amount_keypad.dart' show RejectShake;
+import '../../widgets/app_snackbar.dart';
 import '../../widgets/confirm_dialog.dart';
+import '../../widgets/nok_sheet.dart';
 import '../../widgets/primary_button.dart';
 import '../../widgets/sync_hint.dart';
 
@@ -37,21 +41,37 @@ String weekdayName(int day, {String? locale}) =>
     // 4 October 2026 is a Sunday.
     formatWeekday(DateTime(2026, 10, 4 + day), locale: locale);
 
+/// Every editor opens the app's one sheet (design-analysis §4.15); each
+/// draws its own [SheetHeader] with the X, as a sheet with inputs must.
+///
+/// The sheet is told the screen's [context]: its confirmation is shown
+/// from there once it has closed (see [snackMarginFor]).
 Future<T?> _showSheet<T>(BuildContext context, WidgetBuilder builder) =>
-    showModalBottomSheet<T>(
-      context: context,
-      isScrollControlled: true,
-      useSafeArea: true,
-      barrierColor: const Color(0xFF171310).withValues(alpha: 0.6),
-      builder: builder,
+    showNokSheet<T>(
+      context,
+      builder: (sheet) => _SheetHost(screen: context, child: builder(sheet)),
+      showClose: true,
     );
 
-/// Shows [message] on the screen under the sheet that just closed.
-void _confirmSaved(ScaffoldMessengerState messenger, String message) {
-  messenger
-    ..hideCurrentSnackBar()
-    ..showSnackBar(SnackBar(content: Text(message)));
+/// The screen an editor sheet was opened from.
+class _SheetHost extends InheritedWidget {
+  final BuildContext screen;
+
+  const _SheetHost({required this.screen, required super.child});
+
+  /// The screen under the sheet at [context]; the sheet's own context when
+  /// it was not opened through [_showSheet].
+  static BuildContext screenOf(BuildContext context) =>
+      context.getInheritedWidgetOfExactType<_SheetHost>()?.screen ?? context;
+
+  @override
+  bool updateShouldNotify(_SheetHost oldWidget) => screen != oldWidget.screen;
 }
+
+/// Shows [message] — the app's success snackbar (design-analysis §4.17) —
+/// on the [screen] under the sheet that just closed.
+void _confirmSaved(BuildContext screen, String message) =>
+    showAppSnack(screen, message, tone: SnackTone.success);
 
 /// What to say above the save button for a failure no field claims: the
 /// password-check limit, the server's reason, or "couldn't save".
@@ -62,8 +82,9 @@ String _formMessage(Object error, AppL10n l) => switch (error) {
 
 // --- Sheet chrome -------------------------------------------------------------
 
-/// A sheet with inputs: its title and a visible close (X), the fields, the
-/// failure no field claims, and the save button — all above the keyboard.
+/// A sheet with inputs (design-analysis §7.13): its title and a visible
+/// close (X), the fields, the failure no field claims, and the 52 dp save
+/// button — kept above the keyboard while the fields scroll.
 class _EditorFrame extends StatelessWidget {
   final String title;
   final List<Widget> children;
@@ -83,92 +104,48 @@ class _EditorFrame extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final c = context.nok;
-    final text = Theme.of(context).textTheme;
     final error = formError;
     return Padding(
       padding: EdgeInsets.only(bottom: MediaQuery.viewInsetsOf(context).bottom),
-      child: SingleChildScrollView(
-        padding: const EdgeInsets.fromLTRB(20, 0, 8, 16),
-        child: SafeArea(
-          top: false,
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              _SheetTitle(title),
-              Padding(
-                padding: const EdgeInsets.only(right: 12),
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    const SizedBox(height: 8),
-                    ...children,
-                    if (error != null)
-                      Padding(
-                        padding: const EdgeInsets.only(top: 12),
-                        child: Semantics(
-                          liveRegion: true,
-                          child: Row(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Icon(
-                                Icons.error_outline,
-                                size: 18,
-                                color: c.error,
-                              ),
-                              const SizedBox(width: 8),
-                              Expanded(
-                                child: Text(
-                                  error,
-                                  style: text.bodySmall!.copyWith(
-                                    color: c.error,
-                                  ),
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                      ),
-                    const SizedBox(height: 20),
-                    PrimaryButton(
-                      label: actionLabel,
-                      loading: busy,
-                      onPressed: onAction,
-                    ),
-                  ],
-                ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          SheetHeader(title: title, showClose: true),
+          Flexible(
+            child: SingleChildScrollView(
+              padding: const EdgeInsets.fromLTRB(
+                Insets.sheetH,
+                Gap.sm,
+                Insets.sheetH,
+                0,
               ),
-            ],
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  ...children,
+                  if (error != null)
+                    Padding(
+                      padding: const EdgeInsets.only(top: Gap.md),
+                      child: Semantics(
+                        liveRegion: true,
+                        child: _Note(error, error: true),
+                      ),
+                    ),
+                ],
+              ),
+            ),
           ),
-        ),
+          SheetActions(
+            primary: PrimaryButton(
+              label: actionLabel,
+              loading: busy,
+              onPressed: onAction,
+            ),
+          ),
+        ],
       ),
-    );
-  }
-}
-
-class _SheetTitle extends StatelessWidget {
-  final String title;
-  const _SheetTitle(this.title);
-
-  @override
-  Widget build(BuildContext context) {
-    final text = Theme.of(context).textTheme;
-    return Row(
-      children: [
-        Expanded(
-          child: Semantics(
-            header: true,
-            child: Text(title, style: text.titleLarge),
-          ),
-        ),
-        IconButton(
-          icon: const Icon(Icons.close),
-          tooltip: MaterialLocalizations.of(context).closeButtonTooltip,
-          onPressed: () => Navigator.of(context).maybePop(),
-        ),
-      ],
     );
   }
 }
@@ -178,19 +155,39 @@ class _SheetTitle extends StatelessWidget {
 void _selectAll(TextEditingController controller) => controller.selection =
     TextSelection(baseOffset: 0, extentOffset: controller.text.length);
 
+/// A sheet's note — bodySmall inkMid after a 16 dp `info_outline_rounded`
+/// ("Mevcut tutarlar dönüştürülmez") — or, with [error], a refusal in the
+/// error colour after `error_outline_rounded`.
 class _Note extends StatelessWidget {
   final String text;
-  final Color? color;
-  const _Note(this.text, {this.color});
+  final bool error;
+  const _Note(this.text, {this.error = false});
 
   @override
   Widget build(BuildContext context) {
     final c = context.nok;
-    return Text(
-      text,
-      style: Theme.of(
-        context,
-      ).textTheme.bodySmall!.copyWith(color: color ?? c.inkMid),
+    final color = error ? c.error : c.inkMid;
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Padding(
+          padding: const EdgeInsets.only(top: 1),
+          child: Icon(
+            error ? Icons.error_outline_rounded : Icons.info_outline_rounded,
+            size: 16,
+            color: color,
+          ),
+        ),
+        const SizedBox(width: Gap.sm),
+        Expanded(
+          child: Text(
+            text,
+            style: Theme.of(context).textTheme.bodySmall!.copyWith(
+              color: color,
+            ),
+          ),
+        ),
+      ],
     );
   }
 }
@@ -206,6 +203,10 @@ class _SecretField extends StatefulWidget {
   final ValueChanged<String> onSubmitted;
   final ValueChanged<String> onChanged;
 
+  /// Bumped when the server says the password is wrong: the field shakes
+  /// (±4 dp, twice, 240 ms).
+  final int shake;
+
   const _SecretField({
     super.key,
     required this.controller,
@@ -216,6 +217,7 @@ class _SecretField extends StatefulWidget {
     required this.action,
     required this.onSubmitted,
     required this.onChanged,
+    this.shake = 0,
   });
 
   @override
@@ -228,7 +230,7 @@ class _SecretFieldState extends State<_SecretField> {
   @override
   Widget build(BuildContext context) {
     final l = context.l10n;
-    return TextField(
+    final field = TextField(
       controller: widget.controller,
       focusNode: widget.focusNode,
       obscureText: _hidden,
@@ -252,6 +254,7 @@ class _SecretFieldState extends State<_SecretField> {
         ),
       ),
     );
+    return RejectShake(trigger: widget.shake, child: field);
   }
 }
 
@@ -295,13 +298,13 @@ class _NameSheetState extends ConsumerState<_NameSheet> {
     _submitted = true;
     final problem = _check(l);
     if (problem != null) {
-      Haptics.danger();
+      Haptics.reject();
       setState(() => _nameError = problem);
       return;
     }
     final name = _name.text.trim();
     final navigator = Navigator.of(context);
-    final messenger = ScaffoldMessenger.of(context);
+    final screen = _SheetHost.screenOf(context);
     if (name == widget.user.displayName) {
       navigator.pop();
       return;
@@ -312,12 +315,12 @@ class _NameSheetState extends ConsumerState<_NameSheet> {
     });
     try {
       await ref.read(profileActionsProvider).update(name: name);
-      Haptics.success();
+      Haptics.confirm();
       if (mounted) navigator.pop();
-      _confirmSaved(messenger, l.profileNameSaved);
+      if (screen.mounted) _confirmSaved(screen, l.profileNameSaved);
     } catch (e) {
       if (!mounted) return;
-      Haptics.danger();
+      Haptics.reject();
       final field = e is ApiException ? e.fieldMessage(l, 'name') : null;
       setState(() {
         _saving = false;
@@ -385,6 +388,9 @@ class _EmailSheetState extends ConsumerState<_EmailSheet> {
   String? _passwordError;
   String? _formError;
 
+  /// Bumped on a wrong current password: that field shakes.
+  var _wrongPassword = 0;
+
   @override
   void dispose() {
     _email.dispose();
@@ -425,7 +431,7 @@ class _EmailSheetState extends ConsumerState<_EmailSheet> {
     if (_saving) return;
     final l = context.l10n;
     final navigator = Navigator.of(context);
-    final messenger = ScaffoldMessenger.of(context);
+    final screen = _SheetHost.screenOf(context);
     if (_unchanged) {
       navigator.pop();
       return;
@@ -433,7 +439,7 @@ class _EmailSheetState extends ConsumerState<_EmailSheet> {
     _submitted = true;
     final problems = _check(l);
     if (problems.email != null || problems.password != null) {
-      Haptics.danger();
+      Haptics.reject();
       setState(() {
         _emailError = problems.email;
         _passwordError = problems.password;
@@ -449,13 +455,13 @@ class _EmailSheetState extends ConsumerState<_EmailSheet> {
       await ref
           .read(profileActionsProvider)
           .update(email: _email.text.trim(), currentPassword: _password.text);
-      Haptics.success();
+      Haptics.confirm();
       TextInput.finishAutofillContext();
       if (mounted) navigator.pop();
-      _confirmSaved(messenger, l.profileEmailSaved);
+      if (screen.mounted) _confirmSaved(screen, l.profileEmailSaved);
     } catch (e) {
       if (!mounted) return;
-      Haptics.danger();
+      Haptics.reject();
       final refusal = e is ApiException ? e : null;
       final emailError = refusal?.fieldMessage(l, 'email');
       final passwordError = switch (refusal?.code) {
@@ -465,6 +471,7 @@ class _EmailSheetState extends ConsumerState<_EmailSheet> {
       };
       setState(() {
         _saving = false;
+        if (refusal?.code == 'invalid_current_password') _wrongPassword++;
         _emailError = emailError;
         _passwordError = passwordError;
         _formError = emailError == null && passwordError == null
@@ -512,6 +519,7 @@ class _EmailSheetState extends ConsumerState<_EmailSheet> {
             focusNode: _passwordFocus,
             label: l.profileCurrentPassword,
             errorText: _passwordError,
+            shake: _wrongPassword,
             autofillHints: const [AutofillHints.password],
             action: TextInputAction.done,
             onSubmitted: (_) => _save(),
@@ -555,6 +563,9 @@ class _PasswordSheetState extends ConsumerState<_PasswordSheet> {
   String? _passwordError;
   String? _confirmationError;
   String? _formError;
+
+  /// Bumped on a wrong current password: that field shakes.
+  var _wrongPassword = 0;
 
   @override
   void dispose() {
@@ -616,13 +627,13 @@ class _PasswordSheetState extends ConsumerState<_PasswordSheet> {
     if (problems.current != null ||
         problems.password != null ||
         problems.confirmation != null) {
-      Haptics.danger();
+      Haptics.reject();
       _show(problems);
       _focusFirstError();
       return;
     }
     final navigator = Navigator.of(context);
-    final messenger = ScaffoldMessenger.of(context);
+    final screen = _SheetHost.screenOf(context);
     setState(() {
       _saving = true;
       _formError = null;
@@ -635,13 +646,13 @@ class _PasswordSheetState extends ConsumerState<_PasswordSheet> {
             password: _password.text,
             passwordConfirmation: _confirmation.text,
           );
-      Haptics.success();
+      Haptics.confirm();
       TextInput.finishAutofillContext();
       if (mounted) navigator.pop();
-      _confirmSaved(messenger, l.profilePasswordSaved);
+      if (screen.mounted) _confirmSaved(screen, l.profilePasswordSaved);
     } catch (e) {
       if (!mounted) return;
-      Haptics.danger();
+      Haptics.reject();
       final refusal = e is ApiException ? e : null;
       final current = switch (refusal?.code) {
         'invalid_current_password' => l.errInvalidCurrentPassword,
@@ -652,6 +663,7 @@ class _PasswordSheetState extends ConsumerState<_PasswordSheet> {
       final confirmation = refusal?.fieldMessage(l, 'password_confirmation');
       setState(() {
         _saving = false;
+        if (refusal?.code == 'invalid_current_password') _wrongPassword++;
         _formError = current == null && password == null && confirmation == null
             ? _formMessage(e, l)
             : null;
@@ -679,6 +691,7 @@ class _PasswordSheetState extends ConsumerState<_PasswordSheet> {
             focusNode: _currentFocus,
             label: l.profileCurrentPassword,
             errorText: _currentError,
+            shake: _wrongPassword,
             autofillHints: const [AutofillHints.password],
             action: TextInputAction.next,
             onSubmitted: (_) => _passwordFocus.requestFocus(),
@@ -798,7 +811,7 @@ class _ChoiceSheetState<T> extends ConsumerState<_ChoiceSheet<T>> {
     if (confirm != null && !await confirm(context, value)) return;
     if (!mounted) return;
     final l = context.l10n;
-    final messenger = ScaffoldMessenger.of(context);
+    final screen = _SheetHost.screenOf(context);
     Haptics.tick();
     setState(() {
       _busy = true;
@@ -807,12 +820,12 @@ class _ChoiceSheetState<T> extends ConsumerState<_ChoiceSheet<T>> {
     });
     try {
       await widget.save(value);
-      Haptics.success();
+      Haptics.confirm();
       if (mounted) navigator.pop();
-      _confirmSaved(messenger, widget.savedMessage(value));
+      if (screen.mounted) _confirmSaved(screen, widget.savedMessage(value));
     } catch (e) {
       if (!mounted) return;
-      Haptics.danger();
+      Haptics.reject();
       setState(() {
         _busy = false;
         _saving = null;
@@ -887,10 +900,7 @@ class _ChoiceSheetState<T> extends ConsumerState<_ChoiceSheet<T>> {
     }
 
     final heading = <Widget>[
-      Padding(
-        padding: const EdgeInsets.only(left: 20, right: 8),
-        child: _SheetTitle(widget.title),
-      ),
+      SheetHeader(title: widget.title, showClose: true),
       if (widget.note != null)
         Padding(
           padding: const EdgeInsets.fromLTRB(20, 0, 20, 8),
@@ -901,7 +911,7 @@ class _ChoiceSheetState<T> extends ConsumerState<_ChoiceSheet<T>> {
           padding: const EdgeInsets.fromLTRB(20, 0, 20, 8),
           child: Semantics(
             liveRegion: true,
-            child: _Note(_error!, color: c.error),
+            child: _Note(_error!, error: true),
           ),
         ),
     ];
@@ -1180,10 +1190,12 @@ class _WeeklyReviewSheet extends ConsumerWidget {
 
 /// Asks, in a sheet, before signing out: it says that every device signed
 /// in to the account is signed out, and warns when an unsaved journal draft
-/// would go. "Çıkış Yap" then signs out (see [ProfileActions.signOut]) and
-/// the router takes the user to the login screen.
+/// would go — a sheet, not a dialog (design-analysis §7.13). "Çıkış yap"
+/// then signs out (see [ProfileActions.signOut]) and the router takes the
+/// user to the login screen. It holds no input, so it has no X: "Vazgeç",
+/// the back gesture and the scrim close it.
 Future<void> showSignOutSheet(BuildContext context) =>
-    _showSheet<void>(context, (_) => const _SignOutSheet());
+    showNokSheet<void>(context, builder: (_) => const _SignOutSheet());
 
 class _SignOutSheet extends ConsumerStatefulWidget {
   const _SignOutSheet();
@@ -1212,99 +1224,98 @@ class _SignOutSheetState extends ConsumerState<_SignOutSheet> {
     final c = context.nok;
     final text = Theme.of(context).textTheme;
     final l = context.l10n;
-    return SafeArea(
-      top: false,
-      child: Padding(
-        padding: const EdgeInsets.fromLTRB(20, 0, 20, 16),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            // The words scroll when large text makes them too long; the two
-            // buttons stay on screen under them.
-            Flexible(
-              child: SingleChildScrollView(
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    Semantics(
-                      header: true,
-                      child: Text(
-                        l.profileSignOutTitle,
-                        style: text.titleLarge,
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        // The words scroll when large text makes them too long; the two
+        // buttons stay on screen under them.
+        Flexible(
+          child: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                SheetHeader(title: l.profileSignOutTitle),
+                Padding(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: Insets.sheetH,
+                  ),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      Text(
+                        l.profileSignOutBody,
+                        style: text.bodyMedium!.copyWith(color: c.inkMid),
                       ),
-                    ),
-                    const SizedBox(height: 12),
-                    Text(
-                      l.profileSignOutBody,
-                      style: text.bodyMedium!.copyWith(color: c.inkMid),
-                    ),
-                    FutureBuilder<bool>(
-                      future: _draft,
-                      builder: (context, snapshot) {
-                        if (snapshot.data != true) {
-                          return const SizedBox.shrink();
-                        }
-                        return Padding(
-                          padding: const EdgeInsets.only(top: 12),
-                          child: Row(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Icon(
-                                Icons.warning_amber_rounded,
-                                size: 20,
-                                color: c.warning,
-                              ),
-                              const SizedBox(width: 8),
-                              Expanded(
-                                child: Text(
-                                  l.profileSignOutDraft,
-                                  style: text.bodyMedium!.copyWith(
-                                    color: c.warning,
+                      FutureBuilder<bool>(
+                        future: _draft,
+                        builder: (context, snapshot) {
+                          if (snapshot.data != true) {
+                            return const SizedBox.shrink();
+                          }
+                          return Padding(
+                            padding: const EdgeInsets.only(top: Gap.md),
+                            child: Row(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Icon(
+                                  Icons.warning_amber_rounded,
+                                  size: 20,
+                                  color: c.warning,
+                                ),
+                                const SizedBox(width: Gap.sm),
+                                Expanded(
+                                  child: Text(
+                                    l.profileSignOutDraft,
+                                    style: text.bodyMedium!.copyWith(
+                                      color: c.warning,
+                                    ),
                                   ),
                                 ),
-                              ),
-                            ],
-                          ),
-                        );
-                      },
-                    ),
-                  ],
-                ),
-              ),
-            ),
-            const SizedBox(height: 24),
-            FilledButton(
-              onPressed: _busy ? null : _signOut,
-              style: FilledButton.styleFrom(
-                backgroundColor: c.error,
-                foregroundColor: c.inkHi,
-                disabledBackgroundColor: c.error.withValues(alpha: 0.6),
-                minimumSize: const Size.fromHeight(52),
-              ),
-              child: _busy
-                  ? SizedBox(
-                      width: 20,
-                      height: 20,
-                      child: CircularProgressIndicator(
-                        strokeWidth: 2,
-                        color: c.inkHi,
+                              ],
+                            ),
+                          );
+                        },
                       ),
-                    )
-                  : Text(l.profileSignOut),
+                    ],
+                  ),
+                ),
+              ],
             ),
-            const SizedBox(height: 8),
-            TextButton(
-              onPressed: _busy ? null : () => Navigator.of(context).pop(),
-              style: TextButton.styleFrom(
-                minimumSize: const Size.fromHeight(48),
-              ),
-              child: Text(l.actionCancel),
-            ),
-          ],
+          ),
         ),
-      ),
+        SafeArea(
+          top: false,
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(
+              Insets.sheetH,
+              Gap.xxl,
+              Insets.sheetH,
+              Gap.lg,
+            ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                // "Çıkış yap" in error, full width; no haptic.
+                PrimaryButton(
+                  label: l.profileSignOut,
+                  destructive: true,
+                  loading: _busy,
+                  onPressed: _signOut,
+                ),
+                const SizedBox(height: Gap.sm),
+                TextButton(
+                  onPressed: _busy ? null : () => Navigator.of(context).pop(),
+                  child: Text(l.actionCancel),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ],
     );
   }
 }

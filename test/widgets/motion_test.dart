@@ -1119,6 +1119,186 @@ void main() {
       await tester.pump();
       expect(tester.binding.hasScheduledFrame, isFalse);
     });
+
+    // The reduced-motion checks of the groups above once more, reached
+    // through the app's switch (`reduceMotionProvider`, folded in by
+    // `MotionPreference` as `MeridianApp` does) instead of the system flag.
+    group('the same group, with the switch on', () {
+      late SharedPreferences prefs;
+
+      setUp(() async {
+        SharedPreferences.setMockInitialValues(
+            {PrefKeys.reduceMotion: 'true'});
+        prefs = await SharedPreferences.getInstance();
+      });
+
+      /// [child] under the switch; [container] when the test needs its own.
+      Widget viaSwitch(Widget child, {ProviderContainer? container}) {
+        final tree = app(Consumer(
+          builder: (context, ref, _) => MotionPreference(
+            reduce: ref.watch(reduceMotionProvider),
+            child: Builder(builder: (context) {
+              expect(Motion.reduced(context), isTrue);
+              return child;
+            }),
+          ),
+        ));
+        return container != null
+            ? UncontrolledProviderScope(container: container, child: tree)
+            : ProviderScope(
+                overrides: [sharedPrefsProvider.overrideWithValue(prefs)],
+                child: tree,
+              );
+      }
+
+      testWidgets('RollingNumber: the final value in one frame, every cause',
+          (tester) async {
+        for (final cause in NumberCause.values) {
+          await tester.pumpWidget(viaSwitch(
+              RollingNumber(text: '₺10,00', style: hero, cause: cause)));
+          await tester.pumpWidget(viaSwitch(
+              RollingNumber(text: '₺99,00', style: hero, cause: cause)));
+          expect(find.text('₺99,00'), findsOneWidget, reason: '$cause');
+          expect(find.text('₺10,00'), findsNothing, reason: '$cause');
+          await tester.pumpAndSettle();
+          expect(tester.binding.hasScheduledFrame, isFalse, reason: '$cause');
+          await tester.pumpWidget(const SizedBox());
+        }
+      });
+
+      testWidgets('CheckPop: filled at once, no scale', (tester) async {
+        var checked = false;
+        await tester.pumpWidget(viaSwitch(Center(
+          child: StatefulBuilder(
+            builder: (context, setState) => CheckPop(
+              checked: checked,
+              color: Colors.green,
+              onToggle: () => setState(() => checked = !checked),
+            ),
+          ),
+        )));
+        await tester.tap(find.byType(CheckPop));
+        await tester.pump();
+        expect(checked, isTrue);
+        final scale = tester.widget<ScaleTransition>(find.descendant(
+            of: find.byType(CheckPop),
+            matching: find.byType(ScaleTransition)));
+        expect(scale.scale.value, 1.0);
+        expect(tester.binding.hasScheduledFrame, isFalse);
+      });
+
+      testWidgets('ProgressRing and PacedProgressBar: a new value in one '
+          'frame', (tester) async {
+        Widget build(double v) => viaSwitch(Column(children: [
+              ProgressRing(value: v, color: Colors.green),
+              PacedProgressBar(value: v, color: Colors.green),
+            ]));
+        await tester.pumpWidget(build(0.2));
+        await tester.pumpWidget(build(0.7));
+        expect(
+          tester.state<ProgressRingState>(find.byType(ProgressRing))
+              .paintedValue,
+          0.7,
+        );
+        await tester.pumpAndSettle();
+        expect(tester.binding.hasScheduledFrame, isFalse);
+      });
+
+      testWidgets('Entrance: nothing plays', (tester) async {
+        await tester.pumpWidget(viaSwitch(EntranceHost(
+          child: Builder(builder: (context) {
+            EntranceGate.maybeOf(context)!.openForFirstFrame(context);
+            return const Entrance(play: true, child: Text('a'));
+          }),
+        )));
+        final fade = tester.widget<FadeTransition>(find
+            .ancestor(of: find.text('a'), matching: find.byType(FadeTransition))
+            .first);
+        expect(fade.opacity.value, 1.0);
+        await tester.pumpAndSettle();
+        expect(tester.binding.hasScheduledFrame, isFalse);
+      });
+
+      testWidgets('LoadPhaseSwitcher: the skeleton keeps its 400 ms delay',
+          (tester) async {
+        Widget switcher(LoadPhase phase) => viaSwitch(SizedBox(
+              height: 200,
+              child: LoadPhaseSwitcher(
+                phase: phase,
+                skeleton: (_) => const Text('skeleton'),
+                content: (_) => const Text('content'),
+                error: (_) => const Text('error'),
+              ),
+            ));
+        await tester.pumpWidget(switcher(LoadPhase.waiting));
+        await tester.pump(const Duration(milliseconds: 399));
+        expect(find.text('skeleton'), findsNothing);
+        await tester.pump(const Duration(milliseconds: 2));
+        await tester.pump();
+        expect(find.text('skeleton'), findsOneWidget);
+        await tester.pumpWidget(switcher(LoadPhase.content));
+        await tester.pump(const Duration(seconds: 1));
+        await tester.pumpAndSettle();
+        expect(find.text('content'), findsOneWidget);
+        expect(tester.binding.hasScheduledFrame, isFalse);
+      });
+
+      testWidgets('SyncHint: a full second, then a still line',
+          (tester) async {
+        await tester.pumpWidget(viaSwitch(const SyncHint(active: false)));
+        await tester.pumpWidget(viaSwitch(const SyncHint(active: true)));
+        await tester.pump(const Duration(milliseconds: 990));
+        expect(find.byType(AnimatedOpacity), findsNothing);
+        await tester.pump(const Duration(milliseconds: 20));
+        await tester.pump(const Duration(milliseconds: 200));
+        expect(find.byType(AnimatedOpacity), findsOneWidget);
+        expect(find.byType(LinearProgressIndicator), findsNothing);
+        await tester.pumpWidget(viaSwitch(const SyncHint(active: false)));
+        await tester.pumpAndSettle();
+        expect(tester.binding.hasScheduledFrame, isFalse);
+      });
+
+      testWidgets('CelebrationLayer: no particles; the pill without motion',
+          (tester) async {
+        late CelebrationController layer;
+        await tester.pumpWidget(viaSwitch(CelebrationLayer(
+          child: Builder(builder: (context) {
+            layer = CelebrationLayer.maybeOf(context)!;
+            return const SizedBox(height: 400);
+          }),
+        )));
+        layer.allDone(
+            origin: const Offset(100, 200), day: DateTime(2026, 10, 5));
+        await tester.pump();
+        expect(find.byType(ConfettiBurst), findsNothing);
+        await tester.pump();
+        final fade = tester.widget<FadeTransition>(find
+            .ancestor(
+                of: find.text('Hepsi tamam'),
+                matching: find.byType(FadeTransition))
+            .first);
+        expect(fade.opacity.value, 1.0);
+        await tester.pump(Motion.milestoneHold);
+        await tester.pump();
+        expect(find.text('Hepsi tamam'), findsNothing);
+        expect(tester.binding.hasScheduledFrame, isFalse);
+      });
+
+      testWidgets('a row created here is at full height at once',
+          (tester) async {
+        final container = ProviderContainer(
+          overrides: [sharedPrefsProvider.overrideWithValue(prefs)],
+        );
+        addTearDown(container.dispose);
+        container
+            .read(recentChangesProvider.notifier)
+            .record(DataScope.transactions, 9, ChangeKind.inserted);
+        await tester.pumpWidget(
+            viaSwitch(const _Rows([9]), container: container));
+        expect(tester.getSize(find.byKey(const ValueKey('row-9'))).height, 40);
+        expect(tester.binding.transientCallbackCount, 0);
+      });
+    });
   });
 
   group('LingeringTodos', () {

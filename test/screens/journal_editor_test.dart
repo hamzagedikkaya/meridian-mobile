@@ -88,6 +88,11 @@ Future<void> _pump(
                     child: const Text('new'),
                   ),
                   TextButton(
+                    onPressed: () =>
+                        openJournalEditor(context, initialMood: 'great'),
+                    child: const Text('new with mood'),
+                  ),
+                  TextButton(
                     onPressed: () => Navigator.of(context).push(
                       MaterialPageRoute<void>(
                         builder: (_) => const JournalDetailScreen(entryId: 20),
@@ -302,6 +307,79 @@ void main() {
     );
   });
 
+  group('layout (design-analysis §7.12)', () {
+    testWidgets('Save rides the keyboard', (tester) async {
+      final api = FakeApi();
+      await _pump(tester, api);
+      // A 300 dp keyboard over the 1200 dp-tall phone.
+      tester.view.viewInsets = const FakeViewPadding(bottom: 900);
+      addTearDown(tester.view.resetViewInsets);
+      await _open(tester, 'new');
+      await tester.tap(find.text('Geç'));
+      await _settle(tester);
+      await tester.enterText(_field('Bugün neler oldu?'), 'Klavye açıkken');
+      await _settle(tester);
+
+      final save = find.widgetWithText(FilledButton, 'Kaydet');
+      expect(save, findsOneWidget);
+      expect(
+        tester.getRect(save).bottom,
+        lessThanOrEqualTo(1200 - 300),
+        reason: 'Save sits above the keyboard, not under it',
+      );
+      await tester.tap(save);
+      await _settle(tester);
+      expect(
+        (api.bodiesOf('POST /journal_entries').single as Map)['body_text'],
+        'Klavye açıkken',
+      );
+    });
+
+    testWidgets('the back gesture closes at once and keeps the text', (
+      tester,
+    ) async {
+      final api = FakeApi();
+      await _pump(tester, api);
+      await _open(tester, 'new');
+      await tester.tap(find.text('Geç'));
+      await _settle(tester);
+      await tester.enterText(_field('Bugün neler oldu?'), 'Geri ile kapandı');
+
+      await tester.binding.handlePopRoute();
+      await _settle(tester);
+      expect(
+        find.byType(JournalEditorScreen),
+        findsNothing,
+        reason: 'back is never blocked, nothing asks',
+      );
+      expect(await _draft(), contains('Geri ile kapandı'));
+
+      await _open(tester, 'new');
+      expect(_text(tester, 'Bugün neler oldu?'), 'Geri ile kapandı');
+    });
+
+    testWidgets('a mood picked on the way in is kept, as a draft and saved', (
+      tester,
+    ) async {
+      final api = FakeApi();
+      await _pump(tester, api);
+      await _open(tester, 'new with mood');
+      // The strip stays folded: the mood is already picked.
+      expect(find.text('Bugün nasıl hissediyorsun?'), findsNothing);
+      expect(find.bySemanticsLabel('Ruh hali: Harika'), findsOneWidget);
+      await _close(tester);
+      expect(await _draft(), contains('"mood":"great"'));
+
+      await _open(tester, 'new');
+      await tester.tap(find.text('Kaydet'));
+      await _settle(tester);
+      expect(
+        (api.bodiesOf('POST /journal_entries').single as Map)['mood'],
+        'great',
+      );
+    });
+  });
+
   group('drafts', () {
     testWidgets('kept when the app goes to the background and when the '
         'editor closes; back next time, with a way to discard them', (
@@ -418,7 +496,8 @@ void main() {
           '{"date":"2026-10-04","title":"$title","body":"$body",'
           '"mood":"good","weather":null,"energy":3,"gratitude":"","tags":""}';
       FlutterSecureStorage.setMockInitialValues({
-        'journal_draft_20': '{"fields":'
+        'journal_draft_20':
+            '{"fields":'
             '${snapshot(title: 'Yeni başlık', body: 'Eski metin')},'
             '"base":${snapshot(title: 'Sakin bir gün', body: 'Eski metin')},'
             '"updated_at":"2026-10-03T09:00:00.000Z"}',
@@ -501,12 +580,63 @@ void main() {
       final api = FakeApi();
       await _pump(tester, api, entry: _full());
       await _open(tester, 'open');
-      final node = tester.getSemantics(find.bySemanticsLabel(RegExp('^Ruh hali')));
+      // The picked mood, folded into a chip under the title.
+      final node = tester.getSemantics(find.bySemanticsLabel('Ruh hali: İyi'));
       expect(node.getSemanticsData().hasAction(SemanticsAction.tap), isTrue);
-      tester.semantics.tap(find.semantics.byLabel(RegExp('^Ruh hali')));
+      tester.semantics.tap(find.semantics.byLabel('Ruh hali: İyi'));
       await _settle(tester);
       expect(find.text('Bugün nasıl hissediyorsun?'), findsOneWidget);
       handle.dispose();
+    });
+
+    testWidgets('the date chip can be activated by a screen reader', (
+      tester,
+    ) async {
+      final handle = tester.ensureSemantics();
+      final api = FakeApi();
+      await _pump(tester, api, entry: _full());
+      await _open(tester, 'open');
+      final date = find.semantics.byLabel(RegExp('^Tarih'));
+      expect(
+        tester
+            .getSemantics(find.bySemanticsLabel(RegExp('^Tarih')))
+            .getSemanticsData()
+            .hasAction(SemanticsAction.tap),
+        isTrue,
+      );
+      tester.semantics.tap(date);
+      await _settle(tester);
+      expect(find.byType(DatePickerDialog), findsOneWidget);
+      handle.dispose();
+    });
+
+    testWidgets('a section revealed from the accessory bar under a long body '
+        'is scrolled into view, its field focused', (tester) async {
+      final api = FakeApi();
+      await _pump(tester, api, entry: _full());
+      // A phone's height: the long body runs well past the screen.
+      tester.view.physicalSize = const Size(1290, 2400);
+      await _settle(tester);
+      await _open(tester, 'open');
+      final scroller = find
+          .ancestor(
+            of: _field('Başlık'),
+            matching: find.byType(SingleChildScrollView),
+          )
+          .first;
+      final viewport = tester.getRect(scroller);
+      final gratitude = _field('Bugün ne için minnettarsın?');
+      expect(gratitude, findsNothing);
+
+      // The bar's chips scroll sideways.
+      await tester.ensureVisible(find.text('Minnet'));
+      await _settle(tester);
+      await tester.tap(find.text('Minnet'));
+      await _settle(tester);
+      final box = tester.getRect(gratitude);
+      expect(box.top, greaterThanOrEqualTo(viewport.top));
+      expect(box.bottom, lessThanOrEqualTo(viewport.bottom));
+      expect(tester.widget<TextField>(gratitude).focusNode!.hasFocus, isTrue);
     });
 
     testWidgets('an editor closed unchanged leaves no draft', (tester) async {

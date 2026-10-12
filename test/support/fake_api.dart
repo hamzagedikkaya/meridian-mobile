@@ -909,15 +909,6 @@ final Map<String, _Route> _defaults = {
     'todo_lists': [todoListJson()],
     'meta': const {'unlisted_open_count': 1},
   }),
-  'GET /journal_entries': _Route(body: {
-    'entries': [journalListItemJson()],
-    'meta': const {
-      'entries_count': 1,
-      'journal_streak': 1,
-      'mood_counts': {'great': 0, 'good': 1, 'neutral': 0, 'bad': 0, 'awful': 0},
-      'range': '30d',
-    },
-  }),
   'GET /journal_entries/20': _Route(body: {'entry': journalEntryJson()}),
 
   // Default routes added by a work package, reads and writes, go in its
@@ -953,6 +944,17 @@ final Map<String, _Route> _defaults = {
   // endregion
 
   // region journal (WP-13)
+  // The list with meta.journal_streak_weeks (WP-15, contract §13.4).
+  'GET /journal_entries': _Route(body: {
+    'entries': [journalListItemJson()],
+    'meta': const {
+      'entries_count': 1,
+      'journal_streak': 1,
+      'journal_streak_weeks': 1,
+      'mood_counts': {'great': 0, 'good': 1, 'neutral': 0, 'bad': 0, 'awful': 0},
+      'range': '30d',
+    },
+  }),
   // endregion
 
   // region profile (WP-14)

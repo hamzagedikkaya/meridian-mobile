@@ -7,20 +7,30 @@ library;
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_riverpod/misc.dart' show Override;
 import 'package:flutter_test/flutter_test.dart';
+import 'package:go_router/go_router.dart';
 import 'package:intl/date_symbol_data_local.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import 'package:meridian_mobile/core/haptics.dart';
 import 'package:meridian_mobile/core/locale_mode.dart';
+import 'package:meridian_mobile/core/reduce_motion.dart';
 import 'package:meridian_mobile/core/session.dart';
 import 'package:meridian_mobile/data/current_day.dart';
+import 'package:meridian_mobile/main.dart';
 import 'package:meridian_mobile/models/user.dart';
 import 'package:meridian_mobile/l10n/app_l10n.dart';
+import 'package:meridian_mobile/router/app_router.dart';
+import 'package:meridian_mobile/theme/app_motion.dart';
 import 'package:meridian_mobile/theme/app_theme.dart';
 import 'package:meridian_mobile/ui/screens/profile/profile_screen.dart';
+import 'package:meridian_mobile/ui/widgets/amount_keypad.dart'
+    show RejectShake;
 
 import '../support/fake_api.dart';
 import '../support/fake_stores.dart';
@@ -52,7 +62,7 @@ MaterialApp _app() => MaterialApp(
       home: const ProfileScreen(),
     );
 
-void _tallSurface(WidgetTester tester, {Size size = const Size(1500, 4200)}) {
+void _tallSurface(WidgetTester tester, {Size size = const Size(1500, 6600)}) {
   tester.view.physicalSize = size;
   tester.view.devicePixelRatio = 3.0;
   addTearDown(tester.view.resetPhysicalSize);
@@ -86,7 +96,7 @@ Future<_Harness> _pumpSignedIn(
   FakeApi? api,
   String? draft,
   List<Override> overrides = const [],
-  Size surface = const Size(1500, 4200),
+  Size surface = const Size(1500, 6600),
 }) async {
   _tallSurface(tester, size: surface);
   final h = _Harness(
@@ -141,6 +151,36 @@ void _expectTappable(WidgetTester tester, Finder finder) {
   expect(hits.whereType<RenderObject>(), contains(tester.renderObject(finder)));
 }
 
+/// No text on screen is cut short: every label and value is whole, at any
+/// text size (design-analysis §4.7).
+void _expectNothingCut(WidgetTester tester) {
+  for (final text in tester.renderObjectList<RenderParagraph>(
+    find.byType(RichText),
+  )) {
+    expect(
+      text.didExceedMaxLines,
+      isFalse,
+      reason: '"${text.text.toPlainText()}" is cut',
+    );
+  }
+}
+
+/// The haptics played from now on, by their `HapticFeedbackType`.
+List<String?> _recordHaptics() {
+  final played = <String?>[];
+  TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+      .setMockMethodCallHandler(SystemChannels.platform, (call) async {
+    if (call.method == 'HapticFeedback.vibrate') {
+      played.add(call.arguments as String?);
+    }
+    return null;
+  });
+  addTearDown(() => TestDefaultBinaryMessengerBinding
+      .instance.defaultBinaryMessenger
+      .setMockMethodCallHandler(SystemChannels.platform, null));
+  return played;
+}
+
 void main() {
   setUpAll(() async {
     await initializeDateFormatting();
@@ -149,6 +189,7 @@ void main() {
   setUp(() async {
     SharedPreferences.setMockInitialValues({});
     _prefs = await SharedPreferences.getInstance();
+    Haptics.debugReset(androidSdk: 34);
   });
 
   testWidgets('a calm settings list: every setting with its value', (
@@ -169,9 +210,9 @@ void main() {
     expect(find.text('Şifre'), findsOneWidget);
     expect(find.text('Değiştir'), findsOneWidget);
     expect(find.text('Para birimi'), findsOneWidget);
-    expect(find.text('TRY (₺)'), findsOneWidget);
+    expect(find.text('TRY · ₺'), findsOneWidget);
     expect(find.text('Saat dilimi'), findsOneWidget);
-    expect(find.text('Europe/Istanbul (UTC+03:00)'), findsOneWidget);
+    expect(find.text('Europe/Istanbul, UTC+3'), findsOneWidget);
     expect(find.text('Haftalık değerlendirme'), findsOneWidget);
     expect(find.text('Pazar'), findsOneWidget);
 
@@ -182,10 +223,10 @@ void main() {
     expect(find.text('Dil'), findsOneWidget);
     expect(find.text('Türkçe'), findsOneWidget);
     expect(find.text('Sunucu'), findsWidgets);
-    expect(find.text('Çevrimiçi'), findsOneWidget);
+    expect(find.textContaining('Bağlı\u00A0·\u00A012\u00A0ms'), findsOneWidget);
 
     // Signing out says it is for every device.
-    expect(find.text('Çıkış Yap'), findsOneWidget);
+    expect(find.text('Çıkış yap'), findsOneWidget);
     expect(find.text('Tüm cihazlarda oturumu kapatır'), findsOneWidget);
   });
 
@@ -195,9 +236,9 @@ void main() {
     final handle = tester.ensureSemantics();
     await _pumpSignedIn(tester);
     expect(
-      tester.getSemantics(find.text('TRY (₺)')),
+      tester.getSemantics(find.text('TRY · ₺')),
       matchesSemantics(
-        label: 'Para birimi\nTRY (₺)',
+        label: 'Para birimi\nTRY · ₺',
         isButton: true,
         hasTapAction: true,
         isFocusable: true,
@@ -228,9 +269,11 @@ void main() {
     ));
     await tester.pumpAndSettle();
     expect(tester.takeException(), isNull);
+    _expectNothingCut(tester);
     await tester.drag(find.byType(ListView), const Offset(0, -3000));
     await tester.pumpAndSettle();
     expect(tester.takeException(), isNull);
+    _expectNothingCut(tester);
   });
 
   testWidgets(
@@ -265,10 +308,10 @@ void main() {
 
     // Screen chrome still present.
     expect(find.text('Profil'), findsOneWidget);
-    expect(find.text('Çıkış Yap'), findsOneWidget);
+    expect(find.text('Çıkış yap'), findsOneWidget);
 
-    // Unreachable health → red "Ulaşılamıyor".
-    expect(find.text('Ulaşılamıyor'), findsOneWidget);
+    // Unreachable health → a red dot and "Ulaşılamıyor".
+    expect(find.textContaining('Ulaşılamıyor'), findsOneWidget);
   });
 
   testWidgets('picking English re-renders the screen in English',
@@ -297,7 +340,7 @@ void main() {
     expect(find.text('Profile'), findsOneWidget);
     expect(find.text('Language'), findsOneWidget);
     expect(find.text('Theme'), findsOneWidget);
-    expect(find.text('Sign Out'), findsOneWidget);
+    expect(find.text('Sign out'), findsOneWidget);
     expect(find.text('Profil'), findsNothing);
     // The choice is remembered for the next launch.
     expect(_prefs.getString(PrefKeys.locale), 'en');
@@ -360,7 +403,7 @@ void main() {
     testWidgets('is shown with its offset', (tester) async {
       await pump(tester, const Duration(hours: 3));
       expect(find.text('Saat dilimi'), findsOneWidget);
-      expect(find.text('Europe/Istanbul (UTC+03:00)'), findsOneWidget);
+      expect(find.text('Europe/Istanbul, UTC+3'), findsOneWidget);
       expect(find.textContaining('Bu cihaz'), findsNothing);
     });
 
@@ -735,7 +778,7 @@ void main() {
       await _settle(tester);
 
       expect(h.api.bodiesOf('PATCH /me').single, {'currency': 'USD'});
-      expect(find.text('USD (\$)'), findsOneWidget);
+      expect(find.text('USD · \$'), findsOneWidget);
       expect(find.text('Para birimi: USD'), findsOneWidget);
     });
 
@@ -793,7 +836,7 @@ void main() {
       await _settle(tester);
 
       expect(h.api.bodiesOf('PATCH /me').single, {'timezone': 'Tokyo'});
-      expect(find.text('Asia/Tokyo (UTC+09:00)'), findsOneWidget);
+      expect(find.text('Asia/Tokyo, UTC+9'), findsOneWidget);
       // Every screen and the account itself are read again.
       expect(h.api.gets, containsAll(['/me', '/me/options']));
       // The phone (UTC+03:00) is now in another zone than the account.
@@ -810,12 +853,11 @@ void main() {
       await tester.ensureVisible(find.text('Saat dilimi'));
       await _settle(tester);
       await _openRow(tester, 'Saat dilimi');
+      expect(find.byType(BottomSheet), findsOneWidget);
+      // Typing in the search brings the keyboard up.
+      await tester.enterText(find.byType(TextField), 'UTC+09');
       tester.view.viewInsets = const FakeViewPadding(bottom: 900);
       addTearDown(tester.view.resetViewInsets);
-      await _settle(tester);
-      expect(tester.takeException(), isNull);
-      expect(find.byType(BottomSheet), findsOneWidget);
-      await tester.enterText(find.byType(TextField), 'UTC+09');
       await _settle(tester);
       expect(tester.takeException(), isNull);
       // The zones scroll under the search field, which stays on screen.
@@ -894,17 +936,20 @@ void main() {
     testWidgets('the sheet says every device is signed out; confirming '
         'revokes the token on the server and wipes this phone', (tester) async {
       final h = await _pumpSignedIn(tester);
-      await tester.tap(find.text('Çıkış Yap'));
+      await tester.tap(find.text('Çıkış yap'));
       await _settle(tester);
       expect(find.text('Çıkış yapılsın mı?'), findsOneWidget);
       expect(
-        find.textContaining('tüm cihazlarda oturum kapanır'),
+        find.textContaining('sunucudaki oturumun iptal edilir'),
         findsOneWidget,
       );
       expect(find.textContaining('günlük taslağın'), findsNothing);
 
-      await tester.tap(find.widgetWithText(FilledButton, 'Çıkış Yap'));
+      // Signing out is a routine end, not a success: no haptic (§5.8).
+      final played = _recordHaptics();
+      await tester.tap(find.widgetWithText(FilledButton, 'Çıkış yap'));
       await _settle(tester);
+      expect(played, isEmpty);
       expect(h.api.requests, contains('DELETE /session'));
       expect(
         h.session,
@@ -922,10 +967,10 @@ void main() {
         tester,
         draft: jsonEncode({'title': '', 'body': 'Yarım kalan yazı'}),
       );
-      await tester.tap(find.text('Çıkış Yap'));
+      await tester.tap(find.text('Çıkış yap'));
       await _settle(tester);
       expect(
-        find.text('Kaydedilmemiş günlük taslağın bu telefondan silinecek.'),
+        find.text('Kaydedilmemiş günlük taslağın da silinir.'),
         findsOneWidget,
       );
     });
@@ -945,17 +990,17 @@ void main() {
           );
           expect(tester.takeException(), isNull);
           await tester.scrollUntilVisible(
-            find.text('Çıkış Yap'),
+            find.text('Çıkış yap'),
             200,
             scrollable: find.byType(Scrollable).first,
           );
-          await tester.tap(find.text('Çıkış Yap'));
+          await tester.tap(find.text('Çıkış yap'));
           await _settle(tester);
           expect(tester.takeException(), isNull);
           if (draft != null) {
             expect(find.textContaining('günlük taslağın'), findsOneWidget);
           }
-          final signOut = find.widgetWithText(FilledButton, 'Çıkış Yap');
+          final signOut = find.widgetWithText(FilledButton, 'Çıkış yap');
           _expectTappable(tester, signOut);
           _expectTappable(tester, find.widgetWithText(TextButton, 'Vazgeç'));
           await tester.tap(signOut);
@@ -967,7 +1012,7 @@ void main() {
 
     testWidgets('cancel keeps the session', (tester) async {
       final h = await _pumpSignedIn(tester);
-      await tester.tap(find.text('Çıkış Yap'));
+      await tester.tap(find.text('Çıkış yap'));
       await _settle(tester);
       await tester.tap(find.text('Vazgeç'));
       await _settle(tester);
@@ -979,9 +1024,9 @@ void main() {
         'the state says the session was not ended there', (tester) async {
       final api = FakeApi()..failNetwork('DELETE /session');
       final h = await _pumpSignedIn(tester, api: api);
-      await tester.tap(find.text('Çıkış Yap'));
+      await tester.tap(find.text('Çıkış yap'));
       await _settle(tester);
-      await tester.tap(find.widgetWithText(FilledButton, 'Çıkış Yap'));
+      await tester.tap(find.widgetWithText(FilledButton, 'Çıkış yap'));
       await _settle(tester);
       expect(
         h.session,
@@ -995,10 +1040,196 @@ void main() {
     });
   });
 
+  testWidgets('the server in one row: the address, a dot and the round '
+      'trip', (tester) async {
+    await _prefs.setString(PrefKeys.serverUrl, 'http://192.168.1.24:3000');
+    await _pumpSignedIn(tester);
+    final row = find.textContaining('192.168.1.24:3000');
+    expect(
+      tester.widget<Text>(row).textSpan!.toPlainText(),
+      '192.168.1.24:3000 · \uFFFCBağlı\u00A0·\u00A012\u00A0ms',
+    );
+    expect(find.text('API durumu'), findsNothing);
+  });
+
+  group('"Hareketi azalt"', () {
+    testWidgets('a switch that applies at once and stays on this device', (
+      tester,
+    ) async {
+      final handle = tester.ensureSemantics();
+      await _pumpSignedIn(tester);
+      final context = tester.element(find.byType(ProfileScreen));
+      expect(Motion.reduced(context), isFalse);
+      expect(
+        tester.getSemantics(find.text('Hareketi azalt')),
+        matchesSemantics(
+          label: 'Hareketi azalt\nGeçişler ve sayılar anında değişir',
+          isButton: true,
+          hasTapAction: true,
+          hasFocusAction: true,
+          isFocusable: true,
+          hasToggledState: true,
+          hasEnabledState: true,
+          isEnabled: true,
+          hasSelectedState: false,
+        ),
+      );
+
+      await tester.tap(find.text('Hareketi azalt'));
+      await tester.pump();
+      expect(_prefs.getString(PrefKeys.reduceMotion), 'true');
+      expect(tester.widget<Switch>(find.byType(Switch)).value, isTrue);
+      // The app folds it into the one signal every animation reads.
+      expect(
+        Motion.reduced(tester.element(find.byType(ProfileScreen))),
+        isTrue,
+      );
+
+      await tester.tap(find.byType(Switch));
+      await tester.pump();
+      expect(_prefs.getString(PrefKeys.reduceMotion), 'false');
+      expect(
+        Motion.reduced(tester.element(find.byType(ProfileScreen))),
+        isFalse,
+      );
+      handle.dispose();
+    });
+
+    testWidgets('on: an editor sheet opens and closes in one frame', (
+      tester,
+    ) async {
+      _prefs.setString(PrefKeys.reduceMotion, 'true');
+      await _pumpSignedIn(tester);
+      await tester.tap(find.text('Ad'));
+      await tester.pump();
+      expect(find.byType(BottomSheet), findsOneWidget);
+      final opened = tester.getRect(find.byType(BottomSheet));
+      await tester.pump(const Duration(milliseconds: 400));
+      expect(tester.getRect(find.byType(BottomSheet)), opened,
+          reason: 'already in place on the first frame');
+      await tester.tap(find.byTooltip('Kapat'));
+      await tester.pump();
+      await tester.pump();
+      expect(find.byType(BottomSheet), findsNothing);
+    });
+  });
+
+  testWidgets('a wrong current password shakes the field', (tester) async {
+    final api = FakeApi()
+      ..on('PATCH /me/password', {
+        'errors': {
+          'current_password': ['Mevcut şifre geçersiz'],
+        },
+        'code': 'invalid_current_password',
+        'details': {
+          'current_password': [
+            {'error': 'invalid'},
+          ],
+        },
+      }, status: 422);
+    await _pumpSignedIn(tester, api: api);
+    await _openRow(tester, 'Şifre');
+    final shake = find.ancestor(
+      of: _field('Mevcut şifre'),
+      matching: find.byType(RejectShake),
+    );
+    expect(tester.widget<RejectShake>(shake).trigger, 0);
+    await tester.enterText(_field('Mevcut şifre'), 'yanlis');
+    await tester.enterText(_field('Yeni şifre'), 'yeni-sifre');
+    await tester.enterText(_field('Yeni şifre (tekrar)'), 'yeni-sifre');
+    final played = _recordHaptics();
+    await tester.tap(find.text('Şifreyi değiştir').last);
+    for (var i = 0;
+        i < 20 && tester.widget<RejectShake>(shake).trigger == 0;
+        i++) {
+      await tester.pump(const Duration(milliseconds: 10));
+    }
+    expect(tester.widget<RejectShake>(shake).trigger, 1);
+    // ...and REJECT, once (§5.8).
+    expect(played, ['HapticFeedbackType.errorNotification']);
+    await tester.pump(const Duration(milliseconds: 50));
+    final moved = tester
+        .widgetList<Transform>(
+          find.descendant(of: shake, matching: find.byType(Transform)),
+        )
+        .first
+        .transform
+        .getTranslation()
+        .x;
+    expect(moved, isNot(0));
+    await _settle(tester);
+    expect(find.text('Mevcut şifre yanlış'), findsOneWidget);
+  });
+
+  group('the Data section', () {
+    /// The app as it runs, signed in over [FakeApi], on Profile.
+    Future<GoRouter> pumpApp(WidgetTester tester) async {
+      _tallSurface(tester);
+      final api = FakeApi();
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [
+            sharedPrefsProvider.overrideWithValue(_prefs),
+            dioProvider.overrideWithValue(api.dio),
+            ...signedInOverrides(
+              tokens: MemoryTokenStore(origin: 'http://meridian.test'),
+            ),
+            apiHealthProvider.overrideWith(
+              (ref) async => (ok: true, latencyMs: 12, version: '1.0.0'),
+            ),
+          ],
+          retry: (_, _) => null,
+          child: const MeridianApp(),
+        ),
+      );
+      await _settle(tester);
+      final router = ProviderScope.containerOf(
+        tester.element(find.byType(MeridianApp)),
+      ).read(routerProvider);
+      router.push('/profile');
+      await _settle(tester);
+      return router;
+    }
+
+    String location(GoRouter router) => router.state.uri.toString();
+
+    testWidgets('every management page, one row away; back comes to '
+        'Profile, then Today', (tester) async {
+      final router = await pumpApp(tester);
+      expect(find.text('Veri'), findsOneWidget);
+      for (final (row, path) in [
+        ('Hesaplar', '/finance/accounts'),
+        ('Kategoriler', '/finance/categories'),
+        ('Abonelikler', '/finance/subscriptions'),
+        ('Görev listeleri', '/agenda/lists'),
+        ('Arşivlenmiş alışkanlıklar', '/habits/archived'),
+        ('Hedefler', '/goals'),
+      ]) {
+        await tester.tap(find.text(row));
+        await _settle(tester);
+        expect(location(router), path, reason: row);
+        expect(find.byType(ProfileScreen).hitTestable(), findsNothing);
+        await tester.binding.handlePopRoute();
+        await _settle(tester);
+        expect(location(router), '/profile', reason: 'back from $row');
+      }
+      await tester.binding.handlePopRoute();
+      await _settle(tester);
+      expect(location(router), '/today');
+    });
+
+    testWidgets('the server row opens the server settings', (tester) async {
+      final router = await pumpApp(tester);
+      await tester.tap(find.text('Sunucu adresi'));
+      await _settle(tester);
+      expect(location(router), '/profile/server');
+    });
+  });
+
   testWidgets('pull to refresh re-reads the account', (tester) async {
     final h = await _pumpSignedIn(tester);
     h.api.on('GET /me', {'user': userJson(name: 'Webden')});
-    await tester.fling(find.byType(ListView), const Offset(0, 400), 1000);
+    await tester.fling(find.byType(ListView), const Offset(0, 800), 1000);
     await tester.pumpAndSettle();
     expect(h.api.gets, contains('/me'));
     expect(find.text('Webden'), findsWidgets);
@@ -1021,6 +1252,12 @@ class _LocaleAwareApp extends ConsumerWidget {
         GlobalCupertinoLocalizations.delegate,
       ],
       supportedLocales: AppL10n.supportedLocales,
+      // As MeridianApp does: the app's "Reduce motion" switch joins the
+      // system's flag.
+      builder: (context, child) => MotionPreference(
+        reduce: ref.watch(reduceMotionProvider),
+        child: child!,
+      ),
       home: const ProfileScreen(),
     );
   }

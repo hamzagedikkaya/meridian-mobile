@@ -233,6 +233,27 @@ abstract class AppL10n {
   /// Shorter label for the Profile row, where the address sits beside it.
   String get serverAddressShort;
   String get serverAddressUnreachable;
+
+  /// Said under an empty field, before anything is sent.
+  String get loginEmailRequired;
+  String get loginPasswordRequired;
+
+  /// 429 on signing in.
+  String get loginRateLimited;
+
+  /// The address field's example: a LAN address or a Tailscale name.
+  String get serverAddressHint;
+
+  /// "Where do I find the address?" — the link under the address field and
+  /// the three short steps of the sheet it opens.
+  String get serverHelpAction;
+  String get serverHelpTitle;
+  String get serverHelpLanTitle;
+  String get serverHelpLanBody;
+  String get serverHelpTailscaleTitle;
+  String get serverHelpTailscaleBody;
+  String get serverHelpPortTitle;
+  String get serverHelpPortBody;
   // endregion
 
   // --- Dates and relative days ----------------------------------------------
@@ -1532,6 +1553,39 @@ abstract class AppL10n {
 
   /// Range pill label for `7d` / `30d` / `6mo` / `1y` / `all`.
   String journalRange(String range);
+  /// The range chip and its picker: "Son 30 gün", "Tümü".
+  String journalRangeLong(String range);
+  String get journalRangeTitle;
+
+  /// The meta line's streak (WP-15 `journal_streak_weeks`): "6 haftadır
+  /// yazıyorsun". A server without it falls back to `StreakFlame`.
+  String journalStreakWeeks(int weeks);
+
+  /// Overline on today's entry card.
+  String get journalTodayOverline;
+  String get journalEmptyRange;
+  String get journalAllEntries;
+  String journalTagFilter(String tag);
+  String get journalNoEntryForFilter;
+  String get journalClearFilters;
+
+  /// The extended FAB: "Yaz".
+  String get journalFabWrite;
+
+  /// EnergyBars for a screen reader: "Enerji 3 / 5".
+  String journalEnergyValue(int level);
+
+  /// The editor's quiet autosave stamp: "Taslak 12:41".
+  String journalDraftSavedAt(String time);
+
+  /// The editor's accessory-bar chips.
+  String get journalChipTags;
+  String get journalChipGratitude;
+  String get journalChipWeather;
+
+  /// The date chip in the editor's app bar, for a screen reader.
+  String journalEditorDateLabel(String date);
+  String get journalEditorWeatherClear;
   // endregion
 
   // --- Profile and server settings ------------------------------------------
@@ -1556,7 +1610,6 @@ abstract class AppL10n {
   String get profileSectionServer;
   String get profileSectionAbout;
   String get profileVersion;
-  String get profileApiStatus;
   String get profileApiOnline;
   String get profileApiUnreachable;
   String get profileSignOut;
@@ -1566,7 +1619,7 @@ abstract class AppL10n {
   String get profileLanguageSaveFailed;
   String get profileThemeSaveFailed;
 
-  /// Under "Çıkış Yap": signing out ends the session on every device.
+  /// Under "Çıkış yap": signing out ends the session on every device.
   String get profileSignOutEverywhere;
 
   /// In the sign-out sheet when an unsaved journal draft would be lost.
@@ -1637,6 +1690,22 @@ abstract class AppL10n {
   String get serverUnverifiedBody;
   String get serverSaveAnyway;
   String get serverSaved;
+
+  // Data: the management pages, each one row away (design-analysis §6.7).
+  String get profileSectionData;
+  String get profileDataAccounts;
+  String get profileDataCategories;
+  String get profileDataSubscriptions;
+  String get profileDataLists;
+  String get profileDataArchivedHabits;
+  String get profileDataGoals;
+
+  /// The app's own "Reduce motion" switch, and the line under it.
+  String get profileReduceMotion;
+  String get profileReduceMotionNote;
+
+  /// The server row while its ping is out.
+  String get profileServerChecking;
   // endregion
 }
 

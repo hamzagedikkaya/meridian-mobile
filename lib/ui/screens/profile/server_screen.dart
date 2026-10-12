@@ -7,13 +7,21 @@ import '../../../core/session.dart';
 import '../../../data/sync.dart';
 import '../../../l10n/app_l10n.dart';
 import '../../../theme/app_colors.dart';
+import '../../../theme/app_metrics.dart';
+import '../../../theme/app_motion.dart';
 import '../../widgets/app_snackbar.dart';
-import '../../widgets/confirm_dialog.dart';
+import '../../widgets/nok_sheet.dart';
 import '../../widgets/primary_button.dart';
+import '../../widgets/server_url_field.dart';
 
 enum _Phase { idle, testing, done }
 
-/// Server settings — address + connection test with latency (design §4.8).
+/// Server settings (design-analysis §7.1): the address — with the same hint
+/// and "where do I find it?" help as the login screen — a connection test
+/// with its latency, and Save.
+///
+/// Saving an address that did not answer asks first, in a sheet. A new
+/// address ends the session (its token belongs to the old server).
 class ServerScreen extends ConsumerStatefulWidget {
   const ServerScreen({super.key});
 
@@ -40,12 +48,11 @@ class _ServerScreenState extends ConsumerState<ServerScreen> {
   }
 
   void _onChanged(String _) {
-    if (_phase != _Phase.idle) {
-      setState(() {
-        _phase = _Phase.idle;
-        _result = null;
-      });
-    }
+    // Always: the field's hint (two lines while empty) follows the text.
+    setState(() {
+      _phase = _Phase.idle;
+      _result = null;
+    });
   }
 
   Future<void> _test() async {
@@ -58,13 +65,13 @@ class _ServerScreenState extends ConsumerState<ServerScreen> {
       _phase = _Phase.testing;
       _result = null;
     });
-    final res = await pingHealth(url);
+    final res = await ref.read(serverPingProvider)(url);
     if (!mounted) return;
     setState(() {
       _phase = _Phase.done;
       _result = res;
     });
-    res.ok ? Haptics.success() : Haptics.danger();
+    res.ok ? Haptics.confirm() : Haptics.reject();
   }
 
   Future<void> _save() async {
@@ -76,13 +83,12 @@ class _ServerScreenState extends ConsumerState<ServerScreen> {
     }
     final verified = _phase == _Phase.done && (_result?.ok ?? false);
     if (!verified) {
-      final go = await showConfirmDialog(
+      final go = await showNokSheet<bool>(
         context,
         title: l.serverUnverifiedTitle,
-        message: l.serverUnverifiedBody,
-        confirmLabel: l.serverSaveAnyway,
+        builder: (context) => const _SaveAnywaySheet(),
       );
-      if (!go) return;
+      if (go != true || !mounted) return;
     }
     setState(() => _saving = true);
     // A new address signs out (its token belongs to the old server). The
@@ -103,17 +109,23 @@ class _ServerScreenState extends ConsumerState<ServerScreen> {
     final c = context.nok;
     final text = Theme.of(context).textTheme;
     final l = context.l10n;
+    final testing = _phase == _Phase.testing;
 
     return Scaffold(
       appBar: AppBar(title: Text(l.titleServer)),
       body: ListView(
-        padding: const EdgeInsets.fromLTRB(20, 12, 20, 40),
+        padding: const EdgeInsets.fromLTRB(
+          Insets.gutter,
+          Gap.md,
+          Insets.gutter,
+          Gap.x4,
+        ),
         children: [
           Text(
             l.serverBlurb,
             style: text.bodyMedium!.copyWith(color: c.inkMid),
           ),
-          const SizedBox(height: 20),
+          const SizedBox(height: Gap.xl),
           TextField(
             controller: _controller,
             keyboardType: TextInputType.url,
@@ -123,28 +135,41 @@ class _ServerScreenState extends ConsumerState<ServerScreen> {
             onSubmitted: (_) => _test(),
             decoration: InputDecoration(
               labelText: l.serverAddress,
-              hintText: 'http://192.168.1.20:3000',
+              hintText: l.serverAddressHint,
+              // Both examples, wrapped as far as the text size needs —
+              // never cut; the field keeps that height once typed in.
+              hintMaxLines: serverHintMaxLines,
             ),
           ),
-          const SizedBox(height: 12),
+          const Align(
+            alignment: AlignmentDirectional.centerStart,
+            child: ServerAddressHelpButton(),
+          ),
+          const SizedBox(height: Gap.xs),
           OutlinedButton.icon(
-            onPressed: _phase == _Phase.testing ? null : _test,
-            icon: _phase == _Phase.testing
+            onPressed: testing ? null : _test,
+            icon: testing
                 ? const SizedBox(
-                    width: 16,
-                    height: 16,
+                    width: 18,
+                    height: 18,
                     child: CircularProgressIndicator(strokeWidth: 2),
                   )
-                : const Icon(Icons.wifi_tethering, size: 20),
+                : const Icon(Icons.wifi_tethering_rounded, size: 18),
             label: Text(l.serverTest),
           ),
-          AnimatedSize(
-            duration: const Duration(milliseconds: 300),
-            curve: Curves.easeOutCubic,
-            alignment: Alignment.topCenter,
-            child: _ResultRow(phase: _phase, result: _result),
-          ),
-          const SizedBox(height: 24),
+          // AnimatedSize cannot take zero time (it would re-lay itself out
+          // mid-layout): under reduced motion the result just takes its
+          // place.
+          if (Motion.reduced(context))
+            _ResultRow(phase: _phase, result: _result)
+          else
+            AnimatedSize(
+              duration: Motion.collapse,
+              curve: Motion.enter,
+              alignment: Alignment.topCenter,
+              child: _ResultRow(phase: _phase, result: _result),
+            ),
+          const SizedBox(height: Gap.xxl),
           PrimaryButton(
             label: l.actionSave,
             loading: _saving,
@@ -156,7 +181,56 @@ class _ServerScreenState extends ConsumerState<ServerScreen> {
   }
 }
 
-/// Inline test outcome: green "Connected · Meridian vX · 38 ms" or red failure.
+/// "Bu adres yanıt vermiyor. Yine de kaydet?" — a sheet, not a dialog
+/// (design-analysis §7.1): "Yine de kaydet" first, "Vazgeç" under it. Pops
+/// true to save.
+class _SaveAnywaySheet extends StatelessWidget {
+  const _SaveAnywaySheet();
+
+  @override
+  Widget build(BuildContext context) {
+    final c = context.nok;
+    final text = Theme.of(context).textTheme;
+    final l = context.l10n;
+    final navigator = Navigator.of(context);
+    return SingleChildScrollView(
+      child: SafeArea(
+        top: false,
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(
+            Insets.sheetH,
+            0,
+            Insets.sheetH,
+            Gap.lg,
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Text(
+                l.serverUnverifiedBody,
+                style: text.bodyMedium!.copyWith(color: c.inkMid),
+              ),
+              const SizedBox(height: Gap.xxl),
+              PrimaryButton(
+                label: l.serverSaveAnyway,
+                onPressed: () => navigator.pop(true),
+              ),
+              const SizedBox(height: Gap.sm),
+              TextButton(
+                onPressed: () => navigator.pop(false),
+                child: Text(l.actionCancel),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Inline test outcome: "Bağlandı · Meridian v1.x · 38 ms" with a green
+/// check, or the failure in the error colour.
 class _ResultRow extends StatelessWidget {
   final _Phase phase;
   final HealthResult? result;
@@ -166,7 +240,6 @@ class _ResultRow extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final c = context.nok;
-    final text = Theme.of(context).textTheme;
     final l = context.l10n;
 
     if (phase != _Phase.done || result == null) {
@@ -182,18 +255,16 @@ class _ResultRow extends StatelessWidget {
       ];
       return _line(
         context,
-        icon: Icons.check_circle,
+        icon: Icons.check_circle_rounded,
         color: c.income,
         label: parts.join(' · '),
-        style: text.bodyMedium!,
       );
     }
     return _line(
       context,
-      icon: Icons.error_outline,
+      icon: Icons.error_outline_rounded,
       color: c.error,
       label: l.serverCantConnect,
-      style: text.bodyMedium!,
     );
   }
 
@@ -202,23 +273,20 @@ class _ResultRow extends StatelessWidget {
     required IconData icon,
     required Color color,
     required String label,
-    required TextStyle style,
   }) {
-    final c = context.nok;
+    final text = Theme.of(context).textTheme;
     return Padding(
-      padding: const EdgeInsets.only(top: 12),
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
-        decoration: BoxDecoration(
-          color: c.surface2,
-          borderRadius: BorderRadius.circular(12),
-          border: Border.all(color: color.withValues(alpha: 0.35)),
-        ),
+      padding: const EdgeInsets.only(top: Gap.md),
+      child: Semantics(
+        liveRegion: true,
         child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Icon(icon, size: 18, color: color),
-            const SizedBox(width: 8),
-            Expanded(child: Text(label, style: style.copyWith(color: color))),
+            Icon(icon, size: 20, color: color),
+            const SizedBox(width: Gap.sm),
+            Expanded(
+              child: Text(label, style: text.bodyMedium!.copyWith(color: color)),
+            ),
           ],
         ),
       ),

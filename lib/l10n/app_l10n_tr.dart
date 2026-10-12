@@ -364,7 +364,7 @@ class AppL10nTr extends AppL10n {
   @override
   String get loginPassword => 'Şifre';
   @override
-  String get loginSubmit => 'Giriş Yap';
+  String get loginSubmit => 'Giriş yap';
   @override
   String get serverAddress => 'Sunucu adresi';
   @override
@@ -372,6 +372,37 @@ class AppL10nTr extends AppL10n {
   @override
   String get serverAddressUnreachable =>
       'Sunucuya ulaşılamadı — adresi, Wi-Fi veya Tailscale bağlantını kontrol et';
+  @override
+  String get loginEmailRequired => 'E-posta gir';
+  @override
+  String get loginPasswordRequired => 'Şifre gir';
+  @override
+  String get loginRateLimited =>
+      'Çok fazla deneme — biraz bekleyip tekrar dene';
+  @override
+  String get serverAddressHint =>
+      'http://192.168.1.20:3000 ya da http://mac.tailnet.ts.net:3000';
+  @override
+  String get serverHelpAction => 'Adresi nereden bulurum?';
+  @override
+  String get serverHelpTitle => 'Sunucu adresini bul';
+  @override
+  String get serverHelpLanTitle => 'Aynı ağdaysan: yerel IP';
+  @override
+  String get serverHelpLanBody =>
+      'Meridian\'ın çalıştığı bilgisayarda Wi-Fi ayrıntılarına bak: '
+      '192.168.1.20 gibi bir adres.';
+  @override
+  String get serverHelpTailscaleTitle => 'Başka yerdeysen: Tailscale adı';
+  @override
+  String get serverHelpTailscaleBody =>
+      'Tailscale uygulamasında bilgisayarın MagicDNS adını kopyala, '
+      'mac.tailnet.ts.net gibi. Bu telefonda da Tailscale açık olmalı.';
+  @override
+  String get serverHelpPortTitle => 'Sonuna port: 3000';
+  @override
+  String get serverHelpPortBody =>
+      'Adresi http:// ile başlat, :3000 ile bitir: http://192.168.1.20:3000';
   // endregion
 
   // --- Dates and relative days ----------------------------------------------
@@ -2404,6 +2435,46 @@ class AppL10nTr extends AppL10n {
         '1y' => '1y',
         _ => 'Tümü',
       };
+  @override
+  String journalRangeLong(String range) => switch (range) {
+        '7d' => 'Son 7 gün',
+        '30d' => 'Son 30 gün',
+        '6mo' => 'Son 6 ay',
+        '1y' => 'Son 1 yıl',
+        _ => 'Tümü',
+      };
+  @override
+  String get journalRangeTitle => 'Aralık';
+  @override
+  String journalStreakWeeks(int weeks) => '$weeks haftadır yazıyorsun';
+  @override
+  String get journalTodayOverline => 'BUGÜN';
+  @override
+  String get journalEmptyRange => 'Bu aralıkta kayıt yok';
+  @override
+  String get journalAllEntries => 'Tüm kayıtlar';
+  @override
+  String journalTagFilter(String tag) => 'Etiket: $tag';
+  @override
+  String get journalNoEntryForFilter => 'Bu filtreyle kayıt yok';
+  @override
+  String get journalClearFilters => 'Filtreleri temizle';
+  @override
+  String get journalFabWrite => 'Yaz';
+  @override
+  String journalEnergyValue(int level) => 'Enerji $level / 5';
+  @override
+  String journalDraftSavedAt(String time) => 'Taslak $time';
+  @override
+  String get journalChipTags => 'Etiket';
+  @override
+  String get journalChipGratitude => 'Minnet';
+  @override
+  String get journalChipWeather => 'Hava';
+  @override
+  String journalEditorDateLabel(String date) => 'Tarih: $date. Değiştir';
+  @override
+  String get journalEditorWeatherClear => 'Havayı kaldır';
   // endregion
 
   // --- Profile and server settings ------------------------------------------
@@ -2431,7 +2502,7 @@ class AppL10nTr extends AppL10n {
   String get profileTimeZone => 'Saat dilimi';
   @override
   String profileTimeZoneValue(String zone, String offset) =>
-      '$zone (UTC$offset)';
+      '$zone, UTC$offset';
   @override
   String profileTimeZoneDeviceDiffers(String deviceOffset) =>
       'Bu cihaz UTC$deviceOffset kullanıyor. Günler ve saatler hesabının '
@@ -2443,19 +2514,17 @@ class AppL10nTr extends AppL10n {
   @override
   String get profileVersion => 'Sürüm';
   @override
-  String get profileApiStatus => 'API durumu';
-  @override
-  String get profileApiOnline => 'Çevrimiçi';
+  String get profileApiOnline => 'Bağlı';
   @override
   String get profileApiUnreachable => 'Ulaşılamıyor';
   @override
-  String get profileSignOut => 'Çıkış Yap';
+  String get profileSignOut => 'Çıkış yap';
   @override
   String get profileSignOutTitle => 'Çıkış yapılsın mı?';
   @override
   String get profileSignOutBody =>
-      'Bu hesapla giriş yapılmış tüm cihazlarda oturum kapanır: her hesabın '
-      'tek bir oturum anahtarı var. Sunucu adresi bu telefonda kayıtlı kalır.';
+      'Bu cihazdaki oturum kapanır ve sunucudaki oturumun iptal edilir '
+      '(tüm cihazlarda).';
   @override
   String get profileFallbackName => 'Kullanıcı';
   @override
@@ -2468,7 +2537,7 @@ class AppL10nTr extends AppL10n {
   String get profileSignOutEverywhere => 'Tüm cihazlarda oturumu kapatır';
   @override
   String get profileSignOutDraft =>
-      'Kaydedilmemiş günlük taslağın bu telefondan silinecek.';
+      'Kaydedilmemiş günlük taslağın da silinir.';
   @override
   String get noticeSignOutNotRevoked =>
       'Bu telefonda çıkış yapıldı, ancak sunucuya ulaşılamadı: oturum '
@@ -2569,7 +2638,7 @@ class AppL10nTr extends AppL10n {
   @override
   String serverVersion(String version) => 'Meridian v$version';
   @override
-  String serverLatency(int ms) => '$ms ms';
+  String serverLatency(int ms) => '$ms\u00A0ms';
   @override
   String get serverCantConnect =>
       'Bağlanılamadı — adresi, Wi-Fi veya Tailscale bağlantını kontrol et';
@@ -2584,5 +2653,25 @@ class AppL10nTr extends AppL10n {
   String get serverSaveAnyway => 'Yine de kaydet';
   @override
   String get serverSaved => 'Sunucu adresi kaydedildi';
+  @override
+  String get profileSectionData => 'Veri';
+  @override
+  String get profileDataAccounts => 'Hesaplar';
+  @override
+  String get profileDataCategories => 'Kategoriler';
+  @override
+  String get profileDataSubscriptions => 'Abonelikler';
+  @override
+  String get profileDataLists => 'Görev listeleri';
+  @override
+  String get profileDataArchivedHabits => 'Arşivlenmiş alışkanlıklar';
+  @override
+  String get profileDataGoals => 'Hedefler';
+  @override
+  String get profileReduceMotion => 'Hareketi azalt';
+  @override
+  String get profileReduceMotionNote => 'Geçişler ve sayılar anında değişir';
+  @override
+  String get profileServerChecking => 'Kontrol ediliyor';
   // endregion
 }
