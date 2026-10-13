@@ -306,7 +306,9 @@ class FormLabel extends StatelessWidget {
 
 /// A tappable row of a form that opens a picker: an icon or colour dot, the
 /// label, and the chosen value (or "Seç") — the value wraps rather than
-/// overflowing, whatever its length.
+/// overflowing, whatever its length. Above 1.3× text the value goes under
+/// the label at the row's full width, as in the `AmountField`: beside a
+/// long label it would be squeezed to a letter a line.
 class FormPickerRow extends StatelessWidget {
   final IconData icon;
   final String label;
@@ -336,6 +338,16 @@ class FormPickerRow extends StatelessWidget {
     final text = Theme.of(context).textTheme;
     final l = context.l10n;
     final error = errorText;
+    final stacked = MediaQuery.textScalerOf(context).scale(1) > 1.3;
+    final labelText =
+        Text(label, style: text.bodyMedium!.copyWith(color: c.inkMid));
+    final valueText = Text(
+      value ?? l.actionSelect,
+      textAlign: stacked ? TextAlign.start : TextAlign.end,
+      style: text.titleSmall!.copyWith(
+        color: value == null ? c.inkLow : c.inkHi,
+      ),
+    );
     final row = FormFieldBox(
       onTap: onTap,
       hasError: error != null,
@@ -353,17 +365,18 @@ class FormPickerRow extends StatelessWidget {
               padding: const EdgeInsets.only(right: Gap.md),
               child: Icon(icon, size: 20, color: c.inkMid),
             ),
-          Text(label, style: text.bodyMedium!.copyWith(color: c.inkMid)),
-          const SizedBox(width: Gap.md),
-          Expanded(
-            child: Text(
-              value ?? l.actionSelect,
-              textAlign: TextAlign.end,
-              style: text.titleSmall!.copyWith(
-                color: value == null ? c.inkLow : c.inkHi,
+          if (stacked)
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [labelText, const SizedBox(height: 2), valueText],
               ),
-            ),
-          ),
+            )
+          else ...[
+            labelText,
+            const SizedBox(width: Gap.md),
+            Expanded(child: valueText),
+          ],
           if (busy) ...[
             const SizedBox(width: Gap.sm),
             const SizedBox(

@@ -1208,7 +1208,23 @@ void main() {
   });
 
   group('the result names what was saved, with "Düzenle" and "Geri al"', () {
-    testWidgets('a todo: "Geri al" deletes it, "Düzenle" opens it', (
+    testWidgets('a todo: "Geri al" deletes it', (tester) async {
+      final api = FakeApi()
+        ..on('POST /todos', {
+          'todo': {...todoJson(id: 40), 'title': 'süt al'},
+        }, status: 201)
+        ..on('DELETE /todos/40', null, status: 204);
+      await _open(tester, api);
+      await _send(tester, 'süt al');
+      expect(find.text('Görev eklendi · süt al'), findsOneWidget);
+
+      await tester.tap(find.text('Geri al'));
+      await tester.pumpAndSettle();
+      expect(api.requests, contains('DELETE /todos/40'));
+      expect(find.text('Geri alınamadı'), findsNothing);
+    });
+
+    testWidgets('a todo: "Düzenle" opens it and deletes nothing', (
       tester,
     ) async {
       final api = FakeApi()
@@ -1224,6 +1240,20 @@ void main() {
       await tester.pumpAndSettle();
       expect(find.text('Görevi düzenle'), findsOneWidget);
       expect(api.requests, isNot(contains('DELETE /todos/40')));
+    });
+
+    testWidgets('a todo whose "Geri al" fails says so', (tester) async {
+      final api = FakeApi()
+        ..on('POST /todos', {
+          'todo': {...todoJson(id: 40), 'title': 'süt al'},
+        }, status: 201)
+        ..failNetwork('DELETE /todos/40');
+      await _open(tester, api);
+      await _send(tester, 'süt al');
+      await tester.tap(find.text('Geri al'));
+      await tester.pumpAndSettle();
+      expect(api.requests, contains('DELETE /todos/40'));
+      expect(find.text('Geri alınamadı'), findsOneWidget);
     });
 
     testWidgets('an expense: "Geri al" deletes the transaction', (
@@ -1249,6 +1279,28 @@ void main() {
       await tester.tap(find.text('Geri al'));
       await tester.pumpAndSettle();
       expect(api.requests, contains('DELETE /transactions/1237'));
+    });
+
+    testWidgets('an expense whose "Geri al" fails says so', (tester) async {
+      final api = FakeApi()
+        ..on(_post, {
+          'saved': true,
+          'captured_type': 'transaction',
+          'record_id': 1237,
+          'summary': 'kahve',
+          'record': {
+            ...transactionJson(id: 1237),
+            'amount_cents': 8500,
+            'description': 'kahve',
+          },
+        }, status: 201)
+        ..failNetwork('DELETE /transactions/1237');
+      await _open(tester, api);
+      await _send(tester, '−85 kahve');
+      await tester.tap(find.text('Geri al'));
+      await tester.pumpAndSettle();
+      expect(api.requests, contains('DELETE /transactions/1237'));
+      expect(find.text('Geri alınamadı'), findsOneWidget);
     });
 
     testWidgets('an expense: "Düzenle" opens the transaction in its form', (
@@ -1297,6 +1349,32 @@ void main() {
       expect(api.bodiesOf('PUT /habits/8/logs/2026-10-04').single, {
         'count': 1,
       });
+    });
+
+    testWidgets('a habit check-in whose "Geri al" fails says so', (
+      tester,
+    ) async {
+      final api = FakeApi()
+        ..on(_post, {
+          'saved': true,
+          'captured_type': 'habit_log',
+          'record_id': 1151,
+          'summary': 'Su',
+          'record': {
+            'id': 1151,
+            'habit_id': 8,
+            'date': '2026-10-04',
+            'count': 2,
+            'completed': false,
+          },
+        }, status: 201)
+        ..failNetwork('PUT /habits/8/logs/2026-10-04');
+      await _open(tester, api, watchHome: true);
+      await _send(tester, 'alışkanlık: su');
+      await tester.tap(find.text('Geri al'));
+      await tester.pumpAndSettle();
+      expect(api.requests, contains('PUT /habits/8/logs/2026-10-04'));
+      expect(find.text('Geri alınamadı'), findsOneWidget);
     });
   });
 

@@ -16,6 +16,7 @@ import '../../../widgets/nokturn_card.dart';
 import '../../../widgets/paced_progress_bar.dart';
 import '../../../widgets/section_header.dart';
 import '../../goals/goal_form.dart';
+import 'start_card.dart';
 
 /// Today's goals (design-analysis §7.2): at most three, the furthest along
 /// first — `/home` carries no deadline to sort by — each a 60 dp row with
@@ -60,11 +61,24 @@ class TodayGoalsSection extends ConsumerWidget {
         // Goals is a page, not a tab: this is the way there (§6.1).
         SectionHeader(l.titleGoals, onSeeAll: () => context.push('/goals')),
         if (shown.isEmpty)
-          GhostCard(
-            icon: Icons.flag_outlined,
-            message: l.todayNoGoalsYet,
-            actionLabel: l.todaySetGoal,
-            onAction: () => openGoalForm(context),
+          // Until it is known whether the account is new, the card keeps
+          // its place but says nothing: one wording must not flash before
+          // the other.
+          Visibility(
+            visible: ref.watch(todayStartDecidedProvider),
+            maintainSize: true,
+            maintainAnimation: true,
+            maintainState: true,
+            child: GhostCard(
+              icon: Icons.flag_outlined,
+              // A new account has no goals yet; any other may have
+              // achieved (or let go) every one — /home lists active ones.
+              message: ref.watch(todayStartProvider.select((p) => p != null))
+                  ? l.todayNoGoalsYet
+                  : l.todayNoActiveGoals,
+              actionLabel: l.todaySetGoal,
+              onAction: () => openGoalForm(context),
+            ),
           )
         else
           NokturnCard(

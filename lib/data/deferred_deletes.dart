@@ -25,6 +25,8 @@ import '../core/api.dart';
 import '../core/session.dart';
 import 'data_scope.dart';
 import 'providers.dart';
+import 'recent_changes.dart';
+import 'sync.dart';
 
 final deferredDeletesProvider =
     NotifierProvider<DeferredDeletes, Set<DeletedRecord>>(DeferredDeletes.new);
@@ -101,6 +103,10 @@ final class DeferredDeletes extends Notifier<Set<DeletedRecord>> {
     final waiting = _waiting.remove(record);
     if (waiting == null) return false;
     state = _without(record, waiting);
+    // Its row grows back in, washed (§5.4).
+    ref
+        .read(dataSyncProvider)
+        .noteChange(record.scope, record.id, ChangeKind.restored);
     return true;
   }
 

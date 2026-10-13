@@ -428,8 +428,8 @@ class PerfectDayDots extends StatelessWidget {
 }
 
 /// The last 84 days as 12 week columns of 7 (Monday on top): 18 dp cells
-/// 4 dp apart, the weekday names (Pzt, Çar, Cum) in a 28 dp column — 288 dp
-/// in all. Days after [today] are left blank.
+/// 4 dp apart, the weekday names (Pzt, Çar, Cum) in a column of at least
+/// 28 dp — 288 dp in all at normal text. Days after [today] are left blank.
 class MiniHeatmap extends StatelessWidget {
   final List<ChainDay> chain;
   final Color fill;
@@ -467,14 +467,22 @@ class MiniHeatmap extends StatelessWidget {
     Widget weekday(int row) {
       // Monday, Wednesday and Friday are named; 1 Jan 2024 was a Monday.
       final named = row == 0 || row == 2 || row == 4;
+      // Large text never cuts a name (§8.3): it is laid out whole and
+      // scaled down to its row, and the column widens to the widest.
       return SizedBox(
         height: cell,
         child: named
-            ? Text(
-                formatWeekdayShort(DateTime(2024, 1, 1 + row)),
-                maxLines: 1,
-                overflow: TextOverflow.clip,
-                style: text.labelSmall!.copyWith(color: c.inkLow, height: 1.2),
+            ? FittedBox(
+                fit: BoxFit.scaleDown,
+                alignment: AlignmentDirectional.centerStart,
+                child: Text(
+                  formatWeekdayShort(DateTime(2024, 1, 1 + row)),
+                  maxLines: 1,
+                  style: text.labelSmall!.copyWith(
+                    color: c.inkLow,
+                    height: 1.2,
+                  ),
+                ),
               )
             : null,
       );
@@ -486,8 +494,8 @@ class MiniHeatmap extends StatelessWidget {
           crossAxisAlignment: CrossAxisAlignment.start,
           mainAxisSize: MainAxisSize.min,
           children: [
-            SizedBox(
-              width: labelColumn,
+            ConstrainedBox(
+              constraints: const BoxConstraints(minWidth: labelColumn),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [

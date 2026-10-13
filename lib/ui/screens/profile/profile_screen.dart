@@ -17,6 +17,7 @@ import '../../../models/date_utils.dart';
 import '../../../models/user.dart';
 import '../../../theme/app_colors.dart';
 import '../../../theme/app_metrics.dart';
+import '../../../theme/app_motion.dart';
 import '../../widgets/app_snackbar.dart';
 import '../../widgets/nokturn_card.dart';
 import '../../widgets/picker_sheet.dart';
@@ -57,10 +58,11 @@ class ProfileScreen extends ConsumerWidget {
   Future<void> _refresh(WidgetRef ref) async {
     ref.invalidate(apiHealthProvider);
     ref.invalidate(meOptionsProvider);
+    // Shown for at least 500 ms: a fast LAN answer never flashes it.
     await settleRefresh([
       ref.read(sessionProvider.notifier).refreshMe(),
       ref.read(apiHealthProvider.future),
-    ]);
+    ], minimum: Motion.refreshMinimum);
   }
 
   @override
@@ -77,7 +79,7 @@ class ProfileScreen extends ConsumerWidget {
 
     return Scaffold(
       appBar: AppBar(title: Text(l.titleProfile)),
-      body: RefreshIndicator(
+      body: RefreshIndicator.adaptive(
         // Armed (§5.8): the pull let go past its threshold.
         onRefresh: () {
           Haptics.armed();
@@ -85,11 +87,12 @@ class ProfileScreen extends ConsumerWidget {
         },
         child: ListView(
           physics: const AlwaysScrollableScrollPhysics(),
-          padding: const EdgeInsets.fromLTRB(
+          // Clear of a 3-button navigation bar at the end (edge-to-edge).
+          padding: EdgeInsets.fromLTRB(
             Insets.gutter,
             Gap.sm,
             Insets.gutter,
-            Gap.x4,
+            Gap.x4 + MediaQuery.paddingOf(context).bottom,
           ),
           children: [
             _Header(

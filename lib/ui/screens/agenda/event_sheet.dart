@@ -179,7 +179,9 @@ class _EventSheet extends ConsumerWidget {
             icon: Icons.edit_outlined,
             onPressed: () async {
               final full = await _full(context, ref);
-              if (full == null || !context.mounted) return;
+              // A second tap while the read was on its way finds the sheet
+              // already closing: it pops nothing more.
+              if (full == null || !context.mounted || !_isOnTop(context)) return;
               Navigator.of(context).pop();
               if (!host.mounted) return;
               await openEventForm(host, existing: full, occurrence: day);
@@ -202,6 +204,11 @@ class _EventSheet extends ConsumerWidget {
     );
   }
 
+  /// Whether the sheet is still the route on top — not closed, nor closing
+  /// from an earlier tap — so that a pop closes it and nothing under it.
+  static bool _isOnTop(BuildContext context) =>
+      ModalRoute.of(context)?.isCurrent ?? false;
+
   /// The event in full — the form edits its description and rule — waiting
   /// for it when it is still on its way; null (with the reason shown) when
   /// it cannot be had.
@@ -212,9 +219,14 @@ class _EventSheet extends ConsumerWidget {
     try {
       return (await ref.read(eventDetailProvider(event.id).future)).data;
     } catch (e) {
-      if (context.mounted) {
+      // A snackbar under the open sheet would not be seen: the sheet
+      // closes, and the screen says why — once, for the tap that closed it
+      // (taps made while the read was on its way fail together).
+      if (!context.mounted || !_isOnTop(context)) return null;
+      Navigator.of(context).pop();
+      if (host.mounted) {
         showAppSnack(
-          context,
+          host,
           failureMessage(e, l, fallback: l.eventLoadFailed),
           isError: true,
         );

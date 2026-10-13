@@ -21,7 +21,8 @@ import '../../../widgets/streak_flame.dart';
 ///
 /// A tap on the row opens the habit ([onOpen]); a tap on the ring logs it
 /// ([onToggle], with the ring's global centre — where the day's confetti
-/// starts); a long press opens the day's log ([onLongPress]). A tap shows
+/// starts); a long press opens the day's log ([onLongPress], after one
+/// long-press haptic, which the row plays: the callback plays none). A tap shows
 /// its result at once (the write is optimistic, see `HabitActions`).
 class HomeHabitRow extends StatelessWidget {
   final HomeHabit habit;
@@ -133,6 +134,13 @@ class _HabitRing extends StatelessWidget {
     // CheckPop's fill and pop.
     final showCount = counts && !done;
 
+    // The row's InkWell plays its own long-press haptic; the ring's
+    // detector, which wins over it, plays the same one, once.
+    void longPress() {
+      Feedback.forLongPress(context);
+      onLongPress();
+    }
+
     void tap() {
       final box = context.findRenderObject() as RenderBox?;
       final origin = box == null || !box.hasSize
@@ -157,10 +165,10 @@ class _HabitRing extends StatelessWidget {
       button: true,
       checked: done,
       onTap: tap,
-      onLongPress: onLongPress,
+      onLongPress: longPress,
       child: ExcludeSemantics(
         child: GestureDetector(
-          onLongPress: onLongPress,
+          onLongPress: longPress,
           child: SizedBox.square(
             dimension: Hit.min,
             child: Stack(

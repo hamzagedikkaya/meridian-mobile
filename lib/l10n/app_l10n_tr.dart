@@ -122,7 +122,15 @@ class AppL10nTr extends AppL10n {
   String get titleSearch => 'Ara';
   @override
   String get subscriptionUndoFailed =>
-      'Ödeme geri alınamadı. İşlemler sayfasından silebilirsin.';
+      'Tarih geri alındı; ödemeyi İşlemler\'den sil.';
+  @override
+  String get subscriptionUndoNothingChanged =>
+      'Ödeme geri alınamadı; kayıtlı duruyor.';
+  @override
+  String get subscriptionUndoUnsure =>
+      'Yanıt gelmedi; tarih geri alınmış olabilir, ödeme kayıtlı.';
+  @override
+  String get subscriptionSkipUndoFailed => 'Tarih geri alınamadı';
   // endregion
 
   // --- Search ----------------------------------------------------------------
@@ -257,11 +265,16 @@ class AppL10nTr extends AppL10n {
         _ => 'Tutar okunamadı. -250, -12,50 ya da +1.250,50 gibi yaz.',
       };
   @override
-  String errHasTransactions(int transactions, int incomingTransfers) =>
-      incomingTransfers > 0
-          ? 'Bu hesabın $transactions işlemi ve $incomingTransfers gelen '
-              'transferi var; silmek yerine arşivle'
-          : 'Bu hesabın $transactions işlemi var; silmek yerine arşivle';
+  String errHasTransactions(int transactions, int incomingTransfers) {
+    // Only the parts it has: an account that only receives transfers has
+    // no transactions of its own.
+    final history = [
+      if (transactions > 0) '$transactions işlemi',
+      if (incomingTransfers > 0) '$incomingTransfers gelen transferi',
+    ];
+    final has = history.isEmpty ? 'geçmişi' : history.join(' ve ');
+    return 'Bu hesabın $has var; silmek yerine arşivle';
+  }
   @override
   String get errCurrencyLocked =>
       'İşlemi ya da aboneliği olan bir hesabın para birimi değiştirilemez';
@@ -482,6 +495,8 @@ class AppL10nTr extends AppL10n {
   String relativeDays(DateTime date) {
     final diff = dayDelta(date);
     if (diff == 0) return 'bugün';
+    if (diff == 1) return 'yarın';
+    if (diff == -1) return 'dün';
     if (diff > 0) return '$diff gün sonra';
     return '${-diff} gün önce';
   }
@@ -525,6 +540,8 @@ class AppL10nTr extends AppL10n {
   String get todayNoHabitsYet => 'Henüz alışkanlık yok — küçük başla';
   @override
   String get todayNoGoalsYet => 'Henüz hedef yok — ilk hedefini koy';
+  @override
+  String get todayNoActiveGoals => 'Aktif hedef yok — yeni bir hedef koy';
   @override
   String get todayOpenTodos => 'Açık görevler';
   @override
@@ -736,12 +753,19 @@ class AppL10nTr extends AppL10n {
     String? due,
     required bool overdue,
     required bool done,
+    String priority = 'medium',
+    String? list,
+    bool notes = false,
   }) =>
       [
         title,
         ?due,
         if (overdue && !done) 'gecikmiş',
         if (done) 'tamamlandı',
+        if (priority == 'high') 'yüksek öncelik',
+        if (priority == 'urgent') 'acil',
+        if (list != null) 'liste: $list',
+        if (notes) 'notu var',
       ].join(', ');
   @override
   String get todoAdd => 'Görev';
@@ -924,7 +948,7 @@ class AppL10nTr extends AppL10n {
         RecurrencePreset.weekly => 'Her hafta',
         RecurrencePreset.monthly => 'Her ay',
         RecurrencePreset.yearly => 'Her yıl',
-        RecurrencePreset.custom => 'Özel tekrar (webde ayarlandı)',
+        RecurrencePreset.custom => "Özel tekrar (web'de ayarlandı)",
       };
   @override
   String get eventRepeatEnds => 'Tekrar bitişi';
@@ -975,8 +999,16 @@ class AppL10nTr extends AppL10n {
   @override
   String get eventLoadFailed => 'Etkinlik yüklenemedi';
   @override
-  String eventSemantics(String title, {required String when, String? where}) =>
-      [title, when, ?where].join(', ');
+  String eventSemantics(
+    String title, {
+    required String when,
+    String? where,
+    String? repeat,
+    bool ended = false,
+  }) =>
+      [title, when, ?repeat, ?where, if (ended) 'bitti'].join(', ');
+  @override
+  String get eventRepeats => 'Tekrarlıyor';
 
   @override
   String get agendaViewUpcoming => 'Yaklaşan';
@@ -1219,6 +1251,14 @@ class AppL10nTr extends AppL10n {
   String get txUpdated => 'İşlem güncellendi';
   @override
   String get txSaveFailed => 'Kaydedilemedi, tekrar dene';
+  @override
+  String get txSaveMaybe =>
+      'Sunucu zamanında yanıt vermedi — işlem kaydedilmiş olabilir. '
+      'Tekrar denemeden önce işlemlere bak.';
+  @override
+  String get financeSaveMaybe =>
+      'Sunucu zamanında yanıt vermedi — kaydedilmiş olabilir. '
+      'Tekrar denemeden önce listeye bak.';
   @override
   String get txLinkedTitle => 'Bağlı işlem';
   @override
@@ -1975,7 +2015,7 @@ class AppL10nTr extends AppL10n {
   @override
   String get habitsFormPeriodTarget => 'Dönem hedefi';
   @override
-  String get habitsFormGoalLink => 'Hedef bağlantısı (opsiyonel)';
+  String get habitsFormGoalLink => 'Hedef bağlantısı (isteğe bağlı)';
   @override
   String get habitsFormLinkGoal => 'Hedefe bağla';
   @override
@@ -2122,6 +2162,16 @@ class AppL10nTr extends AppL10n {
   @override
   String get habitsDayCannotLog => 'Kaydedilemez';
   @override
+  String get habitsDayUnknown =>
+      'Bu günün kaydı yüklenmedi, buradan değiştirilemez.';
+  @override
+  String get habitLogLongPressHint => 'bugünün kaydını ayarla';
+  @override
+  String habitsPerfectRecordOnly(int record) =>
+      'Mükemmel seri rekoru: $record gün';
+  @override
+  String habitsStatNone(String stat) => '$stat: henüz yok';
+  @override
   String habitsStartedOn(String date) => 'Başlangıç $date';
   @override
   String habitsCadenceDaily(int target) =>
@@ -2214,7 +2264,7 @@ class AppL10nTr extends AppL10n {
   String get goalsGone => 'Bu hedef silinmiş';
   @override
   String goalsProgressDays(String current, String target) =>
-      '$current / $target gün';
+      '$current / $target\u00A0gün';
   @override
   String get goalsFormNewTitle => 'Yeni hedef';
   @override
@@ -2342,6 +2392,9 @@ class AppL10nTr extends AppL10n {
   @override
   String get goalsAddProgress => 'İlerleme ekle';
   @override
+  String get goalsHabitArchived =>
+      'Bu alışkanlık arşivde. Bugünü işaretlemek için önce arşivden çıkar.';
+  @override
   String goalsDeadlineMonths(int months) => '$months ay';
   @override
   String get goalsDeadlinePick => 'Tarih';
@@ -2401,6 +2454,29 @@ class AppL10nTr extends AppL10n {
   String get journalAdded => 'Kayıt eklendi';
   @override
   String get journalSaveFailed => 'Kayıt kaydedilemedi';
+  @override
+  String get journalSaveFailedKept => 'Kaydedilemedi — taslak olarak saklandı';
+  @override
+  String get journalOpenDraft => 'Aç';
+  @override
+  String get journalGoneDraftKept => 'Kayıt silinmiş — taslak olarak saklandı';
+  @override
+  String get journalMaybeSaved => 'Kaydedilmiş olabilir';
+  @override
+  String get journalSaveAnyway => 'Yine de kaydet';
+  @override
+  String get journalMaybeSavedLater =>
+      'Kayıt kaydedilmiş olabilir; Kaydet önce günlüğe bakar';
+  @override
+  String journalNewestShown(int count) => 'En yeni $count kayıt gösteriliyor';
+  @override
+  String get journalSearchOlder => 'Daha eskileri ara';
+  @override
+  String get journalLinkTitle => 'Bağlantı';
+  @override
+  String get journalLinkCopy => 'Bağlantıyı kopyala';
+  @override
+  String get journalLinkCopied => 'Bağlantı kopyalandı';
   @override
   String journalRichNotice(String formatting) =>
       'Bu kayıt web\'de biçimlendirilmiş ($formatting). Başlığı, ruh halini '
@@ -2631,6 +2707,9 @@ class AppL10nTr extends AppL10n {
   @override
   String get profileSaveFailed => 'Kaydedilemedi · Tekrar dene';
   @override
+  String get profilePasswordMaybeChanged =>
+      'Yanıt gelmedi; şifren değişmiş olabilir. Yeniden giriş istenirse yeni şifreni kullan.';
+  @override
   String get profileOptionsFailed => 'Seçenekler yüklenemedi';
   @override
   String get profileCurrencyNote => 'Mevcut tutarlar dönüştürülmez.';
@@ -2692,6 +2771,12 @@ class AppL10nTr extends AppL10n {
   String get serverSaveAnyway => 'Yine de kaydet';
   @override
   String get serverSaved => 'Sunucu adresi kaydedildi';
+  @override
+  String get serverChangeSignsOut =>
+      'Yeni bir adres kaydetmek bu telefonda oturumu kapatır; sonra yeniden giriş yaparsın.';
+  @override
+  String get serverSavedSignIn =>
+      'Sunucu adresi kaydedildi — yeniden giriş yap';
   @override
   String get profileSectionData => 'Veri';
   @override

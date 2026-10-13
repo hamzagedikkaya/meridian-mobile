@@ -110,7 +110,8 @@ void main() {
     container.read(dataSyncProvider).refresh([transactionsProvider]);
     await _settle(tester);
 
-    expect(api.gets, hasLength(TransactionsNotifier.reloadPages));
+    // Five pages, as promised — not the constant under test.
+    expect(api.gets, hasLength(5));
     expect(position.pixels, offset, reason: 'the list did not move');
     final after = [
       for (final e in find.textContaining('Satır 2').evaluate())

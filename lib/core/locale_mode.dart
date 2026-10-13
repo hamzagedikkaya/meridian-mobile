@@ -42,11 +42,12 @@ class LocaleController extends Notifier<Locale> {
 
   Future<bool> _push({String? locale, String? themePreference}) async {
     if (ref.read(sessionProvider) is! SessionLoggedIn) return true;
+    final epoch = ref.read(sessionProvider.notifier).epoch;
     try {
       final user = await ref
           .read(repositoryProvider)
           .updateMe(locale: locale, themePreference: themePreference);
-      ref.read(sessionProvider.notifier).replaceUser(user);
+      ref.read(sessionProvider.notifier).replaceUser(user, epoch: epoch);
       return true;
     } catch (_) {
       return false;

@@ -33,6 +33,15 @@ void main() {
     expect(inter.contains('🔥'.runes.single), isFalse);
   });
 
+  test('a glyph written as an escape is read as the glyph', () {
+    expect(stringLiterals(r"  String get x => '\u2726 Yeni';").single,
+        '✦ Yeni');
+    expect(stringLiterals(r"  String get x => '\u{1F525} seri';").single,
+        '🔥 seri');
+    expect(stringLiterals(r"  String get x => 'web\'de \$n\u00A0ms\n';").single,
+        "web'de \$n\u00A0ms");
+  });
+
   for (final path in copyFiles) {
     test('every character of $path is in Inter-Regular.ttf', () {
       final missing = <String>[];
@@ -66,9 +75,11 @@ void main() {
   }
 }
 
-/// The contents of the single-quoted string literals on [line] — the copy
-/// files use no other kind. Escapes are dropped; interpolations stay as text
-/// (their names are ASCII, which Inter has).
+/// The contents of the string literals on [line], as the app shows them:
+/// a `\uXXXX` or `\u{…}` escape is decoded — a glyph written that way is
+/// checked like any other — `\n`, `\t` and `\r` are dropped, and any other
+/// escaped character (`\'`, `\$`, `\\`) is kept as itself. Interpolations
+/// stay as text (their names are ASCII, which Inter has).
 Iterable<String> stringLiterals(String line) sync* {
   var i = 0;
   while (i < line.length) {
@@ -80,6 +91,22 @@ Iterable<String> stringLiterals(String line) sync* {
       i++;
       while (i < line.length && line[i] != quote) {
         if (line[i] == r'\' && i + 1 < line.length) {
+          final next = line[i + 1];
+          if (next == 'u') {
+            final braced = i + 2 < line.length && line[i + 2] == '{';
+            final start = braced ? i + 3 : i + 2;
+            final end = braced ? line.indexOf('}', start) : start + 4;
+            final code = end < 0 || end > line.length
+                ? null
+                : int.tryParse(line.substring(start, end), radix: 16);
+            if (code != null) {
+              buffer.writeCharCode(code);
+              i = braced ? end + 1 : end;
+              continue;
+            }
+          } else if (next != 'n' && next != 't' && next != 'r') {
+            buffer.write(next);
+          }
           i += 2;
           continue;
         }

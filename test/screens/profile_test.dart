@@ -6,6 +6,7 @@ library;
 
 import 'dart:convert';
 
+import 'package:flutter/cupertino.dart' show CupertinoActivityIndicator;
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
@@ -25,10 +26,12 @@ import 'package:meridian_mobile/data/current_day.dart';
 import 'package:meridian_mobile/main.dart';
 import 'package:meridian_mobile/models/user.dart';
 import 'package:meridian_mobile/l10n/app_l10n.dart';
+import 'package:meridian_mobile/l10n/app_l10n_tr.dart';
 import 'package:meridian_mobile/router/app_router.dart';
 import 'package:meridian_mobile/theme/app_motion.dart';
 import 'package:meridian_mobile/theme/app_theme.dart';
 import 'package:meridian_mobile/ui/screens/profile/profile_screen.dart';
+import 'package:meridian_mobile/ui/widgets/nokturn_card.dart';
 import 'package:meridian_mobile/ui/widgets/amount_keypad.dart'
     show RejectShake;
 
@@ -1237,6 +1240,124 @@ void main() {
     await tester.pumpAndSettle();
     expect(h.api.gets, contains('/me'));
     expect(find.text('Webden'), findsWidgets);
+  });
+
+  group('after review (WP-14)', () {
+    /// Whether the OS autofill was told to store what was typed.
+    bool committedAutofill(WidgetTester tester) => tester.testTextInput.log
+        .any((call) =>
+            call.method == 'TextInput.finishAutofillContext' &&
+            call.arguments == true);
+
+    testWidgets('the password sheet closed unsaved stores nothing in '
+        'autofill', (tester) async {
+      final h = await _pumpSignedIn(tester);
+      await _openRow(tester, 'Şifre');
+      await tester.enterText(_field('Mevcut şifre'), 'eski-sifre');
+      await tester.enterText(_field('Yeni şifre'), 'yeni-sifre-1');
+      await tester.enterText(_field('Yeni şifre (tekrar)'), 'yeni-sifre-1');
+      tester.testTextInput.log.clear();
+      await tester.tap(find.byTooltip('Kapat'));
+      await _settle(tester);
+      expect(h.api.bodiesOf('PATCH /me/password'), isEmpty);
+      expect(committedAutofill(tester), isFalse);
+    });
+
+    testWidgets('the e-mail sheet closed after a refusal stores nothing in '
+        'autofill', (tester) async {
+      final api = FakeApi()
+        ..on('PATCH /me', {
+          'errors': {
+            'current_password': ['yanlış'],
+          },
+          'code': 'invalid_current_password',
+        }, status: 422);
+      await _pumpSignedIn(tester, api: api);
+      await _openRow(tester, 'E-posta');
+      await tester.enterText(_field('Yeni e-posta'), 'yanlis@example.com');
+      await tester.enterText(_field('Mevcut şifre'), 'yanlis');
+      await tester.tap(find.text('Kaydet'));
+      await _settle(tester);
+      expect(find.text('Mevcut şifre yanlış'), findsOneWidget);
+      tester.testTextInput.log.clear();
+      await tester.tap(find.byTooltip('Kapat'));
+      await _settle(tester);
+      expect(committedAutofill(tester), isFalse);
+    });
+
+    testWidgets("the name editor's note is a note, never cut beside the "
+        'counter', (tester) async {
+      await _pumpSignedIn(tester, surface: const Size(1080, 2340));
+      await _openRow(tester, 'Ad');
+      expect(
+        tester.widget<TextField>(_field('Ad')).decoration!.helperText,
+        isNull,
+      );
+      final note = tester.renderObject<RenderParagraph>(
+        find.text(AppL10nTr().profileNameHint),
+      );
+      expect(note.didExceedMaxLines, isFalse);
+    });
+
+    testWidgets('a password change with no answer in time: it may have '
+        'changed, and the sheet offers no blind retry', (tester) async {
+      final api = FakeApi()..timeOut('PATCH /me/password');
+      final h = await _pumpSignedIn(tester, api: api);
+      await _openRow(tester, 'Şifre');
+      await tester.enterText(_field('Mevcut şifre'), 'eski-sifre');
+      await tester.enterText(_field('Yeni şifre'), 'yeni-sifre-1');
+      await tester.enterText(_field('Yeni şifre (tekrar)'), 'yeni-sifre-1');
+      await tester.tap(find.text('Şifreyi değiştir').last);
+      await _settle(tester);
+      expect(find.textContaining('şifren değişmiş olabilir'), findsOneWidget);
+      expect(find.text('Kaydedilemedi · Tekrar dene'), findsNothing);
+      // Nor from the keyboard: Done on the last field sends nothing.
+      await tester.showKeyboard(_field('Yeni şifre (tekrar)'));
+      await tester.testTextInput.receiveAction(TextInputAction.done);
+      await _settle(tester);
+      expect(h.api.bodiesOf('PATCH /me/password'), hasLength(1));
+      await tester.tap(find.text('Kapat').last);
+      await _settle(tester);
+      expect(h.api.bodiesOf('PATCH /me/password'), hasLength(1));
+      expect(find.text('Mevcut şifre'), findsNothing);
+    });
+
+    testWidgets('the end of the list clears a 3-button navigation bar', (
+      tester,
+    ) async {
+      tester.view.padding = const FakeViewPadding(bottom: 144);
+      tester.view.viewPadding = const FakeViewPadding(bottom: 144);
+      addTearDown(tester.view.resetPadding);
+      addTearDown(tester.view.resetViewPadding);
+      await _pumpSignedIn(tester, surface: const Size(1080, 2340));
+      final position = tester
+          .state<ScrollableState>(find.byType(Scrollable).first)
+          .position;
+      position.jumpTo(position.maxScrollExtent);
+      await _settle(tester);
+      final card = tester.getRect(
+        find
+            .ancestor(
+              of: find.text('Çıkış yap').last,
+              matching: find.byType(NokturnCard),
+            )
+            .first,
+      );
+      expect(card.bottom, lessThanOrEqualTo(2340 / 3 - 48));
+    });
+
+    testWidgets(
+      'pull to refresh is the platform\'s own on iOS',
+      (tester) async {
+        await _pumpSignedIn(tester);
+        await tester.drag(find.byType(ListView), const Offset(0, 300));
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 100));
+        expect(find.byType(CupertinoActivityIndicator), findsWidgets);
+        await tester.pumpAndSettle();
+      },
+      variant: TargetPlatformVariant.only(TargetPlatform.iOS),
+    );
   });
 }
 

@@ -227,6 +227,42 @@ void main() {
       expect(fetchedDone.withTodoStatus(39, 'done'), same(fetchedDone));
     });
 
+    test('a todo list\'s filter counts (the Agenda chips, the tab badge) '
+        'move with a tick, and back with a reopen', () {
+      final bundle = TodosBundle.fromJson({
+        'todos': [todoJson()],
+        'meta': const {
+          'open_count': 1,
+          'overdue_count': 1,
+          'counts': {
+            'open': 1, 'today': 1, 'week': 1, 'upcoming': 0, 'overdue': 1,
+            'undated': 0, 'done': 4, 'cancelled': 0, 'all': 5,
+          },
+        },
+      });
+      final today = DateTime(2026, 10, 4);
+      final done = bundle.withTodoStatus(39, 'done', today: today);
+      expect(done.counts, {
+        'open': 0, 'today': 0, 'week': 0, 'upcoming': 0, 'overdue': 0,
+        'undated': 0, 'done': 5, 'cancelled': 0, 'all': 5,
+      });
+      expect(done.withTodoStatus(39, 'pending', today: today).counts,
+          bundle.counts);
+      // Dropped by the refetch, then put back by an undo.
+      final dropped = TodosBundle(
+        todos: const [],
+        openCount: 0,
+        overdueCount: 0,
+        counts: done.counts,
+      );
+      expect(
+        dropped
+            .withTodoReopened(Todo.fromJson(todoJson()), index: 0, today: today)
+            .counts,
+        bundle.counts,
+      );
+    });
+
     test('withTodoReopened puts back a todo a refetch dropped, at its place, '
         'and counts it again', () {
       final todo = Todo.fromJson(todoJson());

@@ -141,8 +141,11 @@ enum QuickAddKind { task, expense, income, event, habit }
 /// line is sent. Only a hint: the server decides (contract §11), and its
 /// rules are mirrored here in the same order:
 ///
-/// 1. a leading sign then a number → money (`-`, `−`, `–` an expense, `+`
-///    an income);
+/// 1. a leading sign then a number, optionally with `₺` before it → money
+///    (`-`, `−`, `–` an expense, `+` an income). After a plain `-` a space
+///    makes a list item (`- 3 yumurta al`) unless a currency marks the
+///    number (`- ₺250`, `- 250 TL`); another group of digits after the
+///    number (a phone number, `+90 532 …`) is not money either;
 /// 2. `habit:` / `alışkanlık:` (any case, with or without Turkish letters)
 ///    → a habit check-in;
 /// 3. a whole day word (`yarın`, `cuma`, `tomorrow`, …) → an event. A
@@ -156,10 +159,8 @@ enum QuickAddKind { task, expense, income, event, habit }
 QuickAddKind? guessQuickAddKind(String text) {
   final line = text.trim();
   if (line.isEmpty) return null;
-  final sign = _leadingSign.firstMatch(line);
-  if (sign != null) {
-    return sign.group(1) == '+' ? QuickAddKind.income : QuickAddKind.expense;
-  }
+  final money = _moneyKind(line);
+  if (money != null) return money;
   final folded = _fold(line);
   if (_habitPrefix.hasMatch(folded)) return QuickAddKind.habit;
   if (_namesDay(folded)) return QuickAddKind.event;
@@ -186,15 +187,42 @@ QuickAddKind? guessQuickAddKind(String text) {
   final rest = '${line.substring(0, match.start)} ${line.substring(match.end)}'
       .replaceAll(RegExp(r'\s+'), ' ')
       .trim()
-      .replaceFirst(RegExp(r'^[\s\-–—:,.·]+'), '');
+      .replaceFirst(RegExp(r'^[\s\-−–—+₺:,.·]+'), '');
   return (minorUnits: minor, description: rest);
 }
 
-final _leadingSign = RegExp(r'^([\-−–+])\s*\d');
+/// A sign, the space after it, an optional `₺`, the number and the rest.
+final _leadingSign = RegExp(r'^([\-−–+])(\s*)(₺\s*)?\d[\d.,]*(.*)$',
+    unicode: true, dotAll: true);
 
-/// An optional sign, the number, and a currency word right after it.
+/// A currency right after the number.
+final _currencyAfter = RegExp(
+  r'^\s*(?:₺|tl|try)(?![\p{L}])',
+  caseSensitive: false,
+  unicode: true,
+);
+
+/// Another group of digits after the number: a phone number.
+final _moreDigits = RegExp(r'^\s+\(?\d');
+
+/// The money kind of [line] when the server reads it as money (contract
+/// §11 rule 2), else null.
+QuickAddKind? _moneyKind(String line) {
+  final match = _leadingSign.firstMatch(line);
+  if (match == null) return null;
+  final sign = match.group(1)!;
+  final rest = match.group(4)!;
+  final listItem = sign == '-' &&
+      match.group(2)!.isNotEmpty &&
+      match.group(3) == null &&
+      !_currencyAfter.hasMatch(rest);
+  if (listItem || _moreDigits.hasMatch(rest)) return null;
+  return sign == '+' ? QuickAddKind.income : QuickAddKind.expense;
+}
+
+/// An optional sign and `₺`, the number, and a currency word right after it.
 final _firstAmount = RegExp(
-  r'([\-−–+]\s*)?(\d[\d.,]*\d|\d)(\s*(?:₺|tl|try)(?![\p{L}]))?',
+  r'([\-−–+]\s*)?(?:₺\s*)?(\d[\d.,]*\d|\d)(\s*(?:₺|tl|try)(?![\p{L}]))?',
   caseSensitive: false,
   unicode: true,
 );
@@ -301,12 +329,13 @@ const _dayWords = {
 
 const _leadIns = {'bu', 'gelecek', 'onumuzdeki', 'next', 'this', 'on'};
 
-/// A whole day word: punctuation around it is dropped, but a suffix
+/// A whole day word: punctuation around it is dropped, and words joined
+/// by `-` or `/` (`perşembe-cuma`) are words of their own, but a suffix
 /// (`yarınki`, `Cuma'ya`) makes it another word. A bare `pazar` — no
 /// lead-in, no `günü` — is Sunday only when the line also has a time.
 bool _namesDay(String folded) {
   final words = [
-    for (final raw in folded.split(RegExp(r'\s+')))
+    for (final raw in folded.split(RegExp(r'[\s\-–—/]+')))
       raw.replaceAll(RegExp(r'^[.,;:!?()"“”]+|[.,;:!?()"“”]+$'), ''),
   ];
   var barePazar = false;

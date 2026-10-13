@@ -420,6 +420,38 @@ void main() {
       expect(await actions().hasUnsavedDraft(), isTrue);
     });
 
+    test('the editor\'s own shape: what is typed against what it opened '
+        'with', () async {
+      Map<String, Object?> fields({String body = '', String? mood}) => {
+        'date': '2026-10-05',
+        'title': '',
+        'body': body,
+        'mood': mood,
+        'weather': null,
+        'energy': 0,
+        'gratitude': '',
+        'tags': '',
+      };
+      drafts.value = jsonEncode({
+        'fields': fields(body: 'Yarım kalan yazı'),
+        'base': fields(),
+        'updated_at': null,
+      });
+      expect(await actions().hasUnsavedDraft(), isTrue);
+      drafts.value = jsonEncode({
+        'fields': fields(mood: 'good'),
+        'base': fields(),
+        'updated_at': null,
+      });
+      expect(await actions().hasUnsavedDraft(), isTrue);
+      drafts.value = jsonEncode({
+        'fields': fields(body: 'aynı'),
+        'base': fields(body: 'aynı'),
+        'updated_at': null,
+      });
+      expect(await actions().hasUnsavedDraft(), isFalse);
+    });
+
     test('no draft, or an empty one', () async {
       expect(await actions().hasUnsavedDraft(), isFalse);
       drafts.value = jsonEncode({

@@ -53,7 +53,14 @@ abstract interface class CelebrationController {
   ///
   /// Returns whether this call claimed the day: false when the day was
   /// already celebrated, so the caller has nothing to give back.
-  bool allDone({required Offset origin, required DateTime day});
+  ///
+  /// [haptic] false: the gesture's CONFIRM already played (a burst held
+  /// for the server's answer), so this plays none.
+  bool allDone({
+    required Offset origin,
+    required DateTime day,
+    bool haptic = true,
+  });
 
   /// Gives [day]'s tier-2 celebration back: the write that earned it was
   /// refused or taken back, so the day's real completion later may still
@@ -62,10 +69,27 @@ abstract interface class CelebrationController {
   /// celebrated stays celebrated (once a day, §5.7).
   void forget(DateTime day);
 
+  /// Whether [day]'s tier 2 has played already (or is about to): an
+  /// [allDone] for it would play nothing.
+  bool dayCelebrated(DateTime day);
+
   /// Tier 3: a milestone, shown once per [key] ever (`habit.<id>.<n>`,
   /// `goal.<id>`, `perfect-week`). [text] is the card's line
-  /// ("30 gün · Koşu").
-  void milestone({required String key, required String text});
+  /// ("30 gün · Koşu"). [haptic] as for [allDone].
+  ///
+  /// Returns whether this call claimed the milestone: false when it was
+  /// already celebrated, so the caller has nothing to give back.
+  bool milestone({
+    required String key,
+    required String text,
+    bool haptic = true,
+  });
+
+  /// Gives milestone [key] back, as [forget] does a day: the write that
+  /// crossed it was taken back before it went, or refused, so the real
+  /// crossing later still celebrates. What already played stays played.
+  /// Only for a milestone this caller's [milestone] claimed.
+  void forgetMilestone(String key);
 }
 
 class _CelebrationScope extends InheritedWidget {
@@ -118,15 +142,25 @@ class _CelebrationLayerState extends ConsumerState<CelebrationLayer>
   }
 
   @override
-  bool allDone({required Offset origin, required DateTime day}) {
+  bool allDone({
+    required Offset origin,
+    required DateTime day,
+    bool haptic = true,
+  }) {
+    if (dayCelebrated(day)) return false;
     final key = celebratedDayKey(day);
-    if (_celebrated(key) || _pendingDay?.key == key) return false;
     // In this event, so it merges with the CheckPop's [Haptics.check]: the
     // tap that finishes the day plays confirm only (§5.8).
-    Haptics.confirm();
+    if (haptic) Haptics.confirm();
     _pendingDay = (origin: origin, key: key);
     _queue();
     return true;
+  }
+
+  @override
+  bool dayCelebrated(DateTime day) {
+    final key = celebratedDayKey(day);
+    return _celebrated(key) || _pendingDay?.key == key;
   }
 
   @override
@@ -138,12 +172,25 @@ class _CelebrationLayerState extends ConsumerState<CelebrationLayer>
   }
 
   @override
-  void milestone({required String key, required String text}) {
+  bool milestone({
+    required String key,
+    required String text,
+    bool haptic = true,
+  }) {
     final full = 'milestone.$key';
-    if (_celebrated(full)) return;
-    Haptics.confirm();
+    if (_celebrated(full) || _pendingMilestone?.key == full) return false;
+    if (haptic) Haptics.confirm();
     _pendingMilestone = (key: full, text: text);
     _queue();
+    return true;
+  }
+
+  @override
+  void forgetMilestone(String key) {
+    final full = 'milestone.$key';
+    if (_pendingMilestone?.key == full) _pendingMilestone = null;
+    _seen.remove(full);
+    unawaited(_prefs?.remove(full));
   }
 
   /// One gesture, one tier: whatever it asked for during this event plays
@@ -189,6 +236,11 @@ class _CelebrationLayerState extends ConsumerState<CelebrationLayer>
 
   @override
   Widget build(BuildContext context) {
+    // What this run celebrated was the signed-in account's.
+    ref.listen(
+      sessionProvider.select((s) => s is SessionLoggedIn),
+      (_, _) => _seen.clear(),
+    );
     final card = _card;
     return _CelebrationScope(
       controller: this,

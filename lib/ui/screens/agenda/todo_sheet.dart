@@ -27,6 +27,7 @@ import '../../widgets/nok_chip.dart';
 import '../../widgets/nok_sheet.dart';
 import '../../widgets/primary_button.dart';
 import '../../widgets/segmented_pill.dart';
+import 'agenda_days.dart' show pickerRange;
 import 'todo_flows.dart' show deleteTodoWithUndo;
 
 /// The longest todo title the server takes.
@@ -113,6 +114,10 @@ class _TodoSheetState extends ConsumerState<TodoSheet> {
   /// closes.
   Todo? _savedAndNew;
 
+  /// The todo step's form: back to its top after "Kaydet ve yeni", where
+  /// the title and what was just added are.
+  final _formScroll = ScrollController();
+
   bool _saving = false;
   bool _savingList = false;
   String? _titleError;
@@ -137,6 +142,7 @@ class _TodoSheetState extends ConsumerState<TodoSheet> {
     _notes.dispose();
     _listName.dispose();
     _titleFocus.dispose();
+    _formScroll.dispose();
     super.dispose();
   }
 
@@ -175,11 +181,13 @@ class _TodoSheetState extends ConsumerState<TodoSheet> {
 
   Future<void> _pickDate() async {
     final today = _today;
+    final initial = _day ?? today;
+    final range = pickerRange(initial, today);
     final picked = await showDatePicker(
       context: context,
-      initialDate: _day ?? today,
-      firstDate: DateTime(today.year - 5),
-      lastDate: DateTime(today.year + 10),
+      initialDate: initial,
+      firstDate: range.first,
+      lastDate: range.last,
     );
     if (picked == null || !mounted) return;
     setState(() {
@@ -284,7 +292,7 @@ class _TodoSheetState extends ConsumerState<TodoSheet> {
       if (!mounted) return;
       Haptics.confirm();
       if (andNew) {
-        showAppSnack(context, l.todoCreated(saved.title));
+        // Said in the sheet, which stays up: a snackbar would be under it.
         setState(() {
           _saving = false;
           _savedAndNew = saved;
@@ -293,11 +301,17 @@ class _TodoSheetState extends ConsumerState<TodoSheet> {
           _goalId = null;
         });
         _titleFocus.requestFocus();
+        // The form may have been scrolled down to its chips: back up to the
+        // title and the line over it.
+        if (_formScroll.hasClients) _formScroll.jumpTo(0);
         return;
       }
+      // Said on the screen the sheet was opened from, above its capture
+      // bar (a sheet's own context sees no bar: see `snackMarginFor`).
+      final host = widget.host;
       Navigator.of(context).pop(saved);
       showAppSnack(
-        context,
+        host != null && host.mounted ? host : context,
         existing == null ? l.todoCreated(saved.title) : l.todoUpdated,
       );
     } catch (e) {
@@ -431,6 +445,7 @@ class _TodoSheetState extends ConsumerState<TodoSheet> {
         ),
         Flexible(
           child: SingleChildScrollView(
+            controller: _formScroll,
             // Room above the title field for its floating label.
             padding: const EdgeInsets.fromLTRB(
               Insets.sheetH,
@@ -441,6 +456,29 @@ class _TodoSheetState extends ConsumerState<TodoSheet> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
+                if (_savedAndNew case final added? when _formError == null)
+                  // "Kaydet ve yeni": the todo just added, said right over
+                  // the title field the focus went back to — in sight with
+                  // the keyboard up, where the end of the form is not.
+                  Padding(
+                    key: const ValueKey('todo-saved-and-new'),
+                    padding: const EdgeInsets.only(bottom: Gap.sm),
+                    child: Semantics(
+                      liveRegion: true,
+                      child: Row(
+                        children: [
+                          Icon(Icons.check_rounded, size: 18, color: c.income),
+                          const SizedBox(width: Gap.sm),
+                          Expanded(
+                            child: Text(
+                              l.todoCreated(added.title),
+                              style: text.bodyMedium!.copyWith(color: c.inkMid),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
                 TextField(
                   controller: _title,
                   focusNode: _titleFocus,

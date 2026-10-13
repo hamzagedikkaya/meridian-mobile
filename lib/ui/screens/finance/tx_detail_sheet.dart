@@ -230,9 +230,12 @@ Future<void> copyTransactionToToday(
     );
   } catch (e) {
     if (!context.mounted) return;
+    // The answer was lost: the copy may well be saved (a POST is not safe
+    // to repeat) — say so, rather than invite a second copy.
+    final maybe = e is ApiException && e.isNetwork && e.mayHaveArrived;
     showAppSnack(
       context,
-      failureMessage(e, l, fallback: l.txCopyFailed),
+      maybe ? l.txSaveMaybe : failureMessage(e, l, fallback: l.txCopyFailed),
       isError: true,
     );
   }

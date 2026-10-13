@@ -85,6 +85,16 @@ JournalInput _journalInput(JournalEntry e, {String? title, String? body}) =>
     );
 
 void main() {
+  test('a name stored with a stray space is the same name to an untouched '
+      'form', () {
+    final habit = Habit.fromJson({...habitJson(), 'name': 'Su '});
+    expect(_sameAs(habit).changesFrom(habit), isEmpty);
+    final goal = _goal(extra: {'name': '10 kitap '});
+    expect(_goalInput(goal, name: '10 kitap').changesFrom(goal), isEmpty);
+    expect(_goalInput(goal, name: '12 kitap ').changesFrom(goal),
+        {'name': '12 kitap'});
+  });
+
   group('Habit', () {
     test('reads the archive, start and detail keys', () {
       final h = _habit(archived: true);

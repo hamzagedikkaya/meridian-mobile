@@ -155,22 +155,68 @@ class TodosBundle {
     );
   }
 
-  TodosBundle _with(List<Todo> todos, {int openStep = 0, int overdueStep = 0}) {
+  TodosBundle _with(
+    List<Todo> todos, {
+    int openStep = 0,
+    int overdueStep = 0,
+    Map<String, int> countSteps = const {},
+  }) {
     int moved(int value, int step) => value + step < 0 ? 0 : value + step;
     return TodosBundle(
       todos: todos,
       openCount: moved(openCount, openStep),
       overdueCount: moved(overdueCount, overdueStep),
       totalCount: totalCount,
-      counts: counts,
+      counts: countSteps.isEmpty
+          ? counts
+          : {
+              for (final MapEntry(:key, :value) in counts.entries)
+                key: moved(value, countSteps[key] ?? 0),
+            },
     );
+  }
+
+  /// How [todo] moving between open and [finished] (`done`, `cancelled`)
+  /// steps each filter's count ([counts]): [step] is +1 when it opens, −1
+  /// when it closes. The filters of open todos it belongs to by its due day
+  /// — `today`, `week`, `upcoming` only when [today] is known — move one
+  /// way, the finished one the other.
+  static Map<String, int> _countSteps(
+    Todo todo,
+    int step,
+    String finished,
+    DateTime? today,
+  ) {
+    if (step == 0) return const {};
+    final day = todo.dueDay;
+    int? delta;
+    var inWeek = false;
+    if (day != null && today != null) {
+      final d = DateTime.utc(day.year, day.month, day.day);
+      final t = DateTime.utc(today.year, today.month, today.day);
+      delta = d.difference(t).inDays;
+      final monday = t.subtract(Duration(days: t.weekday - 1));
+      inWeek = !d.isBefore(monday) &&
+          !d.isAfter(monday.add(const Duration(days: 6)));
+    }
+    return {
+      'open': step,
+      if (todo.overdue) 'overdue': step,
+      if (day == null) 'undated': step,
+      if (delta == 0) 'today': step,
+      if (delta != null && delta >= 1 && delta <= 7) 'upcoming': step,
+      if (inWeek) 'week': step,
+      finished: -step,
+    };
   }
 
   /// Todo [todoId] set to [status], left where it is listed (checked, until
   /// the refetch drops it from a list of open todos); the open and overdue
-  /// counts move with it. Setting rather than toggling: a list that already
-  /// has it at [status] is returned as it is. Unchanged when not listed.
-  TodosBundle withTodoStatus(int todoId, String status) {
+  /// counts — and each filter's count (the Agenda's chips, the tab badge) —
+  /// move with it; those of a due day only with the account's [today].
+  /// Setting rather than toggling: a list that already has it at [status]
+  /// is returned as it is. Unchanged when not listed.
+  TodosBundle withTodoStatus(int todoId, String status, {DateTime? today}) {
     final index = todos.indexWhere((t) => t.id == todoId);
     if (index < 0) return this;
     final todo = todos[index];
@@ -181,20 +227,26 @@ class TodosBundle {
       [...todos]..[index] = todo.copyWith(status: status),
       openStep: step,
       overdueStep: todo.overdue ? step : 0,
+      countSteps: _countSteps(todo, step, nowOpen ? todo.status : status, today),
     );
   }
 
   /// [todo] reopened: set back to open where it is listed, or put back at
   /// [index] when a refetch already dropped it. Unchanged once it is listed
   /// open.
-  TodosBundle withTodoReopened(Todo todo, {required int index}) {
+  TodosBundle withTodoReopened(
+    Todo todo, {
+    required int index,
+    DateTime? today,
+  }) {
     if (todos.any((t) => t.id == todo.id)) {
-      return withTodoStatus(todo.id, 'pending');
+      return withTodoStatus(todo.id, 'pending', today: today);
     }
     return _with(
       [...todos]..insert(index.clamp(0, todos.length), todo.copyWith(status: 'pending')),
       openStep: 1,
       overdueStep: todo.overdue ? 1 : 0,
+      countSteps: _countSteps(todo, 1, 'done', today),
     );
   }
 
@@ -284,7 +336,7 @@ class TodoListInput {
   /// Only what differs from [before] (contract §1.6: PATCH applies every key
   /// sent).
   Map<String, dynamic> changesFrom(TodoList before) => {
-        if (name.trim() != before.name) 'name': name.trim(),
+        if (name.trim() != before.name.trim()) 'name': name.trim(),
         if (color.toUpperCase() != before.color.toUpperCase()) 'color': color,
       };
 }
@@ -347,7 +399,7 @@ class TodoInput {
   /// day goes alone; no day clears both.
   Map<String, dynamic> changesFrom(Todo before) {
     final out = <String, dynamic>{};
-    if (title.trim() != before.title) out['title'] = title.trim();
+    if (title.trim() != before.title.trim()) out['title'] = title.trim();
     final beforeNotes = (before.body?.trim().isEmpty ?? true) ? null : before.body;
     if (_notes != beforeNotes?.trim()) out['body'] = _notes;
     if (priority != before.priority) out['priority'] = priority;

@@ -19,11 +19,13 @@ import '../../widgets/app_snackbar.dart';
 import '../../widgets/color_swatches.dart';
 import '../../widgets/empty_state.dart';
 import '../../widgets/form_scaffold.dart';
+import '../../widgets/load_phase_switcher.dart';
 import '../../widgets/nok_sheet.dart';
 import '../../widgets/nokturn_card.dart';
 import '../../widgets/offline_banner.dart';
 import '../../widgets/primary_button.dart';
 import '../../widgets/row_motion.dart';
+import '../../widgets/skeletons.dart';
 import '../../widgets/sync_hint.dart';
 import 'todo_sheet.dart' show todoListNameMaxLength;
 
@@ -162,6 +164,20 @@ class TodoListsScreen extends ConsumerWidget {
     } else {
       body = const SizedBox.expand();
     }
+    // The first load: the frame, then a skeleton of the lists (§4.26) —
+    // never a blank page while a slow server answers.
+    final phase = fetched != null
+        ? LoadPhase.content
+        : async.hasFailed
+        ? LoadPhase.error
+        : LoadPhase.waiting;
+    final shownBody = body;
+    body = LoadPhaseSwitcher(
+      phase: phase,
+      skeleton: (_) => const _ListsSkeleton(),
+      content: (_) => shownBody,
+      error: (_) => shownBody,
+    );
 
     return Scaffold(
       backgroundColor: c.bg,
@@ -179,6 +195,52 @@ class TodoListsScreen extends ConsumerWidget {
       body: SyncHint.over(active: async.isRefetching, child: body),
     );
   }
+}
+
+/// The lists page while its first read is on its way: a card of three
+/// list rows in bones.
+class _ListsSkeleton extends StatelessWidget {
+  const _ListsSkeleton();
+
+  @override
+  Widget build(BuildContext context) => ExcludeSemantics(
+    key: const ValueKey('todo-lists-skeleton'),
+    child: Padding(
+      padding: const EdgeInsets.fromLTRB(
+        Insets.gutter,
+        Gap.md,
+        Insets.gutter,
+        0,
+      ),
+      child: Align(
+        alignment: Alignment.topCenter,
+        child: NokturnCard(
+          variant: NokCardVariant.list,
+          child: Column(
+            children: [
+              for (final width in const [140.0, 100.0, 160.0])
+                ConstrainedBox(
+                  constraints: const BoxConstraints(minHeight: 56),
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: Insets.rowH,
+                      vertical: Gap.sm,
+                    ),
+                    child: Row(
+                      children: [
+                        const Bone.circle(size: 12),
+                        const SizedBox(width: Gap.md),
+                        Bone.text(width: width),
+                      ],
+                    ),
+                  ),
+                ),
+            ],
+          ),
+        ),
+      ),
+    ),
+  );
 }
 
 /// A list: its colour, its name, its open and total todos, and how many
@@ -350,9 +412,12 @@ class _TodoListSheetState extends ConsumerState<_TodoListSheet> {
           );
       if (!mounted) return;
       Haptics.confirm();
+      // Said on the screen the sheet was opened from, above its capture bar
+      // (the sheet's own context sees no bar: see `snackMarginFor`).
+      final host = widget.host;
       Navigator.of(context).pop(saved);
       showAppSnack(
-        context,
+        host.mounted ? host : context,
         existing == null ? l.todoListCreated(saved.name) : l.todoListUpdated,
       );
     } catch (e) {

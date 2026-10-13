@@ -123,7 +123,15 @@ class AppL10nEn extends AppL10n {
   String get titleSearch => 'Search';
   @override
   String get subscriptionUndoFailed =>
-      "Couldn't undo the payment. You can delete it under Transactions.";
+      'Date put back; delete the payment in Transactions.';
+  @override
+  String get subscriptionUndoNothingChanged =>
+      "Couldn't undo the payment; it's still recorded.";
+  @override
+  String get subscriptionUndoUnsure =>
+      'No answer; the date may be back, but the payment stays.';
+  @override
+  String get subscriptionSkipUndoFailed => "Couldn't put the date back";
   // endregion
 
   // --- Search ----------------------------------------------------------------
@@ -258,15 +266,18 @@ class AppL10nEn extends AppL10n {
       };
   @override
   String errHasTransactions(int transactions, int incomingTransfers) {
-    final count = transactions == 1 ? '1 transaction' : '$transactions transactions';
-    if (incomingTransfers <= 0) {
-      return 'This account has $count; archive it instead of deleting it';
-    }
-    final transfers = incomingTransfers == 1
-        ? '1 incoming transfer'
-        : '$incomingTransfers incoming transfers';
-    return 'This account has $count and $transfers; archive it instead of '
-        'deleting it';
+    // Only the parts it has: an account that only receives transfers has
+    // no transactions of its own.
+    final history = [
+      if (transactions > 0)
+        transactions == 1 ? '1 transaction' : '$transactions transactions',
+      if (incomingTransfers > 0)
+        incomingTransfers == 1
+            ? '1 incoming transfer'
+            : '$incomingTransfers incoming transfers',
+    ];
+    final has = history.isEmpty ? 'history' : history.join(' and ');
+    return 'This account has $has; archive it instead of deleting it';
   }
 
   @override
@@ -536,6 +547,8 @@ class AppL10nEn extends AppL10n {
   @override
   String get todayNoGoalsYet => 'No goals yet — set your first one';
   @override
+  String get todayNoActiveGoals => 'No active goals — set a new one';
+  @override
   String get todayOpenTodos => 'Open todos';
   @override
   String get todayNoOpenTodos => 'Nothing open — all clear';
@@ -746,12 +759,19 @@ class AppL10nEn extends AppL10n {
     String? due,
     required bool overdue,
     required bool done,
+    String priority = 'medium',
+    String? list,
+    bool notes = false,
   }) =>
       [
         title,
         ?due,
         if (overdue && !done) 'overdue',
         if (done) 'done',
+        if (priority == 'high') 'high priority',
+        if (priority == 'urgent') 'urgent',
+        if (list != null) 'list: $list',
+        if (notes) 'has notes',
       ].join(', ');
   @override
   String get todoAdd => 'Task';
@@ -828,7 +848,7 @@ class AppL10nEn extends AppL10n {
   @override
   String get todoListNameRequired => 'Give the list a name';
   @override
-  String get todoListColor => 'Colour';
+  String get todoListColor => 'Color';
   @override
   String todoListCounts(int open, int total) =>
       '$open open · $total ${total == 1 ? 'task' : 'tasks'}';
@@ -927,7 +947,7 @@ class AppL10nEn extends AppL10n {
         _ => 'Personal',
       };
   @override
-  String get eventColor => 'Colour';
+  String get eventColor => 'Color';
   @override
   String get eventRepeat => 'Repeat';
   @override
@@ -990,8 +1010,16 @@ class AppL10nEn extends AppL10n {
   @override
   String get eventLoadFailed => 'Couldn’t load the event';
   @override
-  String eventSemantics(String title, {required String when, String? where}) =>
-      [title, when, ?where].join(', ');
+  String eventSemantics(
+    String title, {
+    required String when,
+    String? where,
+    String? repeat,
+    bool ended = false,
+  }) =>
+      [title, when, ?repeat, ?where, if (ended) 'ended'].join(', ');
+  @override
+  String get eventRepeats => 'Repeats';
 
   @override
   String get agendaViewUpcoming => 'Upcoming';
@@ -1135,7 +1163,7 @@ class AppL10nEn extends AppL10n {
         _ => frequency,
       };
   @override
-  String get financeMonthNet => 'THIS MONTH NET';
+  String get financeMonthNet => 'NET THIS MONTH';
   @override
   String financeYearNet(String amount) => 'This year $amount';
   @override
@@ -1255,6 +1283,14 @@ class AppL10nEn extends AppL10n {
   String get txGone => 'This transaction was deleted';
   @override
   String get txSaveFailed => 'Couldn\'t save, try again';
+  @override
+  String get txSaveMaybe =>
+      'The server didn\'t answer in time — the transaction may have been '
+      'saved. Check your transactions before trying again.';
+  @override
+  String get financeSaveMaybe =>
+      'The server didn\'t answer in time — it may have been saved. '
+      'Check the list before trying again.';
   @override
   String get txFilterKind => 'Type';
   @override
@@ -2011,7 +2047,7 @@ class AppL10nEn extends AppL10n {
   @override
   String get habitsFormMonthly => 'Monthly';
   @override
-  String get habitsFormColor => 'Colour';
+  String get habitsFormColor => 'Color';
   @override
   String get habitsFormDailyTarget => 'Daily target';
   @override
@@ -2165,6 +2201,16 @@ class AppL10nEn extends AppL10n {
   @override
   String get habitsDayCannotLog => 'Can\'t be logged';
   @override
+  String get habitsDayUnknown =>
+      'This day\'s log isn\'t loaded, so it can\'t be changed here.';
+  @override
+  String get habitLogLongPressHint => 'adjust today\'s log';
+  @override
+  String habitsPerfectRecordOnly(int record) =>
+      'Best perfect streak: $record ${record == 1 ? 'day' : 'days'}';
+  @override
+  String habitsStatNone(String stat) => '$stat: none yet';
+  @override
   String habitsStartedOn(String date) => 'Started $date';
   @override
   String habitsCadenceDaily(int target) =>
@@ -2261,7 +2307,7 @@ class AppL10nEn extends AppL10n {
   String get goalsGone => 'This goal was deleted';
   @override
   String goalsProgressDays(String current, String target) =>
-      '$current / $target days';
+      '$current / $target\u00A0days';
   @override
   String get goalsFormNewTitle => 'New goal';
   @override
@@ -2273,7 +2319,7 @@ class AppL10nEn extends AppL10n {
   @override
   String get goalsFormType => 'Type';
   @override
-  String get goalsFormColor => 'Colour';
+  String get goalsFormColor => 'Color';
   @override
   String get goalsFormTargetValue => 'Target value';
   @override
@@ -2390,6 +2436,9 @@ class AppL10nEn extends AppL10n {
   @override
   String get goalsAddProgress => 'Add progress';
   @override
+  String get goalsHabitArchived =>
+      'This habit is archived. Restore it to log today.';
+  @override
   String goalsDeadlineMonths(int months) =>
       months == 1 ? '1 month' : '$months months';
   @override
@@ -2450,6 +2499,29 @@ class AppL10nEn extends AppL10n {
   String get journalAdded => 'Entry added';
   @override
   String get journalSaveFailed => 'Couldn\'t save the entry';
+  @override
+  String get journalSaveFailedKept => 'Couldn\'t save — kept as a draft';
+  @override
+  String get journalOpenDraft => 'Open';
+  @override
+  String get journalGoneDraftKept => 'Deleted elsewhere — kept as a draft';
+  @override
+  String get journalMaybeSaved => 'The entry may already be saved';
+  @override
+  String get journalSaveAnyway => 'Save anyway';
+  @override
+  String get journalMaybeSavedLater =>
+      'It may already be saved; Save checks the journal first';
+  @override
+  String journalNewestShown(int count) => 'Showing the newest $count entries';
+  @override
+  String get journalSearchOlder => 'Search older entries';
+  @override
+  String get journalLinkTitle => 'Link';
+  @override
+  String get journalLinkCopy => 'Copy link';
+  @override
+  String get journalLinkCopied => 'Link copied';
   @override
   String journalRichNotice(String formatting) =>
       'This entry has formatting from the web ($formatting). You can safely '
@@ -2681,6 +2753,9 @@ class AppL10nEn extends AppL10n {
   @override
   String get profileSaveFailed => 'Couldn\'t save · Try again';
   @override
+  String get profilePasswordMaybeChanged =>
+      'No answer came back; your password may have changed. If you\'re asked to sign in, use the new one.';
+  @override
   String get profileOptionsFailed => 'Couldn\'t load the options';
   @override
   String get profileCurrencyNote => 'Existing amounts aren\'t converted.';
@@ -2741,6 +2816,11 @@ class AppL10nEn extends AppL10n {
   String get serverSaveAnyway => 'Save anyway';
   @override
   String get serverSaved => 'Server address saved';
+  @override
+  String get serverChangeSignsOut =>
+      'Saving a new address signs this phone out; you\'ll sign in again after.';
+  @override
+  String get serverSavedSignIn => 'Server address saved — sign in again';
   @override
   String get profileSectionData => 'Data';
   @override

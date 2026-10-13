@@ -260,7 +260,7 @@ void main() {
 
       final row = tester.getSemantics(_row(39));
       expect(row.getSemanticsData().label,
-          'Faturayı öde, Bugün · 18:00, gecikmiş');
+          'Faturayı öde, Bugün · 18:00, gecikmiş, yüksek öncelik');
       expect(customActionLabels(row), containsAll(['Tamamla', 'Yarın', 'Sil']));
       performCustomAction(row, 'Yarın');
       await settleFrames(tester);

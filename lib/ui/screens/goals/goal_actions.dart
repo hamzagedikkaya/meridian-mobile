@@ -23,19 +23,26 @@ GoalValueKind goalValueKind(Goal g) {
   return GoalValueKind.money(currency: m.currency, subunit: m.subunit);
 }
 
-/// Tier 3 (design-analysis §4.30, §5.7): the user's own write took the goal
-/// past 100 %. Once per goal ever (`milestone.goal.<id>`), with the CONFIRM
-/// haptic; without a celebration layer (a test host) only the haptic.
-void celebrateGoalReached(BuildContext context, Goal goal) {
+/// Tier 3 (design-analysis §4.30, §5.7): the user's own write takes the goal
+/// past 100 % — celebrated at the tap, with the CONFIRM haptic (§5.8). Once
+/// per goal ever (`milestone.goal.<id>`); without a celebration layer (a
+/// test host) only the haptic.
+///
+/// Returns how to give the milestone back when the write that crossed it
+/// is taken back before it goes, or refused — so the goal's real crossing
+/// later still celebrates — or null when this call claimed nothing.
+VoidCallback? celebrateGoalReached(BuildContext context, Goal goal) {
   final layer = CelebrationLayer.maybeOf(context);
   if (layer == null) {
     Haptics.confirm();
-    return;
+    return null;
   }
-  layer.milestone(
-    key: 'goal.${goal.id}',
+  final key = 'goal.${goal.id}';
+  final claimed = layer.milestone(
+    key: key,
     text: '${context.l10n.percent(100)} · ${goal.name}',
   );
+  return claimed ? () => layer.forgetMilestone(key) : null;
 }
 
 /// Abandons [goal] at once, with "Geri al" (which reopens it) — the same
@@ -84,8 +91,11 @@ Future<bool> abandonGoalWithUndo(
   return true;
 }
 
-/// Sets a goal logged by hand to a value typed on the keypad — the card's
-/// long-press "İlerleme ekle". Taking it past 100 % is celebrated (tier 3).
+/// Adds what is typed on the keypad to a goal logged by hand — the card's
+/// long-press "İlerleme ekle", which adds as it says: the keypad opens
+/// empty, and the amount goes as `delta` (the server adds it to the
+/// progress it has). Taking the goal past 100 % is celebrated (tier 3) as
+/// the keypad closes; a write that fails gives the milestone back.
 Future<void> enterGoalProgress(
   BuildContext context,
   WidgetRef ref,
@@ -93,22 +103,22 @@ Future<void> enterGoalProgress(
 ) async {
   final l = context.l10n;
   final host = Navigator.of(context, rootNavigator: true).context;
-  final value = await showGoalValueSheet(
+  final repo = ref.read(repositoryProvider);
+  final added = await showGoalValueSheet(
     context,
-    title: l.goalsEnterValue,
+    title: l.goalsAddProgress,
     kind: goalValueKind(goal),
-    initial: goal.currentValue,
   );
-  if (value == null || !context.mounted) return;
-  if (goalPercentOf(goal, goal.currentValue) < 100 &&
-      goalPercentOf(goal, value) >= 100) {
-    celebrateGoalReached(context, goal);
-  }
+  if (added == null || added == 0 || !context.mounted) return;
+  final giveBack =
+      goalPercentOf(goal, goal.currentValue) < 100 &&
+          goalPercentOf(goal, goal.currentValue + added) >= 100
+      ? celebrateGoalReached(host, goal)
+      : null;
   try {
-    await ref
-        .read(repositoryProvider)
-        .goalUpdateProgress(goal.id, currentValue: value);
+    await repo.goalUpdateProgress(goal.id, delta: added);
   } catch (e) {
+    giveBack?.call();
     if (host.mounted) {
       showAppSnack(
         host,

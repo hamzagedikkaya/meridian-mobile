@@ -4,11 +4,13 @@
 /// "Geri al", day headings that never pile up, filters that work.
 library;
 
+import 'package:dio/dio.dart' show DioExceptionType;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
 import 'package:intl/date_symbol_data_local.dart';
+import 'package:meridian_mobile/core/session.dart';
 import 'package:meridian_mobile/data/data_scope.dart';
 import 'package:meridian_mobile/data/deferred_deletes.dart';
 import 'package:meridian_mobile/data/providers.dart';
@@ -19,8 +21,10 @@ import 'package:meridian_mobile/ui/screens/finance/finance_screen.dart';
 import 'package:meridian_mobile/ui/screens/finance/transaction_form_screen.dart';
 import 'package:meridian_mobile/ui/screens/finance/transactions_screen.dart';
 import 'package:meridian_mobile/ui/widgets/nok_chip.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import '../support/fake_api.dart';
+import '../support/app_harness.dart' show fixtureNow;
 import '../support/finance_harness.dart';
 
 /// A page that opens the transaction form, as Finance does.
@@ -437,6 +441,118 @@ void main() {
       expect(find.text('open'), findsOneWidget, reason: 'closed');
       expect(api.bodiesOf('POST /transactions'), isEmpty);
     });
+
+    testWidgets('a save whose answer is lost may have gone through: the form '
+        'says to check, and "Kaydet" waits — no second transaction',
+        (tester) async {
+      tallPhone(tester);
+      final api = FakeApi()..timeOut('POST /transactions');
+      await _openForm(tester, api);
+      await _type(tester, '250');
+      // The refetch the write asks for is held: the balances are not in.
+      api.hold('GET /accounts');
+      await tester.tap(find.text('Kaydet'));
+      await settleFrames(tester);
+      expect(
+        find.text('Sunucu zamanında yanıt vermedi — işlem kaydedilmiş '
+            'olabilir. Tekrar denemeden önce işlemlere bak.'),
+        findsOneWidget,
+      );
+      expect(find.text('Kaydedilemedi, tekrar dene'), findsNothing);
+      await tester.tap(find.text('Kaydet'));
+      await settleFrames(tester);
+      expect(api.bodiesOf('POST /transactions'), hasLength(1),
+          reason: 'not sent again while it may have been saved');
+
+      // The balances are back: the user can look, and send it on purpose.
+      api.release('GET /accounts');
+      await settleFrames(tester);
+      await tester.tap(find.text('Kaydet'));
+      await settleFrames(tester);
+      expect(api.bodiesOf('POST /transactions'), hasLength(2));
+    });
+
+    testWidgets('a save that never left (a connect timeout) just says to try '
+        'again', (tester) async {
+      tallPhone(tester);
+      final api = FakeApi()
+        ..timeOut('POST /transactions',
+            type: DioExceptionType.connectionTimeout);
+      await _openForm(tester, api);
+      await _type(tester, '250');
+      await tester.tap(find.text('Kaydet'));
+      await settleFrames(tester);
+      expect(find.textContaining('kaydedilmiş olabilir'), findsNothing);
+      await tester.tap(find.text('Kaydet'));
+      await settleFrames(tester);
+      expect(api.bodiesOf('POST /transactions'), hasLength(2));
+    });
+
+    testWidgets('the default account stays the default after a transaction '
+        'on another one; a new form still starts on it', (tester) async {
+      tallPhone(tester);
+      SharedPreferences.setMockInitialValues({PrefKeys.defaultAccountId: 1});
+      final prefs = await SharedPreferences.getInstance();
+      final api = FakeApi()..on('GET /accounts', _accounts());
+      await pumpFinance(
+        tester,
+        api,
+        Builder(
+          builder: (context) => Scaffold(
+            body: Column(
+              children: [
+                TextButton(
+                  // What Banka's own "+ İşlem" does.
+                  onPressed: () =>
+                      openTransactionForm(context, initialAccountId: 2),
+                  child: const Text('on Banka'),
+                ),
+                TextButton(
+                  onPressed: () => openTransactionForm(context),
+                  child: const Text('plain'),
+                ),
+              ],
+            ),
+          ),
+        ),
+        overrides: [sharedPrefsProvider.overrideWithValue(prefs)],
+      );
+      await tester.tap(find.text('on Banka'));
+      await settleFrames(tester);
+      await _type(tester, '50');
+      await tester.tap(find.text('Kaydet'));
+      await settleFrames(tester);
+      expect((api.bodiesOf('POST /transactions').single as Map)['account_id'],
+          2);
+      expect(prefs.getInt(PrefKeys.defaultAccountId), 1,
+          reason: 'the switch the user turned on is not moved');
+      expect(prefs.getInt(PrefKeys.lastAccountId), 2);
+
+      await tester.tap(find.text('plain'));
+      await settleFrames(tester);
+      await _type(tester, '25');
+      await tester.tap(find.text('Kaydet'));
+      await settleFrames(tester);
+      expect((api.bodiesOf('POST /transactions').last as Map)['account_id'],
+          1, reason: 'the default, not the last one used');
+    });
+
+    testWidgets('without a default, a new form starts on the last account '
+        'used', (tester) async {
+      tallPhone(tester);
+      SharedPreferences.setMockInitialValues({PrefKeys.lastAccountId: 2});
+      final prefs = await SharedPreferences.getInstance();
+      final api = FakeApi()..on('GET /accounts', _accounts());
+      await pumpFinance(tester, api, _formLauncher(),
+          overrides: [sharedPrefsProvider.overrideWithValue(prefs)]);
+      await tester.tap(find.text('open'));
+      await settleFrames(tester);
+      await _type(tester, '25');
+      await tester.tap(find.text('Kaydet'));
+      await settleFrames(tester);
+      expect((api.bodiesOf('POST /transactions').single as Map)['account_id'],
+          2);
+    });
   });
 
   group('the transactions list', () {
@@ -657,7 +773,7 @@ void main() {
     testWidgets('a drill-down opens with its filters on: this month\'s '
         'uncategorized spending', (tester) async {
       tallPhone(tester);
-      final today = DateTime.now();
+      final today = fixtureNow;
       final queries = <Map<String, dynamic>>[];
       final api = FakeApi()
         ..onRequest('GET /transactions', (request) {

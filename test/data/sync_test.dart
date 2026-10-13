@@ -725,6 +725,54 @@ void main() {
         expect(api.gets.where((p) => p == path), hasLength(1));
       });
     }
+
+    test('two details on screen whose records are both gone do not refetch '
+        'each other without end', () async {
+      final api = FakeApi();
+      final container = containerFor(api);
+      await showEverything(container, api);
+      api
+        ..fail('GET /accounts/1', 404)
+        ..fail('GET /transactions/316', 404)
+        ..clearLog();
+      container.read(dataSyncProvider).refreshAll();
+      for (var i = 0; i < 300; i++) {
+        await Future<void>.delayed(Duration.zero);
+      }
+      expect(api.gets.where((p) => p == '/accounts/1').length,
+          lessThanOrEqualTo(3));
+      expect(api.gets.where((p) => p == '/transactions/316').length,
+          lessThanOrEqualTo(3));
+    });
+  });
+
+  test('a detail answering 404 leaves a hidden screen waiting: it '
+      'refetches once, when shown', () async {
+    final api = FakeApi();
+    final container = containerFor(api);
+    container.listen(transactionDetailProvider(316), (_, _) {});
+    const filters = TxFilters(accountId: 1, includeIncomingTransfers: true);
+    final history = container.listen(transactionsProvider(filters), (_, _) {});
+    await settle(api);
+    bool isHistory(String path) =>
+        path.startsWith('/transactions') && path != '/transactions/316';
+    expect(api.gets.where(isHistory), hasLength(1));
+    api.clearLog();
+
+    // The account's history is hidden; the app resumes and the
+    // transaction on screen turns out to be deleted elsewhere.
+    history.pause();
+    api.fail('GET /transactions/316', 404);
+    container.read(dataSyncProvider).refreshAll();
+    await settle(api);
+    expect(api.gets, contains('/transactions/316'));
+    expect(api.gets.where(isHistory), isEmpty,
+        reason: 'hidden: not fetched before it is shown');
+
+    api.clearLog();
+    history.resume();
+    await settle(api);
+    expect(api.gets.where(isHistory), hasLength(1));
   });
 
   group('the signed-in user (GET /me)', () {

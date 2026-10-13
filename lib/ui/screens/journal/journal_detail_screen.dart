@@ -1,8 +1,10 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_widget_from_html_core/flutter_widget_from_html_core.dart';
 
 import '../../../core/formats.dart';
+import '../../../core/session.dart';
 import '../../../data/data_scope.dart';
 import '../../../data/deferred_deletes.dart';
 import '../../../data/providers.dart';
@@ -14,7 +16,9 @@ import '../../../theme/app_metrics.dart';
 import '../../../theme/app_typography.dart';
 import '../../../ui/widgets/app_snackbar.dart';
 import '../../../ui/widgets/empty_state.dart';
+import '../../../ui/widgets/nok_sheet.dart';
 import '../../../ui/widgets/offline_banner.dart';
+import '../../../ui/widgets/primary_button.dart';
 import '../../../ui/widgets/skeletons.dart';
 import '../../../ui/widgets/sync_hint.dart';
 import 'journal_editor.dart';
@@ -51,14 +55,17 @@ class _JournalDetailScreenState extends ConsumerState<JournalDetailScreen> {
     final l = context.l10n;
     final host = Navigator.of(context, rootNavigator: true).context;
     final repo = ref.read(repositoryProvider);
+    final drafts = ref.read(draftStoreProvider);
     final deletes = ref.read(deferredDeletesProvider.notifier);
     Navigator.of(context).pop();
+    // Said on the screen this one goes back to: the snackbar floats over
+    // its FAB or capture bar by itself (SnackClearance).
     deleteWithUndo(
       host,
       deletes,
       record: (scope: DataScope.journal, id: entryId),
       message: l.journalDeleted,
-      send: () => repo.deleteJournalEntry(entryId),
+      send: () => deleteJournalEntryAndDraft(repo, drafts, entryId),
       failedMessage: l.journalDeleteFailed,
     );
   }
@@ -68,14 +75,17 @@ class _JournalDetailScreenState extends ConsumerState<JournalDetailScreen> {
   void _leave(AppL10n l) {
     _goneHandled = true;
     final host = Navigator.of(context, rootNavigator: true).context;
-    WidgetsBinding.instance.addPostFrameCallback((_) {
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
       if (!mounted) return;
       if (ModalRoute.of(context)?.isCurrent == false) {
         _goneHandled = false;
         return;
       }
-      Navigator.of(context).maybePop();
-      if (host.mounted && !_editorSaved) showAppSnack(host, l.journalGone);
+      final saved = _editorSaved;
+      await Navigator.of(context).maybePop();
+      if (host.mounted && !saved) {
+        showAppSnack(host, l.journalGone);
+      }
     });
   }
 
@@ -135,12 +145,17 @@ class _JournalDetailScreenState extends ConsumerState<JournalDetailScreen> {
 
     return Scaffold(
       appBar: AppBar(
-        // The page is the entry: its date is the title (§6.4).
-        title: Text(
-          entry == null
-              ? l.titleJournalEntry
-              : '${formatDate(entry.date, withYear: true)}, '
-                    '${formatWeekdayShort(entry.date)}',
+        // The page is the entry: its date is the title (§6.4) — whole,
+        // weekday included, scaled down beside the actions when it must be.
+        title: FittedBox(
+          fit: BoxFit.scaleDown,
+          alignment: AlignmentDirectional.centerStart,
+          child: Text(
+            entry == null
+                ? l.titleJournalEntry
+                : '${formatDate(entry.date, withYear: true)}, '
+                      '${formatWeekdayShort(entry.date)}',
+          ),
         ),
         actions: [
           if (entry != null) ...[
@@ -210,7 +225,10 @@ class _DetailBody extends StatelessWidget {
     final text = Theme.of(context).textTheme;
     final reading = context.nokText.reading;
     final hasTitle = (entry.title ?? '').trim().isNotEmpty;
-    final html = entry.bodyHtml ?? '';
+    // Only a rich entry (web formatting) is drawn from its HTML. A plain
+    // one is its text: an entry an older app saved as raw text keeps its
+    // paragraphs there, while its HTML runs them together.
+    final html = entry.isRich ? entry.bodyHtml ?? '' : '';
     final plain = (entry.bodyText ?? entry.bodyPlain ?? '').trim();
     final paragraphs = plain
         .split(RegExp(r'\n\s*\n'))
@@ -240,7 +258,15 @@ class _DetailBody extends StatelessWidget {
         ],
         const SizedBox(height: Gap.xl),
         if (html.isNotEmpty)
-          HtmlWidget(html, textStyle: reading.copyWith(color: c.inkHi))
+          HtmlWidget(
+            html,
+            textStyle: reading.copyWith(color: c.inkHi),
+            // The app opens no browser: a link offers its address to copy.
+            onTapUrl: (url) {
+              showJournalLinkSheet(context, url);
+              return true;
+            },
+          )
         else
           for (final (i, p) in paragraphs.indexed) ...[
             if (i > 0) const SizedBox(height: Gap.lg),
@@ -354,4 +380,54 @@ class _DetailBody extends StatelessWidget {
       ),
     );
   }
+}
+
+/// A link in a web entry, tapped: its address, whole and selectable, and
+/// "Bağlantıyı kopyala" — the app has no browser to open it in.
+Future<void> showJournalLinkSheet(BuildContext context, String url) {
+  final l = context.l10n;
+  return showNokSheet<void>(
+    context,
+    title: l.journalLinkTitle,
+    showClose: true,
+    builder: (sheet) {
+      final text = Theme.of(sheet).textTheme;
+      return SingleChildScrollView(
+        child: SafeArea(
+          top: false,
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(
+              Insets.sheetH,
+              0,
+              Insets.sheetH,
+              Gap.lg,
+            ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                SelectableText(
+                  url,
+                  style: text.bodyMedium!.copyWith(color: sheet.nok.inkMid),
+                ),
+                const SizedBox(height: Gap.xl),
+                PrimaryButton(
+                  label: l.journalLinkCopy,
+                  icon: Icons.copy_rounded,
+                  onPressed: () async {
+                    await Clipboard.setData(ClipboardData(text: url));
+                    if (!sheet.mounted) return;
+                    Navigator.of(sheet).pop();
+                    if (context.mounted) {
+                      showAppSnack(context, l.journalLinkCopied);
+                    }
+                  },
+                ),
+              ],
+            ),
+          ),
+        ),
+      );
+    },
+  );
 }

@@ -14,6 +14,8 @@
 /// 7. A pull to refresh: one `mediumImpact`; a retry button: none.
 library;
 
+import 'dart:convert';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -27,6 +29,7 @@ import 'package:meridian_mobile/main.dart';
 import 'package:meridian_mobile/router/app_router.dart';
 import 'package:meridian_mobile/ui/flows/flows.dart' as flows;
 import 'package:meridian_mobile/ui/screens/habits/habit_card.dart';
+import 'package:meridian_mobile/ui/widgets/celebration_layer.dart';
 import 'package:meridian_mobile/ui/widgets/check_pop.dart';
 import 'package:meridian_mobile/ui/widgets/swipe_action.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -203,6 +206,130 @@ void main() {
     expect(find.text('Hepsi tamam'), findsWidgets, reason: 'the day is done');
     expect(_played, [_success]);
     expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('4b. the tap that finishes the day and the first perfect '
+      'week: one tier (the milestone), one successNotification', (
+    tester,
+  ) async {
+    Map<String, dynamic> meta(int done, int streak) => {
+      ...habitsMeta(completedToday: done),
+      'perfect_day': {
+        'chain': [
+          {'date': '2026-10-04', 'status': done == 2 ? 'perfect' : 'missed'},
+        ],
+        'current_streak': streak,
+        'longest_streak': streak,
+      },
+    };
+    final api = FakeApi()
+      ..on('GET /habits', {
+        'habits': [
+          habitJson(),
+          habitJson(id: 8, name: 'Su', completed: true, count: 1),
+        ],
+        'meta': meta(1, 6),
+      })
+      ..on('PUT /habits/7/logs/2026-10-04', {...logJson(), 'meta': meta(2, 7)})
+      ..hold('PUT /habits/7/logs/2026-10-04');
+    await _pumpApp(tester, api, location: '/habits');
+    await tester.tap(_habitCheck('Koşu'));
+    var bursts = 0;
+    for (var i = 0; i < 6; i++) {
+      await tester.pump(const Duration(milliseconds: 50));
+      bursts += find.byType(ConfettiBurst).evaluate().length;
+    }
+    api.release('PUT /habits/7/logs/2026-10-04');
+    for (var i = 0; i < 40; i++) {
+      await tester.pump(const Duration(milliseconds: 50));
+      bursts += find.byType(ConfettiBurst).evaluate().length;
+    }
+    expect(find.text('İlk mükemmel hafta'), findsOneWidget);
+    expect(bursts, 0, reason: 'the higher tier plays alone (§4.30)');
+    expect(_played, [_success]);
+    await _settle(tester, frames: 80);
+    expect(tester.takeException(), isNull);
+  });
+
+  group('4c. a burst held for a possible milestone', () {
+    Map<String, dynamic> meta(int done, int streak) => {
+      ...habitsMeta(completedToday: done),
+      'perfect_day': {
+        'chain': [
+          {'date': '2026-10-04', 'status': done == 2 ? 'perfect' : 'missed'},
+        ],
+        'current_streak': streak,
+        'longest_streak': streak,
+      },
+    };
+    const put = 'PUT /habits/7/logs/2026-10-04';
+
+    FakeApi api() => FakeApi()
+      ..on('GET /habits', {
+        'habits': [
+          habitJson(),
+          habitJson(id: 8, name: 'Su', completed: true, count: 1),
+        ],
+        'meta': meta(1, 6),
+      })
+      // Answered by the count sent.
+      ..onRequest(put, (request) {
+        final data = request.data;
+        final body = (data is String ? jsonDecode(data) : data) as Map;
+        final done = (body['count'] as num) >= 1;
+        return {
+          ...logJson(done: done),
+          'meta': done ? meta(2, 7) : meta(1, 6),
+        };
+      });
+
+    testWidgets('unchecked before the answer: nothing celebrates', (
+      tester,
+    ) async {
+      final fake = api()..hold(put);
+      await _pumpApp(tester, fake, location: '/habits');
+      await tester.tap(_habitCheck('Koşu'));
+      await tester.pump(const Duration(milliseconds: 100));
+      await tester.tap(_habitCheck('Koşu'));
+      await tester.pump(const Duration(milliseconds: 100));
+      fake.release(put);
+      var shown = 0;
+      for (var i = 0; i < 60; i++) {
+        await tester.pump(const Duration(milliseconds: 50));
+        shown += find.byType(ConfettiBurst).evaluate().length +
+            find.text('Hepsi tamam').evaluate().length +
+            find.text('İlk mükemmel hafta').evaluate().length;
+      }
+      expect(fake.bodiesOf(put), [
+        {'count': 1},
+        {'count': 0},
+      ]);
+      expect(tester.widget<CheckPop>(_habitCheck('Koşu')).checked, isFalse);
+      expect(shown, 0, reason: 'the day is no longer all done');
+      final prefs = tester.container().read(sharedPrefsProvider);
+      expect(prefs.getBool('celebrated.day.2026-10-04'), isNull);
+      await _settle(tester, frames: 80);
+      expect(tester.takeException(), isNull);
+    });
+
+    testWidgets('a day celebrated already: the check plays its own haptic, '
+        'not CONFIRM', (tester) async {
+      final fake = api();
+      await _pumpApp(tester, fake, location: '/habits');
+      final prefs = tester.container().read(sharedPrefsProvider);
+      await prefs.setBool('celebrated.day.2026-10-04', true);
+      await prefs.setBool('milestone.perfect-week', true);
+      await tester.tap(_habitCheck('Koşu'));
+      await _settle(tester, frames: 60);
+      expect(fake.bodiesOf(put), [
+        {'count': 1},
+      ]);
+      expect(find.byType(ConfettiBurst), findsNothing);
+      expect(_played, isNotEmpty);
+      expect(_played, isNot(contains(_success)));
+      await _settle(tester, frames: 80);
+      expect(tester.takeException(), isNull);
+    });
   });
 
   testWidgets('5. switching tabs: no haptic', (tester) async {

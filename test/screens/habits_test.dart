@@ -21,6 +21,10 @@ import 'package:meridian_mobile/ui/screens/habits/widgets/counter_pill.dart';
 import 'package:meridian_mobile/ui/screens/habits/widgets/habit_day_cell.dart';
 import 'package:meridian_mobile/ui/widgets/celebration_layer.dart';
 import 'package:meridian_mobile/ui/widgets/check_pop.dart';
+import 'package:meridian_mobile/ui/widgets/entrance.dart';
+import 'package:meridian_mobile/ui/widgets/nok_chip.dart';
+import 'package:meridian_mobile/ui/widgets/skeletons.dart';
+import 'package:meridian_mobile/ui/widgets/sync_hint.dart';
 import 'package:meridian_mobile/ui/widgets/nokturn_card.dart';
 import 'package:meridian_mobile/ui/widgets/paced_progress_bar.dart';
 
@@ -653,6 +657,40 @@ void main() {
     handle.dispose();
   });
 
+  testWidgets('the tab meets the tap-target guideline: a card\'s node is '
+      'the whole card, its control a node of its own (§8.2)', (t) async {
+    _phone(t);
+    final handle = t.ensureSemantics();
+    final api = FakeApi()..on('GET /habits', habitsJson());
+    await t.pumpWidget(_live(api));
+    await _settle(t);
+    await expectLater(t, meetsGuideline(androidTapTargetGuideline));
+    final card = t.getSemantics(find.text('Koşu'));
+    expect(
+      card.rect.width,
+      greaterThan(t.getSize(find.byKey(const ValueKey('habit-7'))).width - 1),
+    );
+    // The check is its own button, with its own label.
+    final check = t
+        .getSemantics(
+          find.descendant(
+            of: find.byKey(const ValueKey('habit-7')),
+            matching: find.byType(CheckPop),
+          ),
+        )
+        .getSemanticsData();
+    expect(check.label, 'Koşu, henüz yapılmadı');
+    // The long press is named as what it does (TalkBack: "double-tap and
+    // hold to …").
+    final data = card.getSemanticsData();
+    final hints = [
+      for (final id in data.customSemanticsActionIds ?? const <int>[])
+        CustomSemanticsAction.getAction(id)?.hint,
+    ];
+    expect(hints, contains('bugünün kaydını ayarla'));
+    handle.dispose();
+  });
+
   testWidgets('a counter step rebuilds its own card and the hero, not the '
       'list or the other cards (§8.8)', (t) async {
     _phone(t);
@@ -686,6 +724,160 @@ void main() {
     expect(built, contains('card-8'));
     expect(built, isNot(contains('card-7')));
     expect(built, isNot(contains('list')));
+    await t.pumpAndSettle();
+  });
+
+  /// The opacities of the cards' entrances on screen, top first.
+  List<double> entrances(WidgetTester t) => [
+    for (final e in find.byType(Entrance).evaluate())
+      t
+          .widget<FadeTransition>(
+            find
+                .descendant(
+                  of: find.byWidget(e.widget),
+                  matching: find.byType(FadeTransition),
+                )
+                .first,
+          )
+          .opacity
+          .value,
+  ];
+
+  testWidgets('first load (§4.26, §5.3): a blank frame first, then the '
+      'skeleton; the cards after it cross-fade in without a stagger', (
+    t,
+  ) async {
+    _phone(t);
+    final api = FakeApi()
+      ..on('GET /habits', habitsJson())
+      ..hold('GET /habits');
+    await t.pumpWidget(_live(api));
+    await t.pump(const Duration(milliseconds: 100));
+    expect(find.byType(NokSkeleton), findsNothing, reason: 'blank at first');
+    await t.pump(const Duration(milliseconds: 400));
+    expect(find.byType(NokSkeleton), findsOneWidget);
+    await t.pump(const Duration(milliseconds: 500));
+    api.release('GET /habits');
+    await t.pump();
+    await t.pump();
+    await t.pump(const Duration(milliseconds: 16));
+    expect(find.text('Koşu'), findsWidgets);
+    expect(
+      entrances(t),
+      everyElement(1.0),
+      reason: 'the cross-fade is the entrance: no stagger after a skeleton',
+    );
+    await t.pumpAndSettle();
+  });
+
+  testWidgets('a card scrolled back into view does not play its entrance '
+      'again (§5.3)', (t) async {
+    _phone(t);
+    final api = FakeApi()
+      ..on('GET /habits', {
+        'habits': [
+          for (var i = 0; i < 12; i++) habitJson(id: 100 + i, name: 'H$i'),
+        ],
+        'meta': habitsMeta(totalActive: 12),
+      });
+    await t.pumpWidget(_live(api));
+    await t.pumpAndSettle();
+    final scroll = find.byType(Scrollable).first;
+    final position = t.state<ScrollableState>(scroll).position;
+    position.jumpTo(position.maxScrollExtent);
+    await t.pump();
+    position.jumpTo(0);
+    await t.pump();
+    expect(entrances(t), everyElement(1.0));
+    await t.pumpAndSettle();
+  });
+
+  testWidgets('a starter whose habit was listed and then archived can be '
+      'added again', (t) async {
+    var listed = <Map<String, dynamic>>[];
+    final api = FakeApi()
+      ..onRequest(
+        'GET /habits',
+        (_) => {'habits': listed, 'meta': habitsMeta(totalActive: 0)},
+      )
+      ..onRequest('POST /habits', (_) {
+        listed = [habitJson(id: 9, name: 'Su', targetCount: 8)];
+        return {'habit': listed.single};
+      });
+    await t.pumpWidget(_live(api));
+    await _settle(t);
+    await t.tap(find.text('Su · günde 8'));
+    await _settle(t);
+    expect(find.byKey(const ValueKey('habit-9')), findsOneWidget);
+    // Archived elsewhere: the list is empty again.
+    listed = [];
+    t.container().invalidate(habitsProvider);
+    await _settle(t);
+    expect(find.text('İlk alışkanlığını seç'), findsOneWidget);
+    expect(
+      t.widget<NokChip>(find.byKey(const ValueKey('starter-0'))).onTap,
+      isNotNull,
+    );
+    await t.pumpAndSettle();
+  });
+
+  testWidgets('the perfect-day history never says "0 gün" (§7.15)', (
+    t,
+  ) async {
+    Map<String, dynamic> withStreak(int current, int longest) => {
+      'habits': [habitJson()],
+      'meta': {
+        ...habitsMeta(totalActive: 1),
+        'perfect_day': {
+          'chain': [
+            {'date': '2026-10-04', 'status': 'missed'},
+          ],
+          'current_streak': current,
+          'longest_streak': longest,
+        },
+      },
+    };
+    final api = FakeApi()..on('GET /habits', withStreak(0, 0));
+    await t.pumpWidget(_live(api));
+    await _settle(t);
+    await t.tap(find.byType(PacedProgressBar));
+    await t.pumpAndSettle();
+    expect(find.text('Mükemmel gün geçmişi'), findsOneWidget);
+    expect(find.textContaining('0 gün'), findsNothing);
+    expect(find.textContaining('Rekor: 0'), findsNothing);
+  });
+
+  testWidgets('a pull to refresh: the spinner stays at least 500 ms, and '
+      'the sync hint stays off under it (§5.5, §4.27)', (t) async {
+    _phone(t);
+    final api = FakeApi()..on('GET /habits', habitsJson());
+    await t.pumpWidget(_live(api));
+    await _settle(t);
+    final indicator = t.state<RefreshIndicatorState>(
+      find.byType(RefreshIndicator),
+    );
+    var done = false;
+    api.hold('GET /habits');
+    indicator.show().then((_) => done = true);
+    for (var i = 0; i < 30; i++) {
+      await t.pump(const Duration(milliseconds: 50));
+      final hint = t.widget<SyncHint>(find.byType(SyncHint).first);
+      expect(hint.active, isFalse, reason: 'frame $i');
+    }
+    api.release('GET /habits');
+    await t.pump(const Duration(milliseconds: 50));
+    await t.pump(const Duration(milliseconds: 50));
+    await t.pumpAndSettle();
+    expect(done, isTrue);
+    // A fast answer still holds the spinner for the minimum.
+    done = false;
+    var waited = Duration.zero;
+    indicator.show().then((_) => done = true);
+    while (!done && waited < const Duration(seconds: 3)) {
+      await t.pump(const Duration(milliseconds: 20));
+      waited += const Duration(milliseconds: 20);
+    }
+    expect(waited, greaterThanOrEqualTo(const Duration(milliseconds: 500)));
     await t.pumpAndSettle();
   });
 

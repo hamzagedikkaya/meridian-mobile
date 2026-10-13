@@ -16,7 +16,10 @@ import 'package:meridian_mobile/core/session.dart';
 import 'package:meridian_mobile/l10n/app_l10n.dart';
 import 'package:meridian_mobile/theme/app_theme.dart';
 import 'package:meridian_mobile/ui/screens/goals/goal_detail_screen.dart';
+import 'package:meridian_mobile/ui/widgets/amount_keypad.dart';
+import 'package:meridian_mobile/ui/widgets/celebration_layer.dart';
 import 'package:meridian_mobile/ui/widgets/progress_ring.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import '../support/fake_api.dart';
 
@@ -25,7 +28,11 @@ const _progress = 'PATCH /goals/3/update_progress';
 /// "x / 100 kitap", as the progress line writes it.
 String _line(num current) => '$current / 100 kitap';
 
-Future<GoRouter> _pump(WidgetTester tester, FakeApi api) async {
+Future<GoRouter> _pump(
+  WidgetTester tester,
+  FakeApi api, {
+  SharedPreferences? prefs,
+}) async {
   tester.view.physicalSize = const Size(1290, 3600);
   tester.view.devicePixelRatio = 3.0;
   addTearDown(tester.view.resetPhysicalSize);
@@ -55,9 +62,17 @@ Future<GoRouter> _pump(WidgetTester tester, FakeApi api) async {
   addTearDown(router.dispose);
   await tester.pumpWidget(
     ProviderScope(
-      overrides: [dioProvider.overrideWithValue(api.dio)],
+      overrides: [
+        dioProvider.overrideWithValue(api.dio),
+        if (prefs != null) sharedPrefsProvider.overrideWithValue(prefs),
+      ],
       retry: (_, _) => null,
       child: MaterialApp.router(
+        // With [prefs], the app's celebration layer, which keeps a goal's
+        // milestone there.
+        builder: prefs == null
+            ? null
+            : (context, child) => CelebrationLayer(child: child!),
         theme: buildTheme(Brightness.dark),
         locale: const Locale('tr'),
         supportedLocales: AppL10n.supportedLocales,
@@ -202,14 +217,20 @@ void main() {
     ]);
   });
 
-  testWidgets('crossing 100 % by the steps confirms once', (tester) async {
+  const success = 'HapticFeedbackType.successNotification';
+
+  testWidgets('crossing 100 % by the steps confirms once, at the tap', (
+    tester,
+  ) async {
     final api = FakeApi()..on('GET /goals/3', {'goal': goalJson(current: 95)});
     await _pump(tester, api);
     played.clear();
 
     await tester.tap(find.text('+10'));
     await tester.pump();
-    expect(played, ['HapticFeedbackType.successNotification']);
+    // §5.8: the tap that crosses plays confirm only — before any answer.
+    expect(played, [success]);
+    expect(api.bodiesOf(_progress), isEmpty);
     await _rest(tester);
     expect(find.text('%100'), findsOneWidget);
 
@@ -218,10 +239,163 @@ void main() {
     await tester.pump(const Duration(milliseconds: 100));
     await tester.tap(find.text('+10'));
     await tester.pump(const Duration(milliseconds: 100));
-    expect(
-      played.where((p) => p == 'HapticFeedbackType.successNotification'),
-      hasLength(1),
-    );
+    await _settle(tester);
+    expect(played.where((p) => p == success), hasLength(1));
+  });
+
+  group('the milestone celebrated at the tap', () {
+    const key = 'milestone.goal.3';
+    const card = '%100 · Kitap';
+
+    /// A new gesture: what played before is cleared, and so is the haptics'
+    /// quiet window (it runs on the wall clock, not the test's).
+    void freshGesture() {
+      played.clear();
+      Haptics.debugReset();
+    }
+
+    testWidgets('stays once the server has the value past 100 %', (
+      tester,
+    ) async {
+      SharedPreferences.setMockInitialValues({});
+      final prefs = await SharedPreferences.getInstance();
+      final api = FakeApi()
+        ..on('GET /goals/3', {'goal': goalJson(current: 95)})
+        ..hold(_progress);
+      await _pump(tester, api, prefs: prefs);
+      freshGesture();
+      await tester.tap(find.text('+10'));
+      await tester.pump();
+      expect(played, [success]);
+      expect(find.text(card), findsOneWidget, reason: 'the card, at the tap');
+      api.release(_progress);
+      await _settle(tester);
+      expect(api.bodiesOf(_progress), [
+        {'current_value': 105},
+      ]);
+      expect(prefs.getBool(key), isTrue);
+      await tester.pumpAndSettle();
+    });
+
+    testWidgets('is given back when the step is taken back before it goes, '
+        'and when the write is refused — the real crossing still '
+        'celebrates', (tester) async {
+      SharedPreferences.setMockInitialValues({});
+      final prefs = await SharedPreferences.getInstance();
+      final api = FakeApi()
+        ..on('GET /goals/3', {'goal': goalJson(current: 95)})
+        ..on(_progress, {'goal': goalJson(current: 95)});
+      await _pump(tester, api, prefs: prefs);
+      freshGesture();
+
+      // +10 and back before the wait is over: only 95 goes.
+      await tester.tap(find.text('+10'));
+      await tester.pump(const Duration(milliseconds: 100));
+      expect(played, [success]);
+      await tester.tap(find.text('−10'));
+      await _settle(tester);
+      expect(api.bodiesOf(_progress), [
+        {'current_value': 95},
+      ]);
+      expect(prefs.getBool(key), isNull);
+      await tester.pumpAndSettle();
+
+      // Refused: the screen springs back, and the milestone with it.
+      api.fail(_progress, 500);
+      freshGesture();
+      await tester.tap(find.text('+10'));
+      await tester.pump();
+      expect(played, [success], reason: 'celebrated again: it was given back');
+      await _settle(tester);
+      expect(api.bodiesOf(_progress), hasLength(2));
+      expect(prefs.getBool(key), isNull);
+      await tester.pumpAndSettle();
+
+      // Saved at last: celebrated, and kept.
+      api.on(_progress, {'goal': goalJson(current: 105)});
+      freshGesture();
+      await tester.tap(find.text('+10'));
+      await tester.pump();
+      expect(played, [success]);
+      expect(find.text(card), findsOneWidget);
+      await _settle(tester);
+      expect(prefs.getBool(key), isTrue);
+      await tester.pumpAndSettle();
+    });
+
+    testWidgets('"Tamamlandı olarak işaretle" refused gives it back', (
+      tester,
+    ) async {
+      SharedPreferences.setMockInitialValues({});
+      final prefs = await SharedPreferences.getInstance();
+      final api = FakeApi()..fail('PATCH /goals/3', 500);
+      await _pump(tester, api, prefs: prefs);
+      freshGesture();
+      await tester.tap(find.text('Tamamlandı olarak işaretle'));
+      await tester.pump();
+      expect(played, contains(success));
+      await _settle(tester);
+      expect(api.requests, contains('PATCH /goals/3'));
+      expect(prefs.getBool(key), isNull);
+      await tester.pumpAndSettle();
+    });
+  });
+
+  testWidgets('a failed step: "Tekrar dene" sends the value chosen last, '
+      'not the refused one', (tester) async {
+    final api = FakeApi()..hold(_progress);
+    await _pump(tester, api);
+    await tester.tap(find.text('+1'));
+    await tester.pump(const Duration(milliseconds: 450));
+    expect(api.bodiesOf(_progress), [
+      {'current_value': 41},
+    ]);
+    // 70 typed while 41 is out.
+    await tester.tap(find.text('Değer gir'));
+    await _settle(tester);
+    for (final d in ['7', '0']) {
+      await tester.tap(
+        find.descendant(of: find.byType(AmountKeypad), matching: find.text(d)),
+      );
+      await tester.pump();
+    }
+    await tester.tap(find.text('Tamam'));
+    await _settle(tester);
+    expect(find.text(_line(70)), findsOneWidget);
+
+    api.fail(_progress, 500);
+    api.release(_progress);
+    await _settle(tester);
+    expect(find.text(_line(40)), findsOneWidget, reason: 'springs back');
+    api.on(_progress, {'goal': goalJson(current: 70)});
+    await tester.tap(find.widgetWithText(SnackBarAction, 'Tekrar dene'));
+    await _settle(tester);
+    expect(api.bodiesOf(_progress).last, {'current_value': 70});
+  });
+
+  testWidgets('"Tamamlandı olarak işaretle" right after a step: the step\'s '
+      'late read does not put the old value back', (tester) async {
+    final api = FakeApi();
+    await _pump(tester, api);
+    api
+      ..on('GET /goals/3', {'goal': goalJson(current: 41)})
+      ..hold('GET /goals/3');
+    await tester.tap(find.text('+1'));
+    await tester.pump(const Duration(milliseconds: 450));
+    await _settle(tester);
+    expect(api.bodiesOf(_progress), [
+      {'current_value': 41},
+    ]);
+    api.hold('PATCH /goals/3');
+    await tester.tap(find.text('Tamamlandı olarak işaretle'));
+    await _rest(tester);
+    expect(find.text(_line(100)), findsOneWidget);
+    // The step's read lands while the achieve is still out.
+    api.release('GET /goals/3');
+    await _rest(tester);
+    expect(find.text(_line(100)), findsOneWidget);
+    expect(find.text(_line(41)), findsNothing);
+    api.release('PATCH /goals/3');
     await _settle(tester);
   });
 

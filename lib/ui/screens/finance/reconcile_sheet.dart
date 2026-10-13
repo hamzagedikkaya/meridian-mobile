@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../core/api.dart';
 import '../../../core/formats.dart';
 import '../../../core/haptics.dart';
+import '../../../data/deferred_deletes.dart';
 import '../../../data/providers.dart';
 import '../../../l10n/app_l10n.dart';
 import '../../../models/account.dart';
@@ -40,36 +41,55 @@ AccountInput reconcileInput(Account account, int initialBalanceCents) =>
 /// with "Geri al" — which puts the old opening balance back.
 ///
 /// [context] is the account screen's: the snackbar outlives the sheet.
+///
+/// The balance is squared against what the server holds once every write
+/// before it has landed: a delete still waiting out its "Geri al" window
+/// is sent now (its snackbar goes — the undo could no longer be offered
+/// once the balance has been squared around it), and "Kaydet" works from
+/// the account as the server has it then, not as it was when the chip was
+/// tapped.
 Future<void> showReconcileSheet(
   BuildContext context,
   WidgetRef ref,
   Account account,
 ) {
   final l = context.l10n;
+  final deletes = ref.read(deferredDeletesProvider.notifier);
+  Future<void>? settling;
+  if (deletes.hasWaiting) {
+    settling = deletes.commitAll();
+    ScaffoldMessenger.maybeOf(context)?.hideCurrentSnackBar();
+  }
   return showNokSheet<void>(
     context,
     title: l.reconcileTitle,
     showClose: true,
-    builder: (_) => _ReconcileSheet(account: account, host: context, ref: ref),
+    builder: (_) => _ReconcileSheet(
+      account: account,
+      host: context,
+      settling: settling,
+    ),
   );
 }
 
-class _ReconcileSheet extends StatefulWidget {
+class _ReconcileSheet extends ConsumerStatefulWidget {
   final Account account;
   final BuildContext host;
-  final WidgetRef ref;
+
+  /// The deletes sent as the sheet opened, until the server has them.
+  final Future<void>? settling;
 
   const _ReconcileSheet({
     required this.account,
     required this.host,
-    required this.ref,
+    this.settling,
   });
 
   @override
-  State<_ReconcileSheet> createState() => _ReconcileSheetState();
+  ConsumerState<_ReconcileSheet> createState() => _ReconcileSheetState();
 }
 
-class _ReconcileSheetState extends State<_ReconcileSheet> {
+class _ReconcileSheetState extends ConsumerState<_ReconcileSheet> {
   AmountDraft _draft = const AmountDraft();
   late bool _debt = widget.account.balanceCents < 0;
   bool _atLimit = false;
@@ -79,8 +99,16 @@ class _ReconcileSheetState extends State<_ReconcileSheet> {
   /// Counts refused digits; each one shakes the amount once.
   int _refused = 0;
 
-  Account get _account => widget.account;
-  int get _subunit => _account.subunitToUnit;
+  /// The account as the account list has it now — a refetch while the
+  /// sheet is open (a delete landing, a web edit) moves "Şu anki" with it.
+  Account get _account {
+    final accounts = ref.watch(accountsProvider).value?.data;
+    for (final a in accounts ?? const <Account>[]) {
+      if (a.id == widget.account.id) return a;
+    }
+    return widget.account;
+  }
+  int get _subunit => widget.account.subunitToUnit;
 
   int? get _actual {
     if (_draft.isEmpty) return null;
@@ -101,22 +129,28 @@ class _ReconcileSheetState extends State<_ReconcileSheet> {
 
   Future<void> _save() async {
     final actual = _actual;
-    if (actual == null) return;
+    if (actual == null || _saving) return;
     final l = context.l10n;
-    final account = _account;
-    if (actual == account.balanceCents) {
-      Navigator.of(context).pop();
-      return;
-    }
     final host = widget.host;
-    final repo = widget.ref.read(repositoryProvider);
-    final before = account.initialBalanceCents;
+    final repo = ref.read(repositoryProvider);
     setState(() {
       _saving = true;
       _error = null;
     });
     Account saved;
+    int before;
     try {
+      // The difference is taken from the balance the server has once the
+      // deletes sent as the sheet opened have landed — never from the copy
+      // the chip was tapped with.
+      await widget.settling;
+      final account = (await repo.fetchAccount(widget.account.id)).account;
+      if (!mounted) return;
+      if (actual == account.balanceCents) {
+        Navigator.of(context).pop();
+        return;
+      }
+      before = account.initialBalanceCents;
       saved = await repo.updateAccount(
         account,
         reconcileInput(account, reconciledInitialBalance(account, actual)),

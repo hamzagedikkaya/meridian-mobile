@@ -232,3 +232,22 @@ List<({DateTime? day, List<Todo> todos})> doneGroups(List<Todo> todos) {
   ]..sort((a, b) => b.day.compareTo(a.day));
   return [...dated, if (byDay[null] case final rest?) (day: null, todos: rest)];
 }
+
+/// The days a date picker opened on [initial] offers: from five years
+/// before [today] (or [first]) to ten years after it — widened to take
+/// [initial] itself, which may lie further out (a yearly series begun long
+/// ago, a todo long overdue), since the picker refuses an initial day
+/// outside its range.
+({DateTime first, DateTime last}) pickerRange(
+  DateTime initial,
+  DateTime today, {
+  DateTime? first,
+}) {
+  final day = dateOnly(initial);
+  final from = first ?? DateTime(today.year - 5);
+  final to = DateTime(today.year + 10);
+  return (
+    first: day.isBefore(from) ? day : from,
+    last: day.isAfter(to) ? day : to,
+  );
+}

@@ -192,32 +192,41 @@ final class TodoActions {
 
   bool isBusy(int todoId) => _latest.containsKey(todoId);
 
+  /// Where each todo just ticked off was, in each list on screen (by its
+  /// key: [todayTodoList] or the `TodoQuery`) — for "Geri al" to put it
+  /// back there in each, whatever list it was ticked in.
+  final _places = <int, Map<Object, int>>{};
+
   /// A todo checked off lingers on Today and the Agenda, done, at its place
-  /// on Today's list ([LingeringTodos]); reopening takes it back out.
+  /// in each list ([LingeringTodos]); reopening takes it back out.
   void _linger(int todoId, {required bool done, HomeSummary? home}) {
     final lingering = _ref.read(lingeringTodosProvider.notifier);
     if (!done) {
       lingering.remove(todoId);
       return;
     }
+    final places = <Object, int>{};
+    Todo? todo;
     final rows = home?.upcomingTodos ?? const <Todo>[];
-    var index = rows.indexWhere((t) => t.id == todoId);
-    Todo? todo = index < 0 ? null : rows[index];
-    if (todo == null) {
-      for (final instance
-          in _ref.container.allProviders(family: todosProvider).toList()) {
-        final query = instance.provider.argument;
-        if (query is! TodoQuery) continue;
-        final listed = _shown(_ref, todosProvider(query))?.todos ?? const [];
-        final at = listed.indexWhere((t) => t.id == todoId);
-        if (at >= 0) {
-          todo = listed[at];
-          index = at;
-          break;
-        }
-      }
+    final onToday = rows.indexWhere((t) => t.id == todoId);
+    if (onToday >= 0) {
+      todo = rows[onToday];
+      places[todayTodoList] = onToday;
     }
-    if (todo != null) lingering.add(todo, index < 0 ? 0 : index);
+    for (final instance
+        in _ref.container.allProviders(family: todosProvider).toList()) {
+      final query = instance.provider.argument;
+      if (query is! TodoQuery) continue;
+      final listed = _shown(_ref, todosProvider(query))?.todos ?? const [];
+      final at = listed.indexWhere((t) => t.id == todoId);
+      if (at < 0) continue;
+      todo ??= listed[at];
+      places[query] = at;
+    }
+    _places[todoId] = places;
+    if (todo != null) {
+      lingering.add(todo, places.values.firstOrNull ?? 0, places: places);
+    }
   }
 
   /// Marks todo [todoId] done, or open again ([done] false), on every
@@ -246,20 +255,31 @@ final class TodoActions {
     _latest[todoId] = outcome.future;
     var answered = false;
     PendingEdit<HomeSummary>? tap;
-    final listTaps = <PendingEdit<TodosBundle>>[];
+    final listTaps = <(PendingEdit<TodosBundle>, TodoQuery)>[];
     final reopening = !done && restore != null;
+    // An undo puts the todo back where it was in each list, not at the
+    // place it had in the one it was ticked in.
+    final places = reopening ? _places.remove(todoId) ?? const {} : const {};
     HomeSummary shown(HomeSummary h, String status) =>
         status == 'done' || status == 'cancelled' || !reopening
             ? h.withTodoStatus(todoId, status)
-            : h.withTodoReopened(restore.todo, index: restore.index);
-    TodosBundle shownIn(TodosBundle b, String status) =>
+            : h.withTodoReopened(
+                restore.todo,
+                index: places[todayTodoList] ?? restore.index,
+              );
+    late final DateTime today;
+    TodosBundle shownIn(TodosBundle b, String status, TodoQuery query) =>
         status == 'done' || status == 'cancelled' || !reopening
-            ? b.withTodoStatus(todoId, status)
-            : b.withTodoReopened(restore.todo, index: restore.index);
+            ? b.withTodoStatus(todoId, status, today: today)
+            : b.withTodoReopened(
+                restore.todo,
+                index: places[query] ?? restore.index,
+                today: today,
+              );
     try {
       final status = done ? 'done' : 'pending';
       final home = _shown(_ref, homeProvider);
-      final today = home?.today ?? _ref.read<DateTime>(currentDayProvider);
+      today = home?.today ?? _ref.read<DateTime>(currentDayProvider);
       final listed = home?.upcomingTodos.any((t) => t.id == todoId) ?? false;
       _linger(todoId, done: done, home: home);
       // Put back on Today only what `/home` lists: open todos due within
@@ -281,13 +301,14 @@ final class TodoActions {
         if (!inList && !(reopening && query.admitsOpen(restore.todo, today))) {
           continue;
         }
-        listTaps.add(
-          _ref.read(model.notifier).patch((b) => shownIn(b, status)),
-        );
+        listTaps.add((
+          _ref.read(model.notifier).patch((b) => shownIn(b, status, query)),
+          query,
+        ));
       }
       if (earlier != null && !await earlier) {
         tap?.rollback();
-        for (final listTap in listTaps) {
+        for (final (listTap, _) in listTaps) {
           listTap.rollback();
         }
         if (done) _ref.read(lingeringTodosProvider.notifier).remove(todoId);
@@ -298,13 +319,13 @@ final class TodoActions {
           .setTodoDone(todoId, done: done);
       answered = true;
       tap?.confirm((h) => shown(h, answer.status));
-      for (final listTap in listTaps) {
-        listTap.confirm((b) => shownIn(b, answer.status));
+      for (final (listTap, query) in listTaps) {
+        listTap.confirm((b) => shownIn(b, answer.status, query));
       }
       return true;
     } catch (_) {
       tap?.rollback();
-      for (final listTap in listTaps) {
+      for (final (listTap, _) in listTaps) {
         listTap.rollback();
       }
       if (done) _ref.read(lingeringTodosProvider.notifier).remove(todoId);

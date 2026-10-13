@@ -92,4 +92,8 @@ abstract interface class WriteListener {
   /// typically while its screen is still animating out); everything else
   /// [changed] reaches refreshes as usual.
   void writeFinished(Set<DataScope> changed, {DeletedRecord? deleted});
+
+  /// The write created ([created]) or edited record [id] of [scope]: its
+  /// row animates as one made here (§4.29).
+  void noteWritten(DataScope scope, int id, {required bool created});
 }

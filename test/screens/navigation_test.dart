@@ -24,6 +24,7 @@ import 'package:meridian_mobile/theme/app_theme.dart';
 import 'package:meridian_mobile/ui/screens/agenda/agenda_screen.dart';
 import 'package:meridian_mobile/ui/screens/finance/accounts_screen.dart';
 import 'package:meridian_mobile/ui/screens/finance/finance_screen.dart';
+import 'package:meridian_mobile/ui/screens/finance/transactions_screen.dart';
 import 'package:meridian_mobile/ui/screens/goals/goal_detail_screen.dart';
 import 'package:meridian_mobile/ui/screens/goals/goals_screen.dart';
 import 'package:meridian_mobile/ui/screens/journal/journal_editor.dart';
@@ -574,6 +575,21 @@ void main() {
     });
   });
 
+  testWidgets('a path whose id is not a number goes to the list, not to an '
+      'error', (tester) async {
+    final router = await _pumpApp(tester, FakeApi());
+    for (final (path, list) in [
+      ('/goals/abc', '/goals'),
+      ('/finance/account/x', '/finance/accounts'),
+      ('/journal/x', '/journal'),
+    ]) {
+      router.go(path);
+      await _settle(tester);
+      expect(tester.takeException(), isNull, reason: path);
+      expect(_location(router), list, reason: path);
+    }
+  });
+
   group('signing in again', () {
     testWidgets('after the session ran out: back where it was',
         (tester) async {
@@ -593,6 +609,68 @@ void main() {
       await _settle(tester);
       expect(_location(router), '/finance/transactions');
     });
+
+    testWidgets('a page opened over its tab with push, as the app opens '
+        'them, is where signing in again comes back to', (tester) async {
+      final router = await _pumpApp(tester, FakeApi());
+      router.go('/finance');
+      await _settle(tester);
+      router.push('/finance/transactions');
+      await _settle(tester);
+      final session = tester.container().read(sessionProvider.notifier)
+          as _Session;
+
+      session.set(const SessionLoggedOut(expired: true));
+      await _settle(tester);
+      expect(
+          _location(router), '/login?from=%2Ffinance%2Ftransactions');
+
+      session.set(const SessionLoggedIn());
+      await _settle(tester);
+      expect(_location(router), '/finance/transactions');
+      expect(find.byType(TransactionsScreen), findsOneWidget);
+    });
+
+    // Profile and the server page have no page under them when opened on
+    // their own: no back arrow, no tab bar, and back would close the app.
+    // Signing in again comes back to the page they were pushed over.
+    for (final (name, base, pushes, back) in [
+      ('Profile over Today', '/today', ['/profile'], '/today'),
+      ('the server page over Profile', '/today',
+          ['/profile', '/profile/server'], '/today'),
+      ('the server page over Transactions', '/finance',
+          ['/finance/transactions', '/profile/server'],
+          '/finance/transactions'),
+      ('Profile over Search', '/today', ['/search', '/profile'], '/search'),
+    ]) {
+      testWidgets('$name: signing in again comes back to a page with a way '
+          'back', (tester) async {
+        final router = await _pumpApp(tester, FakeApi());
+        router.go(base);
+        await _settle(tester);
+        for (final page in pushes) {
+          router.push(page);
+          await _settle(tester);
+        }
+        final session = tester.container().read(sessionProvider.notifier)
+            as _Session;
+
+        session.set(const SessionLoggedOut(expired: true));
+        await _settle(tester);
+        expect(_location(router),
+            Uri(path: '/login', queryParameters: {'from': back}).toString());
+
+        session.set(const SessionLoggedIn());
+        await _settle(tester);
+        expect(_location(router), back);
+        expect(tester.takeException(), isNull);
+        if (back == '/today') {
+          expect(find.byType(NavigationBar), findsOneWidget);
+        } else {
+          expect(router.canPop(), isTrue);
+        }
+      });
+    }
 
     testWidgets('after signing out: Today, whatever was open', (tester) async {
       final router = await _pumpApp(tester, FakeApi());

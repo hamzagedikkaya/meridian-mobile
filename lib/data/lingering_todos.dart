@@ -23,7 +23,20 @@ import '../models/todo.dart';
 import '../theme/app_motion.dart';
 
 /// One lingering todo: the todo (done), where it was, when it was checked.
-typedef LingeringTodo = ({Todo todo, int index, DateTime at});
+/// [index] is its place in the list it was ticked in; [places] its place in
+/// each list on screen, by the list's key ([todayTodoList], or the Agenda's
+/// `TodoQuery`): a list filtered by todo list, or the inbox, has its own
+/// order, and the row lingers where it was in each.
+typedef LingeringTodo = ({
+  Todo todo,
+  int index,
+  DateTime at,
+  Map<Object, int> places,
+});
+
+/// The key of Today's list (`/home`'s upcoming todos) in
+/// [LingeringTodo.places].
+const Object todayTodoList = #todayTodoList;
 
 /// What is lingering, whether it is collapsing now, and how many collapsed
 /// last time (the summary row's count).
@@ -31,12 +44,23 @@ final class LingeringState {
   const LingeringState({
     this.todos = const {},
     this.collapsing = false,
-    this.finished = 0,
+    this.done = const {},
   });
 
   final Map<int, LingeringTodo> todos;
   final bool collapsing;
-  final int finished;
+
+  /// The todos that collapsed, finished, by id — what "n tamamlandı"
+  /// counts. Reopening one takes it out.
+  final Map<int, Todo> done;
+
+  /// How many collapsed, finished, on every screen.
+  int get finished => done.length;
+
+  /// How many collapsed of those [admits] takes: a screen counts only what
+  /// it would have listed.
+  int finishedWhere(bool Function(Todo todo) admits) =>
+      done.values.where(admits).length;
 
   bool get isEmpty => todos.isEmpty;
   bool contains(int id) => todos.containsKey(id);
@@ -77,9 +101,9 @@ final class LingeringTodos extends Notifier<LingeringState> {
     _collapse = null;
   }
 
-  /// [todo] was just checked off; it was at [index] in the list on screen.
-  /// Restarts the one linger timer.
-  void add(Todo todo, int index) {
+  /// [todo] was just checked off; it was at [index] in the list on screen,
+  /// and at [places] in each list by its key. Restarts the one linger timer.
+  void add(Todo todo, int index, {Map<Object, int> places = const {}}) {
     if (_listeners == 0) return;
     _collapse?.cancel();
     _collapse = null;
@@ -90,23 +114,33 @@ final class LingeringTodos extends Notifier<LingeringState> {
           todo: todo.copyWith(status: 'done'),
           index: index,
           at: DateTime.now(),
+          places: places,
         ),
       },
-      finished: state.finished,
+      done: state.done,
     );
     _linger?.cancel();
     _linger = Timer(Motion.linger, _startCollapse);
   }
 
-  /// [id] was reopened: it leaves the lingering set at once.
+  /// [id] was reopened: it leaves the lingering set at once — or, folded
+  /// already, the finished count.
   void remove(int id) {
-    if (!state.todos.containsKey(id)) return;
+    if (!state.todos.containsKey(id)) {
+      if (!state.done.containsKey(id)) return;
+      state = LingeringState(
+        todos: state.todos,
+        collapsing: state.collapsing,
+        done: {...state.done}..remove(id),
+      );
+      return;
+    }
     final rest = {...state.todos}..remove(id);
     if (rest.isEmpty) _cancel();
     state = LingeringState(
       todos: rest,
       collapsing: state.collapsing && rest.isNotEmpty,
-      finished: state.finished,
+      done: state.done,
     );
   }
 
@@ -116,36 +150,52 @@ final class LingeringTodos extends Notifier<LingeringState> {
     state = LingeringState(
       todos: state.todos,
       collapsing: true,
-      finished: state.finished,
+      done: state.done,
     );
     _collapse = Timer(Motion.collapse, _finish);
   }
 
   void _finish() {
     _collapse = null;
-    state = LingeringState(finished: state.finished + state.todos.length);
+    state = LingeringState(
+      done: {
+        ...state.done,
+        for (final l in state.todos.values) l.todo.id: l.todo,
+      },
+    );
   }
 
   /// The screen was left: everything goes, without motion; the summary
-  /// count resets too.
-  void clear() {
+  /// count resets too — unless [keepFinished] (a tab left behind): the
+  /// rows lingering fold at once, without motion, into what was finished —
+  /// a todo ticked a moment before the tab was left is done all the same —
+  /// and that stays the day's, so a day whose every task is done still
+  /// says so ("Hepsi tamam", §7.15) when the tab is shown again.
+  void clear({bool keepFinished = false}) {
     _cancel();
-    if (state.isEmpty && state.finished == 0) return;
+    if (keepFinished) {
+      if (state.isEmpty && !state.collapsing) return;
+      _finish();
+      return;
+    }
+    if (state.isEmpty && state.done.isEmpty) return;
     state = const LingeringState();
   }
 }
 
-/// [rows] (the server's open todos) with [lingering] put back where they
-/// were, done — rows the server still lists are left as they are.
-List<Todo> mergeInto(List<Todo> rows, LingeringState lingering) {
+/// [rows] (the server's open todos — of the list keyed [list], see
+/// [LingeringTodo.places]) with [lingering] put back where they were in
+/// it, done — rows the server still lists are left as they are.
+List<Todo> mergeInto(List<Todo> rows, LingeringState lingering, {Object? list}) {
   if (lingering.isEmpty) return rows;
   final listed = {for (final t in rows) t.id};
   final out = [...rows];
+  int at(LingeringTodo l) => l.places[list] ?? l.index;
   final missing =
       lingering.todos.values.where((l) => !listed.contains(l.todo.id)).toList()
-        ..sort((a, b) => a.index.compareTo(b.index));
+        ..sort((a, b) => at(a).compareTo(at(b)));
   for (final l in missing) {
-    out.insert(l.index.clamp(0, out.length), l.todo);
+    out.insert(at(l).clamp(0, out.length), l.todo);
   }
   return out;
 }

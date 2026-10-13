@@ -13,6 +13,7 @@ import 'package:meridian_mobile/core/formats.dart';
 import 'package:meridian_mobile/l10n/app_l10n.dart';
 import 'package:meridian_mobile/l10n/app_l10n_en.dart';
 import 'package:meridian_mobile/l10n/app_l10n_tr.dart';
+import 'package:meridian_mobile/models/event.dart' show RecurrencePreset;
 
 const tr = AppL10nTr();
 const en = AppL10nEn();
@@ -97,9 +98,14 @@ void main() {
   });
 
   group('relative days', () {
-    final now = DateTime.now();
-    DateTime day(int delta) => DateTime(now.year, now.month, now.day)
-        .add(Duration(days: delta));
+    // A fixed today a few days before a daylight-saving change in much of
+    // the world (Europe moves its clocks on 25 October 2026); days are
+    // counted on the calendar, never in 24-hour steps, so a run in such a
+    // zone reads the same.
+    final now = DateTime(2026, 10, 24);
+    DateTime day(int delta) => DateTime(now.year, now.month, now.day + delta);
+    setUp(() => setAppToday(now));
+    tearDown(() => setAppToday(null));
 
     test('dayDelta is signed around today', () {
       expect(dayDelta(day(0)), 0);
@@ -122,6 +128,12 @@ void main() {
       expect(tr.relativeDays(day(0)), 'bugün');
       expect(tr.relativeDays(day(3)), '3 gün sonra');
       expect(tr.relativeDays(day(-2)), '2 gün önce');
+      // One day either way reads as relativeDay does: "Yarın", not
+      // "1 gün sonra".
+      expect(tr.relativeDays(day(1)), 'yarın');
+      expect(tr.relativeDays(day(-1)), 'dün');
+      expect(en.relativeDays(day(1)), 'tomorrow');
+      expect(en.relativeDays(day(-1)), 'yesterday');
       expect(en.relativeDays(day(0)), 'today');
       expect(en.relativeDays(day(3)), 'in 3 days');
       expect(en.relativeDays(day(-2)), '2 days ago');
@@ -140,7 +152,41 @@ void main() {
     });
   });
 
+  test('one thing, one spelling in each language', () {
+    for (final color in [
+      en.todoListColor,
+      en.eventColor,
+      en.habitsFormColor,
+      en.goalsFormColor,
+      en.categoryFormColor,
+    ]) {
+      expect(color, en.accountFormColor);
+    }
+    expect(en.todayMonthNet, en.financeMonthNet);
+    expect(tr.todayMonthNet, tr.financeMonthNet);
+    expect(tr.habitsFormGoalLink, contains('(isteğe bağlı)'));
+    expect(tr.recurrence(RecurrencePreset.custom), contains("web'de"));
+  });
+
   group('API values map to copy in both languages', () {
+    test('an account that cannot be deleted names only what it has', () {
+      expect(tr.errHasTransactions(4, 1),
+          'Bu hesabın 4 işlemi ve 1 gelen transferi var; silmek yerine arşivle');
+      expect(tr.errHasTransactions(0, 3),
+          'Bu hesabın 3 gelen transferi var; silmek yerine arşivle');
+      expect(tr.errHasTransactions(2, 0),
+          'Bu hesabın 2 işlemi var; silmek yerine arşivle');
+      expect(en.errHasTransactions(0, 3),
+          'This account has 3 incoming transfers; archive it instead of '
+          'deleting it');
+      expect(en.errHasTransactions(1, 1),
+          'This account has 1 transaction and 1 incoming transfer; archive it '
+          'instead of deleting it');
+      for (final l in [tr, en]) {
+        expect(l.errHasTransactions(0, 0), isNot(contains('0')));
+      }
+    });
+
     test('account types', () {
       for (final type in ['cash', 'bank', 'credit_card', 'savings', 'crypto']) {
         expect(tr.accountType(type), isNotEmpty);

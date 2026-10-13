@@ -224,7 +224,9 @@ class GoalInput {
         before.deadline == null ? null : isoDate(before.deadline!);
     final deadlineNow = deadline == null ? null : isoDate(deadline!);
     return {
-      if (name != before.name) 'name': name,
+      // Compared as the form sends it: a name stored with a stray space is
+      // the same name.
+      if (name.trim() != before.name.trim()) 'name': name.trim(),
       if (_text(description) != _text(before.description))
         'description': _text(description),
       if (targetType != before.targetType) 'target_type': targetType,

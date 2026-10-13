@@ -145,7 +145,17 @@ class _CategoriesScreenState extends ConsumerState<CategoriesScreen> {
     if (!mounted) return;
     setState(() => _seeding = false);
     if (failed) {
-      showAppSnack(context, l.categoriesStarterFailed, isError: true);
+      // The list is no longer empty, so its "Hazır kategorileri ekle" is
+      // gone: the retry is here. What was added is taken, and skipped.
+      showAppSnack(
+        context,
+        l.categoriesStarterFailed,
+        isError: true,
+        actionLabel: l.actionRetry,
+        onAction: () {
+          if (mounted && !_seeding) _seed();
+        },
+      );
     } else {
       Haptics.confirm();
       showAppSnack(context, l.categoriesStarterAdded, tone: SnackTone.success);

@@ -34,14 +34,23 @@ import '../../widgets/slide_up_route.dart';
 /// [initialName] fills the name in (quick capture's "create the habit 'X'").
 /// Resolves to the habit saved, or null when the form was closed without
 /// saving. A new habit's card grows in on the list, washed.
+///
+/// [announce]: the form says "eklendi" / "güncellendi" on the app's
+/// messenger; false when the caller says it where it can be seen (a sheet
+/// the form returns to).
 Future<Habit?> openHabitForm(
   BuildContext context, {
   String? initialName,
   Habit? habit,
+  bool announce = true,
 }) {
   return Navigator.of(context, rootNavigator: true).push<Habit>(
     slideUpModalRoute(
-      (_) => HabitFormScreen(initialName: initialName, habit: habit),
+      (_) => HabitFormScreen(
+        initialName: initialName,
+        habit: habit,
+        announce: announce,
+      ),
     ),
   );
 }
@@ -49,8 +58,17 @@ Future<Habit?> openHabitForm(
 /// The longest habit name the server takes (meridian `Habit`).
 const habitNameMaxLength = 60;
 
-/// The highest target the stepper and its keypad take.
+/// The highest target the stepper and its keypad take for a daily habit.
 const habitTargetMax = 99;
+
+/// The highest target for [frequency]: a weekly or monthly target counts
+/// done days, so never more than the period has (7, 31) — a higher one
+/// could never be complete.
+int habitTargetMaxFor(String frequency) => switch (frequency) {
+  'weekly' => 7,
+  'monthly' => 31,
+  _ => habitTargetMax,
+};
 
 class HabitFormScreen extends ConsumerStatefulWidget {
   final String? initialName;
@@ -58,7 +76,15 @@ class HabitFormScreen extends ConsumerStatefulWidget {
   /// The habit to edit; null to create one.
   final Habit? habit;
 
-  const HabitFormScreen({super.key, this.initialName, this.habit});
+  /// Whether the form says it saved (see [openHabitForm]).
+  final bool announce;
+
+  const HabitFormScreen({
+    super.key,
+    this.initialName,
+    this.habit,
+    this.announce = true,
+  });
 
   @override
   ConsumerState<HabitFormScreen> createState() => _HabitFormScreenState();
@@ -89,11 +115,22 @@ class _HabitFormScreenState extends ConsumerState<HabitFormScreen> {
   String? _nameError;
   final _nameKey = GlobalKey();
 
+  /// The text fields' focus: one taken up in any way — a tap, a screen
+  /// reader's activation, a hardware keyboard — closes the keypad.
+  late final _nameFocus = FocusNode()..addListener(_onTextFocus);
+  late final _descriptionFocus = FocusNode()..addListener(_onTextFocus);
+
   @override
   void dispose() {
+    _nameFocus.dispose();
+    _descriptionFocus.dispose();
     _name.dispose();
     _description.dispose();
     super.dispose();
+  }
+
+  void _onTextFocus() {
+    if (_nameFocus.hasFocus || _descriptionFocus.hasFocus) _closeKeypad();
   }
 
   HabitInput get _input => HabitInput(
@@ -150,7 +187,9 @@ class _HabitFormScreenState extends ConsumerState<HabitFormScreen> {
       Haptics.confirm();
       if (!mounted) return;
       Navigator.of(context).pop(habit);
-      showAppSnack(context, before == null ? l.habitsAdded : l.habitsUpdated);
+      if (widget.announce) {
+        showAppSnack(context, before == null ? l.habitsAdded : l.habitsUpdated);
+      }
     } catch (e) {
       if (!mounted) return;
       // A refusal about the name goes under the name; the rest to a snack.
@@ -173,21 +212,42 @@ class _HabitFormScreenState extends ConsumerState<HabitFormScreen> {
 
   // --- Target -----------------------------------------------------------------
 
+  int get _targetMax => habitTargetMaxFor(_frequency);
+
   void _setTarget(int value) {
-    final next = value.clamp(1, habitTargetMax);
+    final next = value.clamp(1, _targetMax);
     if (next == _target) return;
     setState(() => _target = next);
   }
 
-  void _toggleKeypad() => setState(() {
-    _typingTarget = !_typingTarget;
+  /// A new frequency keeps the target, within what its period can hold.
+  void _setFrequency(String frequency) => setState(() {
+    _frequency = frequency;
+    final max = habitTargetMaxFor(frequency);
+    if (_target > max) _target = max;
     _typed = '';
   });
+
+  /// The keypad takes the place of the system keyboard: opening it takes
+  /// the focus off the name (the keyboard would stay up over it, and its
+  /// digits would go into the name).
+  void _toggleKeypad() {
+    if (!_typingTarget) FocusManager.instance.primaryFocus?.unfocus();
+    setState(() {
+      _typingTarget = !_typingTarget;
+      _typed = '';
+    });
+  }
+
+  /// A text field taken up again: the keypad gives way to the keyboard.
+  void _closeKeypad() {
+    if (_typingTarget && mounted) setState(() => _typingTarget = false);
+  }
 
   void _digit(String d) {
     final typed = _typed == '0' ? d : '$_typed$d';
     final value = int.parse(typed);
-    if (value > habitTargetMax) {
+    if (value > _targetMax) {
       Haptics.reject();
       setState(() => _rejected++);
       return;
@@ -235,12 +295,14 @@ class _HabitFormScreenState extends ConsumerState<HabitFormScreen> {
         TextField(
           key: _nameKey,
           controller: _name,
+          focusNode: _nameFocus,
           // A new habit starts typing at once; an edit does not pop the
           // keyboard over what it shows.
           autofocus: before == null,
           maxLength: habitNameMaxLength,
           textCapitalization: TextCapitalization.sentences,
           textInputAction: TextInputAction.done,
+          onTap: _closeKeypad,
           decoration: InputDecoration(
             labelText: l.habitsFormName,
             hintText: l.habitsFormNameHint,
@@ -258,7 +320,7 @@ class _HabitFormScreenState extends ConsumerState<HabitFormScreen> {
             ('monthly', l.habitsFormMonthly),
           ],
           selected: _frequency,
-          onChanged: (v) => setState(() => _frequency = v),
+          onChanged: _setFrequency,
         ),
         const SizedBox(height: Gap.xxl),
         FormLabel(
@@ -303,9 +365,11 @@ class _HabitFormScreenState extends ConsumerState<HabitFormScreen> {
           const SizedBox(height: Gap.sm),
           TextField(
             controller: _description,
+            focusNode: _descriptionFocus,
             minLines: 1,
             maxLines: 4,
             textCapitalization: TextCapitalization.sentences,
+            onTap: _closeKeypad,
             decoration: InputDecoration(
               labelText: l.habitsFormDescription,
               hintText: l.habitsFormDescriptionHint,
@@ -406,7 +470,7 @@ class _HabitFormScreenState extends ConsumerState<HabitFormScreen> {
         btn(
           Icons.add_rounded,
           l.habitLogIncrease,
-          _target < habitTargetMax,
+          _target < _targetMax,
           _target + 1,
         ),
       ],

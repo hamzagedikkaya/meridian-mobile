@@ -22,6 +22,8 @@ import '../../widgets/color_swatches.dart';
 import '../../widgets/form_scaffold.dart';
 import '../../widgets/nok_chip.dart';
 import '../../widgets/slide_up_route.dart';
+import '../today/widgets/today_clock.dart' show accountWallClock;
+import 'agenda_days.dart' show pickerRange;
 import 'event_sheet.dart';
 
 /// The longest event title the server takes.
@@ -125,6 +127,12 @@ class _EventFormScreenState extends ConsumerState<EventFormScreen> {
 
   bool get _isEdit => widget.existing != null;
 
+  /// Whether the end is one the user (or the saved event) chose, rather
+  /// than the hour the form put after a new event's start: "Tüm gün" drops
+  /// an end nobody chose — after 22:00 that hour is the next day, and the
+  /// all-day event would end a day late.
+  late bool _endChosen = widget.existing != null;
+
   @override
   void initState() {
     super.initState();
@@ -175,7 +183,11 @@ class _EventFormScreenState extends ConsumerState<EventFormScreen> {
     final today = _today;
     final on = dateOnly(day ?? today);
     if (!morning && on == dateOnly(today)) {
-      final now = ref.read(clockProvider)();
+      // The account's hour, as the event's times are.
+      final now = accountWallClock(
+        ref.read(clockProvider)(),
+        ref.read(accountUtcOffsetProvider),
+      );
       final next = DateTime(on.year, on.month, on.day, now.hour + 1);
       // Past 23:00 the next full hour is tomorrow: stay on the day asked.
       if (next.day == on.day) return next;
@@ -230,12 +242,12 @@ class _EventFormScreenState extends ConsumerState<EventFormScreen> {
   }
 
   Future<DateTime?> _pickDay(DateTime initial, {DateTime? first}) {
-    final today = _today;
+    final range = pickerRange(initial, _today, first: first);
     return showDatePicker(
       context: context,
       initialDate: initial,
-      firstDate: first ?? DateTime(today.year - 5),
-      lastDate: DateTime(today.year + 10),
+      firstDate: range.first,
+      lastDate: range.last,
     );
   }
 
@@ -297,6 +309,7 @@ class _EventFormScreenState extends ConsumerState<EventFormScreen> {
     final picked = await _pickDay(end, first: dateOnly(_start));
     if (picked == null || !mounted) return;
     setState(() {
+      _endChosen = true;
       _end = DateTime(
         picked.year,
         picked.month,
@@ -313,12 +326,14 @@ class _EventFormScreenState extends ConsumerState<EventFormScreen> {
     final picked = await _pickTime(end);
     if (picked == null || !mounted) return;
     setState(() {
+      _endChosen = true;
       _end = DateTime(end.year, end.month, end.day, picked.hour, picked.minute);
       _afterTimesChanged();
     });
   }
 
   void _addEnd() => setState(() {
+    _endChosen = true;
     _end = _allDay ? _start : _start.add(const Duration(hours: 1));
     _afterTimesChanged();
   });
@@ -380,9 +395,12 @@ class _EventFormScreenState extends ConsumerState<EventFormScreen> {
           );
       if (!mounted) return;
       Haptics.confirm();
+      // Said on the screen the form was opened from, above its capture bar
+      // (the form's own context sees no bar: see `snackMarginFor`).
+      final host = widget.host;
       Navigator.of(context).pop(saved);
       showAppSnack(
-        context,
+        host != null && host.mounted ? host : context,
         existing == null ? l.eventCreated(saved.title) : l.eventUpdated,
       );
     } catch (e) {
@@ -506,7 +524,9 @@ class _EventFormScreenState extends ConsumerState<EventFormScreen> {
           value: _allDay,
           onChanged: (value) => setState(() {
             _allDay = value;
-            if (_end != null && !value && !_end!.isAfter(_start)) {
+            if (!_endChosen) {
+              _end = value ? null : _start.add(const Duration(hours: 1));
+            } else if (_end != null && !value && !_end!.isAfter(_start)) {
               _end = _start.add(const Duration(hours: 1));
             }
             _afterTimesChanged();
@@ -581,6 +601,7 @@ class _EventFormScreenState extends ConsumerState<EventFormScreen> {
                       IconButton(
                         tooltip: l.eventRemoveEnd,
                         onPressed: () => setState(() {
+                          _endChosen = true;
                           _end = null;
                           _endError = null;
                         }),

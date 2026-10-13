@@ -17,6 +17,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../core/api.dart';
 import '../../core/formats.dart';
 import '../../core/haptics.dart';
+import '../../core/session.dart';
 import '../../data/current_day.dart';
 import '../../data/providers.dart';
 import '../../data/repository.dart';
@@ -118,14 +119,26 @@ class SubscriptionLite {
 /// The subscriptions whose "Ödendi" is on its way: a payment is not safe
 /// to repeat (each `POST /subscriptions/:id/charge` records one more), so
 /// a button showing it is off from the first tap until the answer
-/// (D29) — watch this to draw it so.
+/// (D29) — watch this to draw it so. One whose answer was lost stays in
+/// it until the subscriptions fetched after it say whether it went through
+/// ([SubscriptionChargesInFlight.holdUntilRefetched]).
 final subscriptionChargesInFlightProvider =
     NotifierProvider<SubscriptionChargesInFlight, Set<int>>(
         SubscriptionChargesInFlight.new);
 
 class SubscriptionChargesInFlight extends Notifier<Set<int>> {
+  /// Payments whose answer was lost, and the list each was lost over.
+  final _unsure = <int, Fetched<SubscriptionsBundle>?>{};
+  ProviderSubscription<AsyncValue<Fetched<SubscriptionsBundle>>>? _watch;
+
+  /// Each session starts without any: they are the signed-in account's.
   @override
-  Set<int> build() => const {};
+  Set<int> build() {
+    ref.watch(sessionProvider.select((s) => s is SessionLoggedIn));
+    ref.onDispose(_stopWatching);
+    _unsure.clear();
+    return const {};
+  }
 
   /// Claims [id]; false when a payment of it is already on its way.
   bool claim(int id) {
@@ -134,7 +147,35 @@ class SubscriptionChargesInFlight extends Notifier<Set<int>> {
     return true;
   }
 
-  void release(int id) => state = {...state}..remove(id);
+  void release(int id) {
+    _unsure.remove(id);
+    if (_unsure.isEmpty) _stopWatching();
+    state = {...state}..remove(id);
+  }
+
+  /// Keeps [id] claimed after a payment whose answer was lost: it may have
+  /// been recorded, so no "Ödendi" — a row's, the dashboard's or the
+  /// sheet's — may send another until a list of subscriptions newer than
+  /// the one on hand has landed. A refetch that fails keeps it held.
+  void holdUntilRefetched(int id) {
+    _unsure[id] = ref.read(subscriptionsProvider).value;
+    state = {...state, id};
+    _watch ??= ref.listen(subscriptionsProvider, (_, next) {
+      if (next is! AsyncData<Fetched<SubscriptionsBundle>>) return;
+      final landed = [
+        for (final MapEntry(:key, :value) in _unsure.entries)
+          if (!identical(next.value, value)) key,
+      ];
+      for (final id in landed) {
+        release(id);
+      }
+    });
+  }
+
+  void _stopWatching() {
+    _watch?.close();
+    _watch = null;
+  }
 }
 
 /// Records [s]'s payment (`POST /subscriptions/:id/charge`: an expense on
@@ -151,6 +192,7 @@ Future<SubscriptionCharge?> markSubscriptionPaid(
   if (!inFlight.claim(s.id)) return null;
   final l = context.l10n;
   final repo = ref.read(repositoryProvider);
+  var unsure = false;
   try {
     final charge = await repo.chargeSubscription(s.id);
     // "Ödendi" confirms (§5.8).
@@ -176,6 +218,7 @@ Future<SubscriptionCharge?> markSubscriptionPaid(
       // A lost answer may still have recorded it: say so rather than
       // invite a second payment.
       final maybe = e is ApiException && e.isNetwork && e.mayHaveArrived;
+      unsure = maybe;
       showAppSnack(
         context,
         maybe
@@ -184,17 +227,24 @@ Future<SubscriptionCharge?> markSubscriptionPaid(
         isError: true,
       );
     } else {
+      unsure = e is ApiException && e.isNetwork && e.mayHaveArrived;
       Haptics.reject();
     }
     return null;
   } finally {
-    inFlight.release(s.id);
+    // A lost answer holds every "Ödendi" of it until the list says.
+    unsure ? inFlight.holdUntilRefetched(s.id) : inFlight.release(s.id);
   }
 }
 
-/// Takes a payment back: deletes the expense it recorded and moves the
-/// due date back to [dueBefore]. Said on [messenger] when it fails, as the
-/// screen that paid may be gone.
+/// Takes a payment back: moves the due date back to [dueBefore], then
+/// deletes the expense it recorded — in that order, since deleting a
+/// payment does not move the date (contract 4.6): should the date fail,
+/// nothing has changed (unless its answer was lost: then the date may be
+/// back, and the message says the payment is still recorded); should the
+/// delete fail, only the expense is left, and the message says where to
+/// delete it. Said on [messenger] when it
+/// fails, as the screen that paid may be gone.
 Future<void> undoSubscriptionCharge(
   ScaffoldMessengerState messenger,
   AppL10n l,
@@ -203,10 +253,8 @@ Future<void> undoSubscriptionCharge(
   DateTime? dueBefore,
 ) async {
   final sub = charge.subscription;
-  try {
-    final tx = charge.transaction;
-    if (tx != null) await repo.deleteTransaction(tx.id);
-    if (dueBefore != null) {
+  if (dueBefore != null) {
+    try {
       await repo.updateSubscription(
         sub,
         SubscriptionInput(
@@ -222,11 +270,24 @@ Future<void> undoSubscriptionCharge(
         ),
         accountCurrency: sub.account.currency,
       );
+    } catch (e) {
+      // A lost answer may have moved the date back all the same: the row
+      // may say it is due again while its payment is still recorded.
+      final maybe = e is ApiException && e.isNetwork && e.mayHaveArrived;
+      showAppSnackOn(
+        messenger,
+        maybe ? l.subscriptionUndoUnsure : l.subscriptionUndoNothingChanged,
+        isError: true,
+      );
+      return;
     }
+  }
+  final tx = charge.transaction;
+  if (tx == null) return;
+  try {
+    await repo.deleteTransaction(tx.id);
   } catch (_) {
-    if (messenger.mounted) {
-      showAppSnack(messenger.context, l.subscriptionUndoFailed, isError: true);
-    }
+    showAppSnackOn(messenger, l.subscriptionUndoFailed, isError: true);
   }
 }
 

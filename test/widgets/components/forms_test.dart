@@ -228,6 +228,43 @@ void main() {
     });
   });
 
+  group('FormPickerRow', () {
+    for (final scale in [1.0, 1.6, 2.0]) {
+      testWidgets('at $scale× text on a 360 dp phone the value keeps a '
+          'readable width', (tester) async {
+        await pumpComponent(
+          tester,
+          ListView(
+            padding: const EdgeInsets.symmetric(horizontal: 20),
+            children: [
+              FormPickerRow(
+                icon: Icons.repeat_rounded,
+                label: 'Bağlı alışkanlık',
+                value: 'Sabah koşusu',
+                onTap: () {},
+              ),
+              FormPickerRow(
+                icon: Icons.event_rounded,
+                label: 'Sonraki ödeme',
+                value: '15 Ekim 2026',
+                onTap: () {},
+              ),
+            ],
+          ),
+          textScale: scale,
+        );
+        expect(tester.takeException(), isNull);
+        for (final value in ['Sabah koşusu', '15 Ekim 2026']) {
+          final size = tester.getSize(find.text(value));
+          // Never a letter-wide column: at least a third of the row, and
+          // no taller than two lines of it.
+          expect(size.width, greaterThan(320 / 3), reason: value);
+          expect(size.height, lessThan(3 * 20 * scale), reason: value);
+        }
+      });
+    }
+  });
+
   group('FormInlineError', () {
     Widget host(String? error) => Column(
       mainAxisSize: MainAxisSize.min,

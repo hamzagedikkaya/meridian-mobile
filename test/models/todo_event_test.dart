@@ -40,6 +40,31 @@ void main() {
   });
 
   group('TodoInput', () {
+    test('a title stored with a stray space, saved as the form shows it '
+        '(trimmed), is not an edit', () {
+      final todo = Todo.fromJson({...todoJson(), 'title': 'Faturayı öde '});
+      final input = TodoInput(
+        title: 'Faturayı öde',
+        body: todo.body,
+        priority: todo.priority,
+        dueDate: todo.dueDay,
+        dueTime: todo.dueTime,
+        listId: todo.todoList?.id,
+        goalId: todo.goalId,
+      );
+      expect(input.changesFrom(todo), isEmpty);
+      expect(
+        TodoInput(
+          title: 'Faturayı yatır',
+          body: todo.body,
+          priority: todo.priority,
+          dueDate: todo.dueDay,
+          dueTime: todo.dueTime,
+        ).changesFrom(todo),
+        {'title': 'Faturayı yatır'},
+      );
+    });
+
     test('a new todo sends its day and time as due_date / due_time, never '
         'an instant, and leaves out what is not set', () {
       expect(
@@ -196,6 +221,14 @@ void main() {
       expect(bundle.unlistedOpenCount, 2);
     });
 
+    test('a name stored with a stray space is the same name', () {
+      final list = TodoList.fromJson({...todoListJson(), 'name': 'Ev '});
+      expect(
+        const TodoListInput(name: 'Ev ', color: '#6b8e5a').changesFrom(list),
+        isEmpty,
+      );
+    });
+
     test('an edit sends only what changed', () {
       final list = TodoList.fromJson(todoListJson());
       expect(
@@ -323,6 +356,25 @@ void main() {
   });
 
   group('EventInput', () {
+    test('a title stored with a stray space, saved as the form shows it '
+        '(trimmed), is not an edit', () {
+      final event =
+          Event.fromJson({...eventJson(full: true), 'title': ' Yoga '});
+      EventInput input(String title) => EventInput(
+            title: title,
+            start: event.startAt!,
+            end: event.endAt,
+            allDay: event.allDay,
+            location: event.location,
+            description: event.description,
+            color: event.color,
+            eventType: event.eventType!,
+            recurrenceRule: event.recurrenceRule,
+          );
+      expect(input('Yoga').changesFrom(event), isEmpty);
+      expect(input('Pilates').changesFrom(event), {'title': 'Pilates'});
+    });
+
     test('a timed event sends the wall clock without an offset', () {
       expect(
         EventInput(
@@ -450,6 +502,55 @@ void main() {
       final counted = Recurrence.parse('FREQ=DAILY;COUNT=10');
       expect(counted.count, 10);
       expect(counted.preset, RecurrencePreset.daily);
+    });
+
+    test('an UNTIL on the other side of a daylight-saving change is still '
+        'its own day', () {
+      DateTime? until(String value, int hours) => Recurrence.parse(
+            'FREQ=WEEKLY;UNTIL=$value',
+            utcOffset: Duration(hours: hours),
+          ).until;
+      // London in summer (+01:00), a series ending in winter.
+      expect(until('20261231T235959Z', 1), DateTime(2026, 12, 31));
+      // New York in summer (−04:00).
+      expect(until('20270101T045959Z', -4), DateTime(2026, 12, 31));
+      // Sydney in summer (+11:00), a series ending in winter (+10:00).
+      expect(until('20270630T135959Z', 11), DateTime(2027, 6, 30));
+      // The other way round already reads right: London in winter, a
+      // series ending in summer (22:59:59 on the day).
+      expect(until('20270630T225959Z', 0), DateTime(2027, 6, 30));
+      expect(
+        Recurrence.ruleFor(RecurrencePreset.weekly,
+            until: until('20261231T235959Z', 1)),
+        'FREQ=WEEKLY;UNTIL=20261231',
+      );
+    });
+
+    test('a day some months lack (BYMONTHDAY 29–31, 29 February) is kept '
+        'as written, not read as the plain preset', () {
+      expect(
+        Recurrence.parse('FREQ=MONTHLY;BYMONTHDAY=31',
+                anchor: DateTime(2026, 10, 31, 9))
+            .preset,
+        RecurrencePreset.custom,
+      );
+      expect(
+        Recurrence.parse('FREQ=MONTHLY;BYMONTHDAY=29',
+                anchor: DateTime(2026, 10, 29, 9))
+            .preset,
+        RecurrencePreset.custom,
+      );
+      expect(
+        Recurrence.parse('FREQ=YEARLY;BYMONTH=2;BYMONTHDAY=29',
+                anchor: DateTime(2028, 2, 29, 9))
+            .preset,
+        RecurrencePreset.custom,
+      );
+      expect(
+        Recurrence.parse('FREQ=MONTHLY', anchor: DateTime(2026, 10, 31, 9))
+            .preset,
+        RecurrencePreset.monthly,
+      );
     });
 
     test('builds a rule for a preset, ending on a day', () {

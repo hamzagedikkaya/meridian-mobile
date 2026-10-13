@@ -26,7 +26,7 @@ import '../../widgets/slide_up_route.dart';
 import 'account_form.dart';
 import 'category_picker.dart';
 import 'finance_utils.dart';
-import 'subscriptions_screen.dart' show nextChargeAfter;
+import 'subscriptions_screen.dart' show firstChargeAfter, nextChargeAfter;
 
 /// The longest subscription name the server takes.
 const subscriptionNameMaxLength = 60;
@@ -88,6 +88,10 @@ class _SubscriptionFormScreenState
 
   bool _saving = false;
   bool _toggling = false;
+
+  /// A new subscription's answer was lost: the list as it was then.
+  /// "Kaydet" waits until a newer one is in (see [_save]).
+  Fetched<SubscriptionsBundle>? _unsureOver;
   final _nameKey = GlobalKey();
   final _amountKey = GlobalKey();
   final _nextKey = GlobalKey();
@@ -143,12 +147,24 @@ class _SubscriptionFormScreenState
   }
 
   void _useAccount(Account picked, Account? before) {
+    final existing = widget.existing;
+    bool same(String a, String b) => a.toUpperCase() == b.toUpperCase();
     setState(() {
-      // The typed amount stays as typed in the new currency.
       final amount = _amount;
-      if (amount != null &&
+      if (existing != null &&
+          before != null &&
+          !same(picked.currency, before.currency)) {
+        // A subscription moved to another currency (§7.8, contract
+        // `amount_required`): its amount is given again, in that currency —
+        // never its old number read in the new one. Back in its own
+        // currency, its own amount returns.
+        _amount = same(picked.currency, existing.account.currency)
+            ? existing.amountCents
+            : null;
+      } else if (amount != null &&
           before != null &&
           before.subunitToUnit != picked.subunitToUnit) {
+        // The typed amount stays as typed in the new currency.
         _amount = AmountDraft.fromMinorUnits(amount, before.subunitToUnit)
             .forCurrency(picked.subunitToUnit)
             .minorUnits(picked.subunitToUnit);
@@ -286,11 +302,23 @@ class _SubscriptionFormScreenState
             .isNotEmpty;
   }
 
+  /// Whether [account] is in another currency than the subscription's.
+  bool _movedCurrency(Account? account) {
+    final existing = widget.existing;
+    return existing != null &&
+        account != null &&
+        account.currency.toUpperCase() !=
+            existing.account.currency.toUpperCase();
+  }
+
   Future<void> _save(Account? account, String color) async {
     final l = context.l10n;
     final problems = <String, String>{
       if (_name.text.trim().isEmpty) 'name': l.subscriptionFormNameRequired,
-      if ((_amount ?? 0) <= 0) 'amount': l.subscriptionFormAmountRequired,
+      if ((_amount ?? 0) <= 0)
+        'amount': _amount == null && _movedCurrency(account)
+            ? l.errAmountRequired
+            : l.subscriptionFormAmountRequired,
       if (account == null)
         'account': accountListProblem(l, ref.read(accountsProvider)) ??
             l.txFormNeedAccount,
@@ -356,8 +384,18 @@ class _SubscriptionFormScreenState
         _saving = false;
         _errors = placed;
         if (placed.containsKey('end')) _more = true;
+        // A new one whose answer was lost may exist already (POST is not
+        // safe to repeat): say so, and hold "Kaydet" until the list —
+        // refetched by the write — has come in.
+        final maybe = existing == null &&
+            refusal != null &&
+            refusal.isNetwork &&
+            refusal.mayHaveArrived;
+        if (maybe) _unsureOver = ref.read(subscriptionsProvider).value;
         _formError = placed.isEmpty
-            ? failureMessage(e, l, fallback: l.subscriptionSaveFailed)
+            ? (maybe
+                ? l.financeSaveMaybe
+                : failureMessage(e, l, fallback: l.subscriptionSaveFailed))
             : null;
       });
       if (placed.isNotEmpty) _reveal(placed.keys);
@@ -495,10 +533,7 @@ class _SubscriptionFormScreenState
 
     // Moved to an account in another currency: the amount must be given
     // again, in that currency (contract `amount_required`).
-    final otherCurrency = existing != null &&
-        account != null &&
-        account.currency.toUpperCase() !=
-            existing.account.currency.toUpperCase();
+    final otherCurrency = _movedCurrency(account);
     final today = ref.watch(currentDayProvider);
     final inWeek = DateTime(today.year, today.month, today.day + 7);
     final inMonth = nextChargeAfter(today, 'monthly');
@@ -514,7 +549,12 @@ class _SubscriptionFormScreenState
       actionLabel: l.actionSave,
       busy: _saving,
       dirty: _dirty(account, color),
-      onAction: _toggling ? null : () => _save(account, color),
+      onAction: _toggling ||
+              (_unsureOver != null &&
+                  identical(
+                      ref.watch(subscriptionsProvider).value, _unsureOver))
+          ? null
+          : () => _save(account, color),
       errorText: _formError,
       children: [
         TextField(
@@ -598,7 +638,14 @@ class _SubscriptionFormScreenState
                 (_nextChargeOn == null
                     ? (_isEdit
                         ? l.subscriptionNoDate
-                        : l.subscriptionFormNextChargeAuto)
+                        // With a start chosen, the server counts the first
+                        // payment from it: the date it will be, not "one
+                        // period from now".
+                        : (_start != null
+                            ? formatDate(
+                                firstChargeAfter(_start!, _frequency, today),
+                                withYear: true)
+                            : l.subscriptionFormNextChargeAuto))
                     : formatDate(_nextChargeOn!, withYear: true)),
             style: text.bodySmall!.copyWith(
                 color: _errors['next'] != null ? c.error : c.inkMid),

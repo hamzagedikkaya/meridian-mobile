@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/api.dart';
@@ -10,6 +11,7 @@ import '../../../core/haptics.dart';
 import '../../../core/session.dart';
 import '../../../data/current_day.dart';
 import '../../../data/providers.dart';
+import '../../../data/repository.dart';
 import '../../../l10n/app_l10n.dart';
 import '../../../models/date_utils.dart';
 import '../../../models/journal.dart';
@@ -19,6 +21,7 @@ import '../../../theme/app_motion.dart';
 import '../../../theme/app_typography.dart';
 import '../../../ui/widgets/app_snackbar.dart';
 import '../../../ui/widgets/confirm_dialog.dart';
+import '../../../ui/widgets/empty_state.dart';
 import '../../../ui/widgets/nok_chip.dart';
 import '../../../ui/widgets/picker_sheet.dart';
 import '../../../ui/widgets/primary_button.dart';
@@ -52,7 +55,12 @@ IconData journalWeatherIcon(String? weather, AppL10n l) {
 /// given a list item, the editor loads the full one first. Completes with
 /// true once something was saved (an entry deleted elsewhere meanwhile may
 /// have been saved as a new one). [initialMood] starts a new entry with that
-/// mood picked (Today's mood buttons).
+/// mood picked (Today's mood buttons), on today.
+///
+/// What the editor says once it has closed ("Kayıt eklendi") floats over
+/// the FAB or capture bar of the screen the user is on then, wherever it
+/// was opened from (a tab, the "Günlüğe yaz" shortcut): the app's
+/// snackbars follow what is on view ([SnackClearance]).
 Future<bool?> openJournalEditor(
   BuildContext context, {
   JournalEntry? entry,
@@ -60,9 +68,87 @@ Future<bool?> openJournalEditor(
 }) {
   return Navigator.of(context, rootNavigator: true).push<bool>(
     slideUpModalRoute(
-      (_) => JournalEditorScreen(editEntry: entry, initialMood: initialMood),
+      (_) => JournalEditorScreen(
+        editEntry: entry,
+        initialMood: initialMood,
+      ),
     ),
   );
+}
+
+/// Deletes entry [id] and drops the draft of an edit of it: the entry was
+/// thrown away on purpose, and no screen could bring that draft back.
+Future<void> deleteJournalEntryAndDraft(
+  MeridianRepository repo,
+  DraftStore drafts,
+  int id,
+) async {
+  await repo.deleteJournalEntry(id);
+  try {
+    await drafts.clear(entryId: id);
+  } catch (_) {
+    // Storage hiccup: the entry is deleted either way.
+  }
+}
+
+/// [now] as the account's wall clock — how the app reads the server's
+/// datetimes (`parseDateTime`): in the zone of [offset], or the phone's
+/// own while the account's is not known.
+DateTime accountWallClock(DateTime now, Duration? offset) {
+  if (offset == null) return now.toLocal();
+  final t = now.toUtc().add(offset);
+  return DateTime(
+    t.year,
+    t.month,
+    t.day,
+    t.hour,
+    t.minute,
+    t.second,
+    t.millisecond,
+  );
+}
+
+/// How far the phone's clock and the server's may disagree when an entry's
+/// `created_at` is held against the moment the app sent it.
+const journalClockSkew = Duration(minutes: 2);
+
+/// Whether [e] — a journal list item — is the entry [input] creates, sent
+/// at [sentAt] (the account's wall clock, as `created_at` is read): created
+/// no earlier (an older look-alike is not it), on the
+/// same day, with the same title, mood, energy, weather, tags and
+/// gratitude (or none), and its body, whole or as far as the list's
+/// 200-character preview shows it.
+bool journalEntryMatches(
+  JournalEntry e,
+  JournalInput input, {
+  DateTime? sentAt,
+}) {
+  final created = e.createdAt;
+  if (sentAt != null &&
+      created != null &&
+      created.isBefore(sentAt.subtract(journalClockSkew))) {
+    return false;
+  }
+  if (isoDate(e.date) != isoDate(input.date)) return false;
+  if ((e.title ?? '').trim() != (input.title ?? '').trim()) return false;
+  if (e.mood != input.mood) return false;
+  if (e.energyLevel != input.energyLevel) return false;
+  if ((e.weather ?? '') != (input.weather ?? '')) return false;
+  if (e.hasGratitude != (input.gratitude ?? '').trim().isNotEmpty) {
+    return false;
+  }
+  Set<String> tagSet(Iterable<String> tags) => {
+    for (final t in tags)
+      if (t.trim().isNotEmpty) t.trim(),
+  };
+  final tags = tagSet(input.tags);
+  final listed = tagSet(e.tags);
+  if (tags.length != listed.length || !tags.containsAll(listed)) return false;
+  final body = normalizedBody(input.bodyText ?? '');
+  final shown = normalizedBody(e.bodyText ?? e.bodyPlain ?? '');
+  if (shown == body) return true;
+  return shown.endsWith('...') &&
+      body.startsWith(shown.substring(0, shown.length - 3).trimRight());
 }
 
 /// How often what is typed is put aside as a draft.
@@ -95,7 +181,12 @@ class JournalEditorScreen extends ConsumerStatefulWidget {
 
   /// A new entry's mood, already picked (Today's mood buttons).
   final String? initialMood;
-  const JournalEditorScreen({super.key, this.editEntry, this.initialMood});
+
+  const JournalEditorScreen({
+    super.key,
+    this.editEntry,
+    this.initialMood,
+  });
 
   @override
   ConsumerState<JournalEditorScreen> createState() =>
@@ -146,6 +237,24 @@ class _JournalEditorScreenState extends ConsumerState<JournalEditorScreen> {
   /// item), or could not be.
   bool _loadingFull = false;
   Object? _loadError;
+
+  /// The entry to edit was deleted elsewhere before it could load, and no
+  /// draft of it was kept here: there is nothing to show.
+  bool _loadGone = false;
+
+  /// A new entry's save went out but its answer was lost (a timeout): the
+  /// server may have it. What was sent, and when — kept in the draft too,
+  /// so the journal is checked before it is sent again, in this editor or
+  /// one that brings the draft back.
+  ({Map<String, Object?> fields, DateTime at})? _sent;
+
+  /// The fields last put aside: what a draft written once the editor has
+  /// closed holds.
+  Map<String, Object?>? _lastFields;
+
+  /// The accessory bar's content (inside its safe area): the editor's own
+  /// snackbars float above it.
+  final _barKey = GlobalKey();
 
   /// A draft from an earlier session was put in the fields.
   bool _draftRestored = false;
@@ -215,30 +324,76 @@ class _JournalEditorScreenState extends ConsumerState<JournalEditorScreen> {
     _energyOn = _energy > 0;
   }
 
-  Future<void> _loadFull(int id) async {
+  Future<void> _loadFull(int id, {bool again = false}) async {
     try {
-      final full = (await ref.read(journalEntryProvider(id).future)).data;
+      final provider = journalEntryProvider(id);
+      final full =
+          (await (again
+                  ? ref.refresh(provider.future)
+                  : ref.read(provider.future)))
+              .data;
       if (!mounted) return;
       setState(() {
         _fill(full);
         _loadingFull = false;
       });
       _start();
+    } on ApiException catch (e) {
+      if (!mounted) return;
+      if (e.kind == ApiErrorKind.notFound) return _loadedGone(id);
+      setState(() => _loadError = e);
     } catch (e) {
       if (mounted) setState(() => _loadError = e);
     }
   }
 
+  void _retryLoad() {
+    final id = widget.editEntry?.id;
+    if (id == null) return;
+    setState(() => _loadError = null);
+    unawaited(_loadFull(id, again: true));
+  }
+
+  /// The entry was deleted elsewhere before it loaded. A draft of an edit of
+  /// it comes back as a new entry, to be saved as one; with none, there is
+  /// nothing to edit.
+  Future<void> _loadedGone(int id) async {
+    String? draft;
+    try {
+      draft = await _drafts.read(entryId: id);
+    } catch (_) {
+      // Storage hiccup: as if there were none.
+    }
+    if (!mounted) return;
+    if (draft == null) {
+      setState(() => _loadGone = true);
+      return;
+    }
+    Haptics.reject();
+    setState(() {
+      _loadingFull = false;
+      _gone = true;
+      _entry = null;
+    });
+    // The draft is all its own now: every field in it is brought back.
+    await _start();
+    if (mounted) unawaited(_moveDraft(id));
+  }
+
   /// The fields hold the entry (or nothing): note that as the baseline,
   /// bring back a draft, then start putting changes aside.
-  void _start({bool showMood = false}) {
+  Future<void> _start({bool showMood = false}) {
     _baseline = jsonEncode(_snapshot());
-    _restoreDraft().then((_) {
+    return _restoreDraft().then((_) {
       if (!mounted) return;
       setState(() {
-        // A mood picked on the way in wins over a draft's.
+        // A mood picked on the way in wins over a draft's — and is about
+        // today ("Bugün nasıldı?"), not the day an older draft was for.
         final picked = widget.initialMood;
-        if (picked != null && !_isEditing) _mood = picked;
+        if (picked != null && !_isEditing) {
+          _mood = picked;
+          _date = ref.read(currentDayProvider);
+        }
         // The mood strip opens only for a fresh new entry without a mood —
         // decided once the draft is in.
         _moodOpen = showMood && _mood == null && !_draftRestored;
@@ -299,6 +454,15 @@ class _JournalEditorScreenState extends ConsumerState<JournalEditorScreen> {
           ? (stored['fields'] as Map).cast<String, dynamic>()
           : stored;
       final draft = _snapshotOf(fields);
+      // A new entry whose save may have reached the server: looked for
+      // before it is sent again.
+      final sent = stored['sent'];
+      if (sent is Map && sent['fields'] is Map && !_isEditing) {
+        _sent = (
+          fields: _snapshotOf((sent['fields'] as Map).cast<String, dynamic>()),
+          at: DateTime.tryParse('${sent['at']}') ?? DateTime(1970),
+        );
+      }
       final base = stored['base'] is Map
           ? _snapshotOf((stored['base'] as Map).cast<String, dynamic>())
           : null;
@@ -359,7 +523,12 @@ class _JournalEditorScreenState extends ConsumerState<JournalEditorScreen> {
   void _saveDraft({bool closing = false}) {
     final baseline = _baseline;
     if (_saved || baseline == null || (_saving && !closing)) return;
-    final now = jsonEncode(_snapshot());
+    final fields = _snapshot();
+    _lastFields = fields;
+    final now = jsonEncode(fields);
+    // Nothing changed since the last tick: it is put aside (or dropped)
+    // already — no encrypted write every few seconds while the editor idles.
+    if (now == _lastDraft && !closing) return;
     final key = _draftKey;
     // With what it started from and the entry's version, so a later
     // restore brings back only what was changed, and knows when the entry
@@ -371,15 +540,46 @@ class _JournalEditorScreenState extends ConsumerState<JournalEditorScreen> {
     _lastDraft = now;
     final write = now == baseline
         ? _drafts.clear(entryId: key)
-        : _drafts.write(
-            jsonEncode({
-              'fields': _snapshot(),
-              'base': jsonDecode(baseline),
-              'updated_at': _entry?.updatedAt?.toIso8601String(),
-            }),
-            entryId: key,
-          );
-    unawaited(write.catchError((Object _) {}));
+        : _drafts.write(_draftJson(fields, baseline), entryId: key);
+    unawaited(
+      write.catchError((Object _) {
+        // Not stored: the next tick tries again.
+        if (_lastDraft == now) _lastDraft = null;
+      }),
+    );
+  }
+
+  /// A draft of [fields]: with what it started from and the entry's
+  /// version, and what a lost save sent ([_sent]).
+  String _draftJson(Map<String, Object?> fields, String baseline) {
+    final sent = _sent;
+    return jsonEncode({
+      'fields': fields,
+      'base': jsonDecode(baseline),
+      'updated_at': _entry?.updatedAt?.toIso8601String(),
+      if (sent != null)
+        'sent': {'fields': sent.fields, 'at': sent.at.toIso8601String()},
+    });
+  }
+
+  /// A new entry's answer was lost: what was sent goes into the draft now —
+  /// also once the editor has closed — so whoever brings the draft back
+  /// looks in the journal before sending it again.
+  void _rememberSent(Map<String, Object?> fields, DateTime at) {
+    _sent = (fields: fields, at: at);
+    final baseline = _baseline;
+    final current = mounted ? _snapshot() : _lastFields ?? fields;
+    if (baseline == null || _saved) return;
+    _lastFields = current;
+    _lastDraft = jsonEncode(current);
+    unawaited(
+      _drafts
+          .write(_draftJson(current, baseline), entryId: _draftKey)
+          .catchError((Object _) {
+            // Not stored: the next tick tries again.
+            _lastDraft = null;
+          }),
+    );
   }
 
   /// Puts the fields back as the editor opened them and drops the draft.
@@ -405,6 +605,8 @@ class _JournalEditorScreenState extends ConsumerState<JournalEditorScreen> {
       _draftRestored = false;
       _draftStale = false;
     });
+    _lastDraft = null;
+    _sent = null;
     unawaited(_drafts.clear(entryId: _draftKey).catchError((Object _) {}));
   }
 
@@ -413,7 +615,11 @@ class _JournalEditorScreenState extends ConsumerState<JournalEditorScreen> {
   /// draft moves to the new entry's when that one is free — no screen could
   /// bring back a draft of an entry that is gone.
   void _markGone() {
-    if (_gone || _saved || !mounted || widget.editEntry == null) return;
+    if (_gone || _saved || widget.editEntry == null) return;
+    if (!mounted) {
+      unawaited(_goneAfterClose(widget.editEntry!.id));
+      return;
+    }
     Haptics.reject();
     setState(() {
       _gone = true;
@@ -443,14 +649,60 @@ class _JournalEditorScreenState extends ConsumerState<JournalEditorScreen> {
     } catch (_) {
       // Storage hiccup: the draft stays under the entry's key.
     }
+    _lastDraft = null;
     _saveDraft();
   }
 
-  List<String> _parsedTags() => _tagsCtrl.text
-      .split(',')
-      .map((t) => t.trim())
-      .where((t) => t.isNotEmpty)
-      .toList();
+  /// The save of an edit was answered 404 after the editor closed: the
+  /// draft it left moves to the new entry's, when that one is free, and the
+  /// snackbar offers to open it.
+  Future<void> _goneAfterClose(int entryId) async {
+    _gone = true;
+    var moved = false;
+    try {
+      final raw = await _drafts.read(entryId: entryId);
+      if (raw != null && await _drafts.read() == null) {
+        await _drafts.write(raw);
+        await _drafts.clear(entryId: entryId);
+        moved = true;
+      }
+    } catch (_) {
+      // Storage hiccup: the draft stays under the entry's key.
+    }
+    final out = _out;
+    if (out == null || !out.host.mounted) return;
+    showAppSnack(
+      out.host,
+      moved ? out.l.journalGoneDraftKept : out.l.journalGone,
+      isError: true,
+      actionLabel: moved ? out.l.journalOpenDraft : null,
+      onAction: moved
+          ? () => openJournalEditor(out.host)
+          : null,
+    );
+  }
+
+  List<String> _parsedTags() => _tagsOf(_tagsCtrl.text);
+
+  static List<String> _tagsOf(String text) =>
+      text.split(',').map((t) => t.trim()).where((t) => t.isNotEmpty).toList();
+
+  /// What a snapshot of the fields ([_snapshot]) would save.
+  static JournalInput _inputOf(Map<String, Object?> f) {
+    final title = '${f['title'] ?? ''}'.trim();
+    final gratitude = '${f['gratitude'] ?? ''}'.trim();
+    final energy = (f['energy'] as num?)?.toInt() ?? 0;
+    return JournalInput(
+      date: DateTime.tryParse('${f['date']}') ?? DateTime(1970),
+      title: title.isEmpty ? null : title,
+      bodyText: '${f['body'] ?? ''}',
+      mood: f['mood'] as String?,
+      weather: f['weather'] as String?,
+      energyLevel: energy > 0 ? energy : null,
+      gratitude: gratitude.isEmpty ? null : gratitude,
+      tags: _tagsOf('${f['tags'] ?? ''}'),
+    );
+  }
 
   Future<void> _pickDate() async {
     final first = DateTime(2015);
@@ -571,17 +823,40 @@ class _JournalEditorScreenState extends ConsumerState<JournalEditorScreen> {
     destructive: true,
   );
 
-  Future<void> _save() async {
+  /// Where the outcome of a save is said once the editor has closed — X
+  /// and the back gesture stay live while it is on its way: the app's
+  /// navigator, the screen the editor was opened from, the words.
+  ({BuildContext host, AppL10n l, bool editing})? _out;
+
+  /// Floats the editor's own snackbars above the accessory bar, so they
+  /// never cover "Kaydet" (§7.12: the bar rides the keyboard).
+  EdgeInsets _overBar() {
+    final bar = _barKey.currentContext?.size?.height ?? 0;
+    return EdgeInsets.fromLTRB(16, 0, 16, bar + Gap.sm);
+  }
+
+  /// [force]: send a new entry without first looking for an earlier send
+  /// whose answer was lost — the user's call ("Yine de kaydet").
+  Future<void> _save({bool force = false}) async {
     if (_saving) return;
     final l = context.l10n;
     final title = _titleCtrl.text.trim();
     final body = _bodyCtrl.text.trim();
     // A mood or energy alone is a check-in worth keeping.
     if (title.isEmpty && body.isEmpty && _mood == null && _energy == 0) {
-      showAppSnack(context, l.journalEditorNeedsContent, isError: true);
+      showAppSnack(
+        context,
+        l.journalEditorNeedsContent,
+        isError: true,
+        margin: _overBar(),
+      );
       return;
     }
     final gratitude = _gratitudeCtrl.text.trim();
+    final fields = _snapshot();
+    final today = ref.read(currentDayProvider);
+    final clock = ref.read(clockProvider);
+    final offset = ref.read(accountUtcOffsetProvider);
     final input = JournalInput(
       date: _date,
       title: title.isEmpty ? null : title,
@@ -609,12 +884,25 @@ class _JournalEditorScreenState extends ConsumerState<JournalEditorScreen> {
         discard = true;
       }
     }
+    _out = (
+      host: Navigator.of(context, rootNavigator: true).context,
+      l: l,
+      editing: _isEditing,
+    );
     setState(() => _saving = true);
     // The journal list and this entry refresh from the repository's report
     // of the write, closed editor or not.
     final repo = ref.read(repositoryProvider);
+    ({Map<String, Object?> fields, DateTime at})? sending;
     try {
       if (before == null) {
+        // An earlier send may have arrived: look before sending it again.
+        final sent = _sent;
+        if (sent != null && !force) {
+          if (await _settleSent(repo, sent, input, fields, today)) return;
+        }
+        _sent = null;
+        sending = (fields: fields, at: accountWallClock(clock(), offset));
         await repo.createJournalEntry(input);
       } else {
         await repo.updateJournalEntry(
@@ -650,13 +938,129 @@ class _JournalEditorScreenState extends ConsumerState<JournalEditorScreen> {
       if (e.kind == ApiErrorKind.notFound && before != null) {
         return _markGone();
       }
+      // No answer in time to a new entry: the server may have it. Look for
+      // it before saying anything, and never send it again blindly — the
+      // draft remembers it was sent.
+      if (sending != null && e.isNetwork && e.mayHaveArrived) {
+        _rememberSent(sending.fields, sending.at);
+        try {
+          if (await _settleSent(repo, _sent!, input, fields, today)) return;
+        } catch (e) {
+          return _failed(e);
+        }
+      }
       _failed(e);
     } catch (e) {
       _failed(e);
     }
   }
 
+  /// Looks in the journal for the new entry [sent] would have created —
+  /// its answer was lost. True when that settles the save: it is there
+  /// (saved; and should the fields have changed since, [input] goes to it
+  /// as an edit), or the journal cannot tell ("may be saved"). False when
+  /// it is not there.
+  Future<bool> _settleSent(
+    MeridianRepository repo,
+    ({Map<String, Object?> fields, DateTime at}) sent,
+    JournalInput input,
+    Map<String, Object?> fields,
+    DateTime today,
+  ) async {
+    final look = await _lookFor(repo, _inputOf(sent.fields), sent.at, today);
+    if (look == null) {
+      _maybeSaved();
+      return true;
+    }
+    final found = look.found;
+    if (found == null) return false;
+    if (jsonEncode(fields) != jsonEncode(sent.fields)) {
+      // Changed since it was sent: the changes go to the entry it made.
+      final full = await repo.fetchJournalEntry(found.id);
+      if (input.changesFrom(full).isNotEmpty) {
+        await repo.updateJournalEntry(full, input);
+      }
+    }
+    _sent = null;
+    await _finish(changed: true);
+    return true;
+  }
+
+  /// The entry [sent], sent at [at], in the journal: `found` null when it
+  /// is not there; null when the journal cannot tell — it cannot be read,
+  /// or its newest 180 stop before that day. Asks for the shortest range
+  /// that reaches the day, so the 180 rarely stop short.
+  static Future<({JournalEntry? found})?> _lookFor(
+    MeridianRepository repo,
+    JournalInput sent,
+    DateTime at,
+    DateTime today,
+  ) async {
+    final JournalBundle journal;
+    try {
+      journal = await repo.fetchJournal(
+        range: _rangeReaching(sent.date, today),
+      );
+    } catch (_) {
+      return null;
+    }
+    final entries = journal.entries;
+    for (final e in entries) {
+      if (journalEntryMatches(e, sent, sentAt: at)) return (found: e);
+    }
+    final day = isoDate(sent.date);
+    final stopsShort =
+        entries.length < journal.entriesCount &&
+        (entries.isEmpty || isoDate(entries.last.date).compareTo(day) > 0);
+    return stopsShort ? null : (found: null);
+  }
+
+  /// The shortest `GET /journal_entries` range (each ends today) holding
+  /// [date].
+  static String _rangeReaching(DateTime date, DateTime today) {
+    final days = DateTime.utc(
+      today.year,
+      today.month,
+      today.day,
+    ).difference(DateTime.utc(date.year, date.month, date.day)).inDays;
+    if (days < 0) return 'all';
+    if (days == 0) return '1d';
+    if (days < 6) return '7d';
+    if (days < 29) return '30d';
+    if (days < 180) return '6mo';
+    if (days < 360) return '1y';
+    return 'all';
+  }
+
+  /// A new entry's save may have reached the server, and the journal could
+  /// not tell: the text stays, and the next "Kaydet" — here, or in an
+  /// editor that brings the draft back — looks again before sending it.
+  /// "Yine de kaydet" sends it without looking.
+  void _maybeSaved() {
+    final out = _out!;
+    if (mounted) {
+      setState(() => _saving = false);
+      showAppSnack(
+        context,
+        out.l.journalMaybeSaved,
+        isError: true,
+        margin: _overBar(),
+        actionLabel: out.l.journalSaveAnyway,
+        onAction: () {
+          if (mounted) unawaited(_save(force: true));
+        },
+      );
+    } else if (out.host.mounted) {
+      showAppSnack(
+        out.host,
+        out.l.journalMaybeSavedLater,
+        isError: true,
+      );
+    }
+  }
+
   /// Saved (or nothing to save): the draft goes, and so does the editor.
+  /// Said also when the editor was closed while the save was on its way.
   Future<void> _finish({required bool changed}) async {
     _saved = true;
     _draftTimer?.cancel();
@@ -665,25 +1069,65 @@ class _JournalEditorScreenState extends ConsumerState<JournalEditorScreen> {
     } catch (_) {
       // Secure storage hiccup: the entry is saved either way.
     }
-    if (!mounted) return;
-    final l = context.l10n;
-    if (changed) {
-      Haptics.confirm();
-      showAppSnack(context, _isEditing ? l.journalUpdated : l.journalAdded);
+    final out = _out;
+    if (!mounted) {
+      if (changed && out != null && out.host.mounted) {
+        Haptics.confirm();
+        showAppSnack(
+          out.host,
+          out.editing ? out.l.journalUpdated : out.l.journalAdded,
+        );
+      }
+      return;
     }
+    final l = context.l10n;
+    final host = Navigator.of(context, rootNavigator: true).context;
+    final editing = _isEditing;
     Navigator.of(context).pop(changed);
+    if (changed && host.mounted) {
+      Haptics.confirm();
+      // Said on the screen the editor goes back to, once it is the one
+      // shown: over its FAB or capture bar.
+      showAppSnack(
+        host,
+        editing ? l.journalUpdated : l.journalAdded,
+      );
+    }
   }
 
   void _failed(Object e) {
     // Any failure must clear the spinner, or the save button stays a
     // permanent loading state; the text stays, and so does the draft.
-    if (!mounted) return;
+    if (!mounted) return _failedAfterClose(e);
     final l = context.l10n;
     setState(() => _saving = false);
     showAppSnack(
       context,
       failureMessage(e, l, fallback: l.journalSaveFailed),
       isError: true,
+      margin: _overBar(),
+    );
+  }
+
+  /// The save failed after the editor was closed: what was typed is a
+  /// draft (closing put it aside), and the snackbar says so and opens it.
+  void _failedAfterClose(Object e) {
+    final out = _out;
+    if (out == null || !out.host.mounted) {
+      Haptics.reject();
+      return;
+    }
+    final entry = widget.editEntry;
+    final gone = _gone;
+    showAppSnack(
+      out.host,
+      out.l.journalSaveFailedKept,
+      isError: true,
+      actionLabel: out.l.journalOpenDraft,
+      onAction: () => openJournalEditor(
+        out.host,
+        entry: gone ? null : entry,
+      ),
     );
   }
 
@@ -721,6 +1165,7 @@ class _JournalEditorScreenState extends ConsumerState<JournalEditorScreen> {
                 children: [
                   Expanded(child: _fields(context)),
                   _AccessoryBar(
+                    contentKey: _barKey,
                     mood: _mood != null || _moodOpen,
                     energy: _energy > 0 || _energyOn,
                     tags: _tagsCtrl.text.trim().isNotEmpty || _tagsOn,
@@ -742,18 +1187,21 @@ class _JournalEditorScreenState extends ConsumerState<JournalEditorScreen> {
   }
 
   Widget _loadingView(BuildContext context) {
-    final error = _loadError;
-    if (error != null) {
-      final l = context.l10n;
-      return Center(
-        child: Padding(
-          padding: const EdgeInsets.all(Gap.x3),
-          child: Text(
-            failureMessage(error, l, fallback: l.journalLoadFailed),
-            textAlign: TextAlign.center,
-          ),
-        ),
+    final l = context.l10n;
+    if (_loadGone) {
+      // A retry could only answer 404 again: say what happened instead.
+      return EmptyState(
+        icon: Icons.delete_outline_rounded,
+        title: l.journalGone,
+        subtitle: l.errRecordGoneBody,
+        actionLabel: l.actionBack,
+        onAction: () => Navigator.of(context).maybePop(),
       );
+    }
+    if (_loadError != null) {
+      // The server cannot be reached (§7.15): the Tailscale advice and a
+      // retry.
+      return EmptyState.error(onRetry: _retryLoad);
     }
     // The whole body is on its way (GET /journal_entries/:id).
     return ListView(
@@ -805,6 +1253,14 @@ class _JournalEditorScreenState extends ConsumerState<JournalEditorScreen> {
           TextField(
             controller: _titleCtrl,
             style: text.headlineMedium,
+            // A long title wraps, whole at any text size; Next still moves
+            // on to the body.
+            keyboardType: TextInputType.text,
+            minLines: 1,
+            maxLines: null,
+            // Wrapping, yet one line: a pasted line break is dropped, as
+            // a single-line field would (Flutter adds this only there).
+            inputFormatters: [FilteringTextInputFormatter.singleLineFormatter],
             textCapitalization: TextCapitalization.sentences,
             textInputAction: TextInputAction.next,
             onSubmitted: (_) => _bodyFocus.requestFocus(),
@@ -962,16 +1418,19 @@ class _JournalEditorScreenState extends ConsumerState<JournalEditorScreen> {
     final text = Theme.of(context).textTheme;
     final l = context.l10n;
     final label = '${formatDate(_date)} ${formatWeekdayShort(_date)}';
+    // Not while the entry loads: its own date would replace the one picked.
+    final onTap = _loadingFull ? null : _pickDate;
     return Semantics(
       button: true,
+      enabled: onTap != null,
       label: l.journalEditorDateLabel(
         '${formatDate(_date, withYear: true)}, ${formatWeekday(_date)}',
       ),
       // Excluding the button's semantics drops its tap: keep it here.
-      onTap: _pickDate,
+      onTap: onTap,
       excludeSemantics: true,
       child: TextButton.icon(
-        onPressed: _pickDate,
+        onPressed: onTap,
         iconAlignment: IconAlignment.end,
         style: TextButton.styleFrom(foregroundColor: c.inkHi),
         icon: Icon(
@@ -1211,7 +1670,8 @@ class _JournalEditorScreenState extends ConsumerState<JournalEditorScreen> {
             decoration: InputDecoration(
               hintText: l.journalEditorGratitudeHint,
               hintStyle: text.bodyLarge!.copyWith(
-                color: c.onGoldContainer.withValues(alpha: 0.72),
+                // 0.8: ≥ 4.5:1 over goldContainer in both themes (§8.1).
+                color: c.onGoldContainer.withValues(alpha: 0.8),
               ),
               filled: false,
               border: InputBorder.none,
@@ -1232,6 +1692,9 @@ class _JournalEditorScreenState extends ConsumerState<JournalEditorScreen> {
 /// The editor's accessory bar: Ruh hali · Enerji · Etiket · Minnet · Hava
 /// (scrolling sideways) and "Kaydet", above the keyboard.
 class _AccessoryBar extends StatelessWidget {
+  /// On the bar's content, inside its safe area: its height is what the
+  /// editor's snackbars float above.
+  final Key contentKey;
   final bool mood;
   final bool energy;
   final bool tags;
@@ -1247,6 +1710,7 @@ class _AccessoryBar extends StatelessWidget {
   final VoidCallback onSave;
 
   const _AccessoryBar({
+    required this.contentKey,
     required this.mood,
     required this.energy,
     required this.tags,
@@ -1279,6 +1743,7 @@ class _AccessoryBar extends StatelessWidget {
       child: SafeArea(
         top: false,
         child: Padding(
+          key: contentKey,
           padding: const EdgeInsets.fromLTRB(0, Gap.xs, Gap.md, Gap.xs),
           child: Row(
             children: [

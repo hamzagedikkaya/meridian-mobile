@@ -48,10 +48,23 @@ class CategoryMoveFailed implements Exception {
 /// write, and a write still refreshes everything when the screen that sent it
 /// is closed before the answer arrives.
 class MeridianRepository {
-  MeridianRepository(this._dio, {this._writes});
+  MeridianRepository(
+    this._dio, {
+    this._writes,
+    this._lastAccount,
+    this._forgetLastAccount,
+  });
 
   final Dio _dio;
   final WriteListener? _writes;
+
+  /// The account the last transaction was saved on, while it is one the
+  /// app still offers (`PrefKeys.lastAccountId`): a money capture goes
+  /// there too, as the transaction form starts there.
+  final int? Function()? _lastAccount;
+
+  /// That account is gone (a 404): it is no longer the one to start on.
+  final void Function(int id)? _forgetLastAccount;
 
   // --- Me -------------------------------------------------------------------
   // region profile (WP-14)
@@ -302,6 +315,11 @@ class MeridianRepository {
         body: input.toJson(),
         touches: const {DataScope.transactions},
         parse: (data) => Transaction.fromJson(_entity(data, 'transaction')),
+        noted: (tx) => (
+          scope: DataScope.transactions,
+          id: tx.id,
+          created: true,
+        ),
       );
 
   /// Saves an edit of [before], sending only the fields [input] changes —
@@ -316,6 +334,11 @@ class MeridianRepository {
         body: input.changesFrom(before),
         touches: const {DataScope.transactions},
         parse: (data) => Transaction.fromJson(_entity(data, 'transaction')),
+        noted: (tx) => (
+          scope: DataScope.transactions,
+          id: before.id,
+          created: false,
+        ),
       );
 
   /// Deletes the transaction. The parent of a linked pair takes its child
@@ -384,7 +407,7 @@ class MeridianRepository {
   /// moved [_moveConcurrency] at a time. [onProgress] hears the total once
   /// it is known, then after each move. The screens refresh once, after the
   /// last. The number moved; a move that fails (but for one already
-  /// deleted) stops the rest and throws a [CategoryMoveFailed] saying how
+  /// deleted), or finds [toId] gone, stops the rest and throws a [CategoryMoveFailed] saying how
   /// many had gone.
   Future<int> moveCategoryTransactions(
     int fromId,
@@ -411,6 +434,19 @@ class MeridianRepository {
       onProgress?.call(0, total);
       Object? failure;
       var next = 0;
+      // A 404 is a transaction deleted meanwhile — or the category to move
+      // to deleted meanwhile (nothing is written then), which must stop the
+      // move, and the delete after it: asked once, on the first 404.
+      Future<bool>? targetThere;
+      Future<bool> target() async {
+        try {
+          await fetchCategory(toId);
+          return true;
+        } catch (_) {
+          return false;
+        }
+      }
+
       Future<void> worker() async {
         while (failure == null && next < ids.length) {
           final id = ids[next++];
@@ -425,8 +461,12 @@ class MeridianRepository {
             moved++;
             onProgress?.call(moved, total);
           } on ApiException catch (e) {
-            // Deleted meanwhile: nothing left to move.
-            if (e.kind != ApiErrorKind.notFound) failure ??= e;
+            // Deleted meanwhile: nothing left to move — unless the target
+            // is what is gone.
+            if (e.kind != ApiErrorKind.notFound ||
+                !await (targetThere ??= target())) {
+              failure ??= e;
+            }
           } catch (e) {
             failure ??= e;
           }
@@ -655,12 +695,17 @@ class MeridianRepository {
   Future<Goal> fetchGoal(int id) =>
       _get('/goals/$id', (data) => Goal.fromJson(_entity(data, 'goal')));
 
+  /// A `progress_computed` refusal says the goal was linked to an account
+  /// or habit elsewhere: the goals refetch, so its steppers go.
   Future<Goal> goalUpdateProgress(int id, {num? currentValue, num? delta}) =>
       _write(
         'PATCH',
         '/goals/$id/update_progress',
         body: _pruned({'current_value': currentValue, 'delta': delta}),
         touches: const {DataScope.goals},
+        staleOn: const {
+          'progress_computed': {DataScope.goals},
+        },
         parse: (data) => Goal.fromJson(_entity(data, 'goal')),
       );
 
@@ -1049,14 +1094,50 @@ class MeridianRepository {
   ///
   /// [asTodo] saves the line as it is, as a todo — "save as a task instead"
   /// after an event suggestion — so only todos can change.
-  Future<QuickCaptureResult> quickCapture(String text, {bool asTodo = false}) {
+  ///
+  /// A money line goes to the last-used account (`account_id`, contract
+  /// §13.5), the one the "Harcama" form starts on, not to the server's
+  /// oldest one. Should that account be gone (404: nothing was saved), it
+  /// is forgotten and the line sent once more without it.
+  Future<QuickCaptureResult> quickCapture(
+    String text, {
+    bool asTodo = false,
+  }) async {
+    final accountId = asTodo ? null : _lastAccount?.call();
+    try {
+      return await _quickCapture(text, asTodo: asTodo, accountId: accountId);
+    } on ApiException catch (e) {
+      if (accountId == null || e.kind != ApiErrorKind.notFound) rethrow;
+      _forgetLastAccount?.call(accountId);
+      return _quickCapture(text, asTodo: asTodo);
+    }
+  }
+
+  Future<QuickCaptureResult> _quickCapture(
+    String text, {
+    required bool asTodo,
+    int? accountId,
+  }) {
     final touches = asTodo ? const {DataScope.todos} : _quickCaptureTouches;
     return _write(
       'POST',
       '/quick_captures',
-      body: {'text': text, if (asTodo) 'as': 'todo'},
+      body: {
+        'text': text,
+        if (asTodo) 'as': 'todo',
+        'account_id': ?accountId,
+      },
       touches: touches,
       parse: (data) => QuickCaptureResult.fromJson(data),
+      noted: (result) => result.saved &&
+              result.capturedType == 'transaction' &&
+              result.recordId != null
+          ? (
+              scope: DataScope.transactions,
+              id: result.recordId!,
+              created: true,
+            )
+          : null,
       changed: (result) => !result.saved
           ? const <DataScope>{}
           : switch (result.capturedType) {
@@ -1135,6 +1216,7 @@ class MeridianRepository {
     Map<String, Set<DataScope>> staleOn = const {},
     required T Function(Map<String, dynamic> data) parse,
     Set<DataScope> Function(T result)? changed,
+    ({DataScope scope, int id, bool created})? Function(T result)? noted,
   }) async {
     // A write that touches nothing the app reads (language, theme) is not
     // reported, so it never holds back another write's refresh.
@@ -1154,6 +1236,9 @@ class MeridianRepository {
           data == null || data == '' ? const <String, dynamic>{} : _asMap(data));
       reported = changed?.call(result) ?? touches;
       deleted = deletes;
+      if (noted?.call(result) case (:final scope, :final id, :final created)) {
+        _writes?.noteWritten(scope, id, created: created);
+      }
       return result;
     } on DioException catch (e) {
       final error = ApiException.fromDio(e);

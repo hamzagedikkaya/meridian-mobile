@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/semantics.dart' show CustomSemanticsAction;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
@@ -66,7 +67,12 @@ class AccountsScreen extends ConsumerWidget {
       await settleRefresh([ref.read(accountsProvider.future)]);
     }
 
-    Widget row(Account a, {Widget? trailing}) => NokturnRow(
+    Widget row(
+      Account a, {
+      Widget? trailing,
+      Map<CustomSemanticsAction, VoidCallback>? semanticActions,
+    }) =>
+        NokturnRow(
           leading: LeadingCircle.tone(
             entityTone(a.color, c),
             icon: accountTypeIcon(a.accountType),
@@ -77,6 +83,7 @@ class AccountsScreen extends ConsumerWidget {
             if (a.id == defaultId && !a.archived) l.accountDefaultBadge,
           ].join(' · '),
           onTap: () => context.push('/finance/account/${a.id}'),
+          semanticActions: semanticActions,
           trailing: trailing ??
               MoneyText(
                 a.balanceCents,
@@ -218,10 +225,20 @@ class AccountsScreen extends ConsumerWidget {
                     for (final a in archived)
                       row(
                         a,
-                        trailing: TextButton(
-                          onPressed: () => restoreAccount(context, ref, a),
-                          child: Text(l.actionRestore),
+                        // The row is one merged node whose tap opens the
+                        // account: "Geri yükle" is its own action there,
+                        // not a word in its label that a double tap would
+                        // not do.
+                        trailing: ExcludeSemantics(
+                          child: TextButton(
+                            onPressed: () => restoreAccount(context, ref, a),
+                            child: Text(l.actionRestore),
+                          ),
                         ),
+                        semanticActions: {
+                          CustomSemanticsAction(label: l.actionRestore): () =>
+                              restoreAccount(context, ref, a),
+                        },
                       ),
                   ]),
                 ],

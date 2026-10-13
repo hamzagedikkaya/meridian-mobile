@@ -4,6 +4,8 @@ import 'package:meridian_mobile/core/api.dart';
 import 'package:meridian_mobile/data/actions.dart';
 import 'package:meridian_mobile/data/current_day.dart';
 import 'package:meridian_mobile/data/providers.dart';
+import 'package:meridian_mobile/models/todo.dart';
+import 'package:meridian_mobile/data/lingering_todos.dart';
 import 'package:meridian_mobile/data/sync.dart';
 import 'package:meridian_mobile/models/habit.dart';
 import 'package:meridian_mobile/models/home.dart';
@@ -874,6 +876,64 @@ void main() {
       home = container.read(homeProvider).value!.data;
       expect(home.upcomingTodos.single.isDone, isFalse);
       expect(home.upcomingTodos, hasLength(1), reason: 'listed once');
+    });
+
+    test('a ticked todo lingers at its own place in each list on screen, '
+        'and an undo puts it back there in each', () async {
+      const inList = TodoQuery(listId: 5);
+      api
+        ..on('GET /home', homeJson(todos: [
+          todoJson(id: 60),
+          todoJson(id: 61),
+          todoJson(id: 62),
+        ]))
+        ..on('GET /todos', {
+          'todos': [todoJson(id: 61), todoJson(id: 62)],
+          'meta': const {'open_count': 2, 'overdue_count': 0, 'counts': {}},
+        });
+      container.invalidate(homeProvider);
+      container.listen(todosProvider(inList), (_, _) {});
+      container.listen(lingeringTodosProvider, (_, _) {});
+      await settle(api);
+
+      final actions = container.read(todoActionsProvider);
+      await actions.setDone(61, done: true);
+      final lingering = container.read(lingeringTodosProvider);
+      expect(lingering.todos[61]!.places, {todayTodoList: 1, inList: 0});
+      // The refetch drops it from both lists: each puts it back at its own
+      // place, before its neighbour 62.
+      final rows = [Todo.fromJson(todoJson(id: 62))];
+      expect([for (final t in mergeInto(rows, lingering, list: inList)) t.id],
+          [61, 62]);
+
+      api
+        ..on('GET /home', homeJson(todos: [todoJson(id: 60), todoJson(id: 62)]))
+        ..on('GET /todos', {
+          'todos': [todoJson(id: 62)],
+          'meta': const {'open_count': 1, 'overdue_count': 0, 'counts': {}},
+        })
+        ..hold('PATCH /todos/61/toggle');
+      await settle(api);
+      // Ticked on the Agenda's list (its row 0): back at 1 on Today.
+      final undo = actions.setDone(61,
+          done: false,
+          restore: (
+            todo: Todo.fromJson({
+              ...todoJson(id: 61),
+              'todo_list': {'id': 5, 'name': 'Ev', 'color': '#6B8E5A'},
+            }),
+            index: 0,
+          ));
+      expect([
+        for (final t in container.read(homeProvider).value!.data.upcomingTodos)
+          t.id,
+      ], [60, 61, 62]);
+      expect([
+        for (final t in container.read(todosProvider(inList)).value!.data.todos)
+          t.id,
+      ], [61, 62]);
+      api.release('PATCH /todos/61/toggle');
+      await undo;
     });
 
     test('a refetch replaces the optimistic tick (no stuck checked row)',

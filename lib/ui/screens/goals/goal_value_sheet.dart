@@ -120,6 +120,14 @@ class _GoalValueSheet extends StatefulWidget {
 class _GoalValueSheetState extends State<_GoalValueSheet> {
   late AmountDraft _draft = widget.kind.draftOf(widget.initial);
 
+  /// The value the sheet opened with stands selected, as a field's text
+  /// would: the first digit (or the decimal key) replaces it rather than
+  /// adding to its end — "40" and a 5 is 5, never 405. ⌫ edits it.
+  late bool _selected = !_draft.isEmpty;
+
+  /// What a digit or the decimal key types onto.
+  AmountDraft get _base => _selected ? const AmountDraft() : _draft;
+
   /// The note under the amount: the size limit (warning) or a refusal
   /// (error).
   String? _note;
@@ -140,7 +148,7 @@ class _GoalValueSheetState extends State<_GoalValueSheet> {
   }
 
   void _digit(String d) {
-    if (_draft.wouldPassLimit(d, _subunit)) {
+    if (_base.wouldPassLimit(d, _subunit)) {
       final l = context.l10n;
       final limit = widget.kind.isMoney
           ? formatMoney(
@@ -154,7 +162,8 @@ class _GoalValueSheetState extends State<_GoalValueSheet> {
     }
     setState(() {
       _note = null;
-      _draft = _draft.withDigit(d, _subunit);
+      _draft = _base.withDigit(d, _subunit);
+      _selected = false;
     });
   }
 
@@ -219,12 +228,25 @@ class _GoalValueSheetState extends State<_GoalValueSheet> {
                         trigger: _refused,
                         child: FittedBox(
                           fit: BoxFit.scaleDown,
-                          child: Text(
-                            widget.kind.typed(_draft),
-                            maxLines: 1,
-                            style: text.displayLarge!.copyWith(
-                              color: _draft.isEmpty ? c.inkLow : c.inkHi,
-                              fontFeatures: tabularFigures,
+                          // Selected: drawn on the selection colour, so a
+                          // key that replaces it is no surprise.
+                          child: DecoratedBox(
+                            decoration: BoxDecoration(
+                              color: _selected
+                                  ? Theme.of(
+                                          context,
+                                        ).textSelectionTheme.selectionColor ??
+                                        c.gold.withValues(alpha: 0.3)
+                                  : null,
+                              borderRadius: Radii.smAll,
+                            ),
+                            child: Text(
+                              widget.kind.typed(_draft),
+                              maxLines: 1,
+                              style: text.displayLarge!.copyWith(
+                                color: _draft.isEmpty ? c.inkLow : c.inkHi,
+                                fontFeatures: tabularFigures,
+                              ),
                             ),
                           ),
                         ),
@@ -251,16 +273,19 @@ class _GoalValueSheetState extends State<_GoalValueSheet> {
                     const SizedBox(height: Gap.sm),
                     AmountKeypad(
                       onDigit: _digit,
-                      onDot: () => setState(
-                        () => _draft = _draft.withDecimalMark(_subunit),
-                      ),
+                      onDot: () => setState(() {
+                        _draft = _base.withDecimalMark(_subunit);
+                        _selected = false;
+                      }),
                       onBackspace: () => setState(() {
                         _note = null;
                         _draft = _draft.backspace();
+                        _selected = false;
                       }),
                       onClear: () => setState(() {
                         _note = null;
                         _draft = const AmountDraft();
+                        _selected = false;
                       }),
                       showDecimal: decimalsFor(_subunit) > 0,
                     ),

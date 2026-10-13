@@ -23,6 +23,7 @@ import '../../widgets/app_snackbar.dart';
 import '../../widgets/celebration_layer.dart';
 import '../../widgets/empty_state.dart';
 import '../../widgets/entrance.dart';
+import '../../widgets/load_phase_switcher.dart';
 import '../../widgets/nok_chip.dart';
 import '../../widgets/nok_sheet.dart';
 import '../../widgets/nokturn_card.dart';
@@ -85,9 +86,9 @@ class _HabitsScreenState extends ConsumerState<HabitsScreen>
   @override
   AppTab get tab => AppTab.habits;
 
-  /// Cards play their entrance only with the first data (see [Entrance]).
-  bool _staggered = false;
-  bool _staggerScheduled = false;
+  /// A pull to refresh is running: its spinner says so, not the sync
+  /// hint as well (§4.27).
+  bool _pulling = false;
 
   /// The order last shown, by habit id.
   List<int> _order = const [];
@@ -111,11 +112,13 @@ class _HabitsScreenState extends ConsumerState<HabitsScreen>
   final _tiles = <int, Widget>{};
   late final Widget _hero = _HeroCard(onTap: _openHistory);
 
-  /// The starter being added, and the ones added: their chips stay off, so
-  /// a second tap cannot add the habit twice (`POST /habits` is not
-  /// idempotent, D29).
+  /// The starter being added, and the ones added — with the id of the
+  /// habit each made — until a list that has that habit arrives: their
+  /// chips stay off, so a second tap cannot add the habit twice
+  /// (`POST /habits` is not idempotent, D29). Once listed, a starter is
+  /// free again: archived or deleted later, it can be added anew.
   _Starter? _adding;
-  final _added = <_Starter>{};
+  final _added = <_Starter, int>{};
 
   @override
   void dispose() {
@@ -151,16 +154,57 @@ class _HabitsScreenState extends ConsumerState<HabitsScreen>
     // Whether this tap claimed the day's celebration: only then is there a
     // key to give back.
     var claimedDay = false;
+    // A held burst's CONFIRM played with the tap: what the answer brings
+    // plays none.
+    var confirmed = false;
+    // The burst waits for the server's answer (below).
+    var heldDayOpen = false;
+    void celebrateDay() {
+      if (heldDayOpen && !_dayAllDone()) {
+        // Held, and the day was undone meanwhile (an uncheck before the
+        // answer): there is nothing left to celebrate.
+        return;
+      }
+      claimedDay = celebrations!.allDone(
+        origin: origin,
+        day: habit.today.date,
+        haptic: !confirmed,
+      );
+    }
+
+    // One gesture plays its highest tier only (§4.30). A tap that can also
+    // reach a milestone — a streak of 7, 30, 100 or 365 days, the first
+    // perfect week — holds the day's burst until the server answers (at
+    // most [_milestoneWindow]): then the two are asked for together, and
+    // the layer plays the higher one, with one confirm.
+    final perfect = bundle.perfectDay.currentStreak;
+    final mayReachMilestone =
+        becameComplete &&
+        (_streakMilestones.contains(habit.currentStreak + 1) ||
+            (celebratesDay && perfect < 7 && perfect + 1 >= 7));
+    Timer? heldDay;
     if (celebratesDay) {
-      // Tier 2, from the control that finished the day — with the tap, not
-      // the answer (§4.30: the burst is the tap's). A write that is then
-      // refused or taken back gives the day's key back (below), so the
-      // day's real completion later still celebrates.
-      if (celebrations != null) {
-        claimedDay =
-            celebrations.allDone(origin: origin, day: habit.today.date);
-      } else {
+      if (celebrations == null) {
         Haptics.confirm();
+      } else if (mayReachMilestone &&
+          !celebrations.dayCelebrated(habit.today.date)) {
+        // The haptic is the tap's (§5.8): CONFIRM now, merged with the
+        // check's, whichever tier the answer brings. (A day celebrated
+        // already holds nothing: the tap plays the check's own haptic, and
+        // a milestone the answer brings its own CONFIRM.)
+        Haptics.confirm();
+        confirmed = true;
+        heldDayOpen = true;
+        heldDay = Timer(_milestoneWindow, () {
+          heldDay = null;
+          celebrateDay();
+        });
+      } else {
+        // Tier 2, from the control that finished the day — with the tap,
+        // not the answer (§4.30: the burst is the tap's). A write that is
+        // then refused or taken back gives the day's key back (below), so
+        // the day's real completion later still celebrates.
+        celebrateDay();
       }
     }
 
@@ -170,17 +214,29 @@ class _HabitsScreenState extends ConsumerState<HabitsScreen>
         count,
         day: habit.today.date,
       );
-      if (!sent && claimedDay) celebrations?.forget(habit.today.date);
-      if (!sent || !becameComplete || celebrations == null || !mounted) return;
+      // The day's burst still held: it goes with the answer, or not at all.
+      final dayHeld = heldDay != null;
+      heldDay?.cancel();
+      heldDay = null;
+      if (!sent) {
+        if (claimedDay) celebrations?.forget(habit.today.date);
+        return;
+      }
+      if (dayHeld) celebrateDay();
+      if (!becameComplete || celebrations == null || !mounted) return;
       if (started.elapsed > _milestoneWindow) return;
-      // Tier 3, from the server's answer to this tap.
+      // Tier 3, from the server's answer to this tap — asked for in the
+      // same event as a held burst, so only the higher tier plays.
       final now = ref.read(habitsProvider).value?.data;
       final answered = now?.habits.where((h) => h.id == habit.id).firstOrNull;
-      final streak = answered?.currentStreak ?? 0;
+      // Undone before the answer came: the tap no longer stands.
+      if (answered == null || !answered.today.completed) return;
+      final streak = answered.currentStreak;
       if (_streakMilestones.contains(streak) && streak > habit.currentStreak) {
         celebrations.milestone(
           key: 'habit.${habit.id}.$streak',
           text: l.milestoneStreak(streak, habit.name),
+          haptic: !confirmed,
         );
       } else if (now != null &&
           now.perfectDay.currentStreak >= 7 &&
@@ -188,9 +244,12 @@ class _HabitsScreenState extends ConsumerState<HabitsScreen>
         celebrations.milestone(
           key: 'perfect-week',
           text: l.milestonePerfectWeek,
+          haptic: !confirmed,
         );
       }
     } catch (e) {
+      heldDay?.cancel();
+      heldDay = null;
       if (claimedDay) celebrations?.forget(habit.today.date);
       if (!mounted) return;
       showAppSnack(
@@ -199,6 +258,16 @@ class _HabitsScreenState extends ConsumerState<HabitsScreen>
         isError: true,
       );
     }
+  }
+
+  /// Whether today's habits are all done as the list now shows them — a
+  /// held burst asks again when it goes. Gone from the screen, the tap's
+  /// own reckoning stands.
+  bool _dayAllDone() {
+    if (!mounted) return true;
+    final now = ref.read(habitsProvider).value?.data;
+    if (now == null) return true;
+    return now.totalActive > 0 && now.completedToday >= now.totalActive;
   }
 
   /// Keeps the list's order while [id] lingers: the timer starts again
@@ -255,7 +324,7 @@ class _HabitsScreenState extends ConsumerState<HabitsScreen>
   /// Adds a starter habit at once, with its defaults (`POST /habits`); the
   /// new card grows in, washed.
   Future<void> _addStarter(_Starter starter) async {
-    if (_adding != null || _added.contains(starter)) return;
+    if (_adding != null || _added.containsKey(starter)) return;
     final l = context.l10n;
     final repo = ref.read(repositoryProvider);
     final sync = ref.read(dataSyncProvider);
@@ -269,7 +338,7 @@ class _HabitsScreenState extends ConsumerState<HabitsScreen>
           color: starter.color,
         ),
       );
-      _added.add(starter);
+      _added[starter] = habit.id;
       sync.noteChange(DataScope.habits, habit.id, ChangeKind.inserted);
       Haptics.confirm();
       if (mounted) showAppSnack(context, l.habitsAddedNamed(habit.name));
@@ -290,7 +359,22 @@ class _HabitsScreenState extends ConsumerState<HabitsScreen>
 
   Future<void> _refresh() async {
     refreshTab(ref, AppTab.habits);
-    await settleRefresh([refetchLanded(ref, habitsProvider)]);
+    // At least 500 ms (§5.5): a fast answer does not flash the spinner.
+    await settleRefresh([
+      refetchLanded(ref, habitsProvider),
+    ], minimum: Motion.refreshMinimum);
+  }
+
+  /// The pull's refresh, with the sync hint kept off while its spinner
+  /// shows.
+  Future<void> _pull() async {
+    Haptics.armed();
+    setState(() => _pulling = true);
+    try {
+      await _refresh();
+    } finally {
+      if (mounted) setState(() => _pulling = false);
+    }
   }
 
   // --- History ------------------------------------------------------------------
@@ -332,10 +416,18 @@ class _HabitsScreenState extends ConsumerState<HabitsScreen>
                   showPending: true,
                 ),
                 const SizedBox(height: Gap.lg),
-                Text(
-                  l.habitsPerfectStreak(pd.currentStreak, pd.longestStreak),
-                  style: text.bodySmall!.copyWith(color: c.inkMid),
-                ),
+                // Never "0 gün" (§7.15): no streak running says the record
+                // alone, and no record says nothing.
+                if (pd.currentStreak > 0)
+                  Text(
+                    l.habitsPerfectStreak(pd.currentStreak, pd.longestStreak),
+                    style: text.bodySmall!.copyWith(color: c.inkMid),
+                  )
+                else if (pd.longestStreak > 0)
+                  Text(
+                    l.habitsPerfectRecordOnly(pd.longestStreak),
+                    style: text.bodySmall!.copyWith(color: c.inkMid),
+                  ),
               ],
             ),
           ),
@@ -400,22 +492,30 @@ class _HabitsScreenState extends ConsumerState<HabitsScreen>
     ref.watch(deferredDeletesProvider);
     final rows = list.rows == null ? null : _visible(list.rows!);
     final empty = rows != null && rows.isEmpty;
-
-    final Widget body;
-    if (list.firstLoad) {
-      body = const _HabitsSkeleton();
-    } else if (rows == null) {
-      body = EmptyState.error(onRetry: _refresh);
-    } else {
-      body = RefreshIndicator.adaptive(
-        color: c.gold,
-        onRefresh: () {
-          Haptics.armed();
-          return _refresh();
-        },
-        child: _content(context, rows, list.refreshFailed, list.at!),
-      );
+    if (rows != null && _added.isNotEmpty) {
+      // A starter's habit is listed now: its chip may add it again later.
+      final listed = rows.map((r) => r.id).toSet();
+      _added.removeWhere((_, id) => listed.contains(id));
     }
+
+    // The first-load choreography (§4.26, §5.6): a blank frame, then the
+    // skeleton for at least 400 ms, cross-faded to the cards — whose
+    // entrance plays only when they come without a skeleton, and never
+    // again (a card rebuilt after scrolling away starts finished, §5.3).
+    final body = LoadPhaseSwitcher(
+      phase: rows != null
+          ? LoadPhase.content
+          : list.firstLoad
+          ? LoadPhase.waiting
+          : LoadPhase.error,
+      skeleton: (_) => const _HabitsSkeleton(),
+      error: (_) => EmptyState.error(onRetry: _refresh),
+      content: (context) => RefreshIndicator.adaptive(
+        color: c.gold,
+        onRefresh: _pull,
+        child: _content(context, rows!, list.refreshFailed, list.at!),
+      ),
+    );
 
     return primaryScroll(
       Scaffold(
@@ -460,7 +560,10 @@ class _HabitsScreenState extends ConsumerState<HabitsScreen>
             const SizedBox(width: Gap.xs),
           ],
         ),
-        body: SyncHint.over(active: list.refetching, child: body),
+        body: SyncHint.over(
+          active: list.refetching && !_pulling,
+          child: body,
+        ),
       ),
     );
   }
@@ -501,11 +604,11 @@ class _HabitsScreenState extends ConsumerState<HabitsScreen>
                         key: ValueKey('starter-${s.index}'),
                         label: s.label(l),
                         icon: s == _Starter.custom ? Icons.add_rounded : null,
-                        // Off while a starter is on its way, and for good
-                        // once added.
+                        // Off while a starter is on its way, and once
+                        // added until the list has its habit.
                         onTap: s == _Starter.custom
                             ? _newHabit
-                            : _adding != null || _added.contains(s)
+                            : _adding != null || _added.containsKey(s)
                             ? null
                             : () => _addStarter(s),
                       ),
@@ -516,14 +619,6 @@ class _HabitsScreenState extends ConsumerState<HabitsScreen>
           ),
         ],
       );
-    }
-
-    final stagger = !_staggered;
-    if (stagger && !_staggerScheduled) {
-      _staggerScheduled = true;
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (mounted) _staggered = true;
-      });
     }
 
     final shown = _ordered(habits);
@@ -550,7 +645,8 @@ class _HabitsScreenState extends ConsumerState<HabitsScreen>
               child: Padding(
                 padding: const EdgeInsets.only(bottom: Gap.md),
                 child: Entrance.staggered(
-                  play: stagger,
+                  // The entrance gate decides, as each card mounts.
+                  play: true,
                   index: i,
                   child: _tile(shown[i]),
                 ),

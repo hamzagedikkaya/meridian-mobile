@@ -7,6 +7,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../core/api.dart';
 import '../../../core/formats.dart';
 import '../../../core/haptics.dart';
+import '../../../core/session.dart';
 import '../../../core/turkish_case.dart';
 import '../../../data/current_day.dart';
 import '../../../data/data_scope.dart';
@@ -42,6 +43,28 @@ String subscriptionWhen(AppL10n l, Subscription sub, DateTime today) {
   if (next == null) return l.subscriptionNoDate;
   if (dayDelta(next, now: today) < 0) return overdueSince(l, next, today);
   return l.relativeDays(next);
+}
+
+/// When a due row's payment is, on a line of its own — so in sentence
+/// case, as the overdue rows' "Gecikmiş · …" is: "Bugün", "Yarın" (in
+/// both languages alike), "3 gün sonra" / "In 3 days".
+String _dueOnItsOwnLine(
+  BuildContext context,
+  AppL10n l,
+  DateTime due,
+  DateTime today,
+) {
+  switch (dayDelta(due, now: today)) {
+    case 0:
+      return l.dayToday;
+    case 1:
+      return l.dayTomorrow;
+  }
+  final words = l.relativeDays(due);
+  if (words.isEmpty) return words;
+  return Localizations.localeOf(context).languageCode == 'tr'
+      ? trCapitalize(words)
+      : words[0].toUpperCase() + words.substring(1);
 }
 
 /// A payment past its date, said the same way wherever it is listed:
@@ -88,10 +111,21 @@ SubscriptionUrgency urgencyOf(Subscription sub, DateTime? due, DateTime today) {
 /// after a payment (contract §4.6): weekly +7 days, monthly +1 month,
 /// yearly +1 year — a day the shorter month lacks becomes its last day
 /// (31 January → 28 February).
-DateTime nextChargeAfter(DateTime from, String frequency) {
+///
+/// With the subscription's [start] date, a monthly or yearly date that a
+/// short month cut to its last day goes back to [start]'s day when the
+/// next month has it (start 01-31: 01-31 → 02-28 → 03-31 → 04-30); a date
+/// set to another day keeps its day.
+DateTime nextChargeAfter(DateTime from, String frequency, {DateTime? start}) {
+  int lastDay(int year, int month) => DateTime(year, month + 1, 0).day;
+  final billingDay = start != null &&
+          from.day < start.day &&
+          from.day == lastDay(from.year, from.month)
+      ? start.day
+      : from.day;
   DateTime clamped(int year, int month) {
-    final last = DateTime(year, month + 1, 0).day;
-    return DateTime(year, month, from.day > last ? last : from.day);
+    final last = lastDay(year, month);
+    return DateTime(year, month, billingDay > last ? last : billingDay);
   }
 
   return switch (frequency) {
@@ -99,6 +133,40 @@ DateTime nextChargeAfter(DateTime from, String frequency) {
     'yearly' => clamped(from.year + 1, from.month),
     _ => clamped(from.year, from.month + 1),
   };
+}
+
+/// The first payment the server gives a new subscription that starts on
+/// [start] and names no date (contract §4.6, POST /subscriptions): the
+/// first date after [today] in the series [start], [start] + 1 period,
+/// + 2 periods, … — each counted from [start], a day a shorter month lacks
+/// being its last. A start after today is that start itself.
+DateTime firstChargeAfter(DateTime start, String frequency, DateTime today) {
+  final day = DateTime(today.year, today.month, today.day);
+  DateTime nth(int n) {
+    if (frequency == 'weekly') {
+      return DateTime(start.year, start.month, start.day + 7 * n);
+    }
+    final months = (frequency == 'yearly' ? 12 : 1) * n;
+    final last = DateTime(start.year, start.month + months + 1, 0).day;
+    return DateTime(start.year, start.month + months,
+        start.day > last ? last : start.day);
+  }
+
+  var n = 0;
+  if (frequency == 'weekly') {
+    // Straight to the right week, then step.
+    final days = day.difference(DateTime(start.year, start.month, start.day));
+    if (days.inDays > 7) n = days.inDays ~/ 7 - 1;
+  } else {
+    final months = (day.year - start.year) * 12 + day.month - start.month;
+    final per = frequency == 'yearly' ? 12 : 1;
+    if (months > per) n = months ~/ per - 1;
+  }
+  var date = nth(n);
+  while (!date.isAfter(day)) {
+    date = nth(++n);
+  }
+  return date;
 }
 
 /// [sub] as the form would send it, with its due date moved to [next]: an
@@ -116,6 +184,63 @@ SubscriptionInput _withNextCharge(Subscription sub, DateTime? next) =>
       color: sub.color,
     );
 
+/// Pauses and resumes made from a row whose write has not been confirmed
+/// by a refetch yet, by subscription id → whether it is active now. The
+/// list reads them over the server's flag, so a "Durdur" moves the row to
+/// "Duraklatılmış" in the frame it is tapped (principle 1); a refusal moves
+/// it back and says why.
+final subscriptionActiveOverridesProvider =
+    NotifierProvider<SubscriptionActiveOverrides, Map<int, bool>>(
+        SubscriptionActiveOverrides.new);
+
+class SubscriptionActiveOverrides extends Notifier<Map<int, bool>> {
+  /// The overrides whose write has answered: they go with the next list.
+  final _answered = <int>{};
+
+  @override
+  Map<int, bool> build() {
+    _settleWithLists(ref, settle);
+    return const {};
+  }
+
+  void set(int id, bool active) {
+    _answered.remove(id);
+    state = {...state, id: active};
+  }
+
+  /// The write failed: the server's flag shows again.
+  void drop(int id) {
+    _answered.remove(id);
+    state = {...state}..remove(id);
+  }
+
+  /// The write went through; its refetch is on the way.
+  void answered(int id) => _answered.add(id);
+
+  /// A list came in: the answered overrides are in it now.
+  void settle() {
+    if (_answered.isEmpty) return;
+    final next = {...state}..removeWhere((id, _) => _answered.contains(id));
+    _answered.clear();
+    state = next;
+  }
+}
+
+/// Settles an overrides notifier whenever a subscriptions list comes in —
+/// wherever the write started (the Abonelikler page, or a sheet opened from
+/// Finans, Bugün or Arama), so an answered override never outlives the list
+/// that carries it. The listen is weak: it neither fetches the list nor keeps
+/// it alive; a list fetched later (the sheet reopened) still settles it.
+void _settleWithLists(Ref ref, void Function() settle) {
+  ref.listen(
+    subscriptionsProvider,
+    (previous, next) {
+      if (next.hasValue && !identical(previous?.value, next.value)) settle();
+    },
+    weak: true,
+  );
+}
+
 /// Due dates moved on the phone whose write has not been confirmed by a
 /// refetch yet — a skip, or the undo of one — by subscription id. Rows read
 /// them over the server's date, so a skip moves its row in the frame it is
@@ -128,8 +253,14 @@ class SubscriptionDueOverrides extends Notifier<Map<int, DateTime?>> {
   /// The overrides whose write has answered: they go with the next list.
   final _answered = <int>{};
 
+  /// Each session starts without any: they are the signed-in account's.
   @override
-  Map<int, DateTime?> build() => const {};
+  Map<int, DateTime?> build() {
+    ref.watch(sessionProvider.select((s) => s is SessionLoggedIn));
+    _answered.clear();
+    _settleWithLists(ref, settle);
+    return const {};
+  }
 
   void set(int id, DateTime? due) {
     _answered.remove(id);
@@ -168,7 +299,7 @@ Future<void> skipSubscriptionPayment(
   final l = context.l10n;
   final repo = ref.read(repositoryProvider);
   final overrides = ref.read(subscriptionDueOverridesProvider.notifier);
-  final next = nextChargeAfter(before, sub.frequency);
+  final next = nextChargeAfter(before, sub.frequency, start: sub.startDate);
   final messenger = ScaffoldMessenger.of(context);
   Haptics.tick();
   overrides.set(sub.id, next);
@@ -196,7 +327,7 @@ Future<void> skipSubscriptionPayment(
         } catch (_) {
           overrides.drop(sub.id);
           if (messenger.mounted) {
-            showAppSnack(messenger.context, l.subscriptionUndoFailed,
+            showAppSnackOn(messenger, l.subscriptionSkipUndoFailed,
                 isError: true);
           }
         }
@@ -292,6 +423,7 @@ class _SubscriptionSheetState extends ConsumerState<_SubscriptionSheet> {
       _busy = true;
       _error = null;
     });
+    var unsure = false;
     try {
       final charge = await repo.chargeSubscription(sub.id);
       if (!mounted) return;
@@ -313,9 +445,10 @@ class _SubscriptionSheetState extends ConsumerState<_SubscriptionSheet> {
             messenger, l, repo, charge, sub.nextChargeOn),
       );
     } catch (e) {
+      final maybe = e is ApiException && e.isNetwork && e.mayHaveArrived;
+      unsure = maybe;
       if (!mounted) return;
       Haptics.reject();
-      final maybe = e is ApiException && e.isNetwork && e.mayHaveArrived;
       setState(() {
         _busy = false;
         if (maybe) _unsureOver = ref.read(subscriptionsProvider).value;
@@ -324,7 +457,8 @@ class _SubscriptionSheetState extends ConsumerState<_SubscriptionSheet> {
             : failureMessage(e, l, fallback: l.subscriptionChargeFailed);
       });
     } finally {
-      inFlight.release(sub.id);
+      // The row's and the dashboard's "Ödendi" wait for the list too.
+      unsure ? inFlight.holdUntilRefetched(sub.id) : inFlight.release(sub.id);
     }
   }
 
@@ -416,13 +550,19 @@ class _SubscriptionSheetState extends ConsumerState<_SubscriptionSheet> {
         ),
       );
     }
-    final s = sub;
+    // A skip on its way (from the row): the sheet shows the date it moves
+    // to, as the row does, and "Ödendi" and "Atla" wait for it — a payment
+    // must be recorded against the date the server has, and its undo would
+    // otherwise write the pre-skip date back over the skip.
+    final overrides = ref.watch(subscriptionDueOverridesProvider);
+    final skipping = overrides.containsKey(sub.id);
+    final s = skipping ? _withDue(sub, overrides[sub.id]) : sub;
     final note = s.note;
     final chargeable = s.active && s.nextChargeOn != null;
     // A payment that may have gone through holds the button until the
     // refetched list says whether it did; so does one the row is sending.
     final unsure = _unsureOver != null && identical(async.value, _unsureOver);
-    final held = _busy || unsure || charging.contains(s.id);
+    final held = _busy || unsure || skipping || charging.contains(s.id);
     final overdue = chargeable && dayDelta(s.nextChargeOn!, now: today) < 0;
 
     return Column(
@@ -573,12 +713,9 @@ class SubscriptionsScreen extends ConsumerWidget {
     final hidden = ref.watch(deferredDeletesProvider);
     final today = ref.watch(currentDayProvider);
     final overrides = ref.watch(subscriptionDueOverridesProvider);
-    // A list that comes in carries the skips that have answered.
-    ref.listen(subscriptionsProvider, (previous, next) {
-      if (next.hasValue && !identical(previous?.value, next.value)) {
-        ref.read(subscriptionDueOverridesProvider.notifier).settle();
-      }
-    });
+    final activeOverrides = ref.watch(subscriptionActiveOverridesProvider);
+    // A list that comes in carries the skips, pauses and resumes that have
+    // answered: the overrides settle themselves (see [_settleWithLists]).
     final bundle = async.value?.data;
 
     Future<void> refresh() async {
@@ -616,8 +753,20 @@ class SubscriptionsScreen extends ConsumerWidget {
     if (bundle == null) {
       body = failed();
     } else {
-      final active = visible(bundle.active);
-      final paused = visible(bundle.inactive);
+      // A pause or resume on its way shows where it is going.
+      Subscription shown(Subscription s) {
+        final active = activeOverrides[s.id];
+        return active == null || active == s.active
+            ? s
+            : _withDue(s, s.nextChargeOn, active: active);
+      }
+
+      final all = [
+        for (final s in [...visible(bundle.active), ...visible(bundle.inactive)])
+          shown(s),
+      ];
+      final active = [for (final s in all) if (s.active) s];
+      final paused = [for (final s in all) if (!s.active) s];
       if (active.isEmpty && paused.isEmpty) {
         empty = true;
         body = CustomScrollView(
@@ -954,8 +1103,13 @@ class SubscriptionRow extends ConsumerWidget {
       case _RowAction.toggle:
         final active = !sub.active;
         final repo = ref.read(repositoryProvider);
+        // The row moves at once (it may be rebuilt elsewhere in the list:
+        // nothing below reads this row's ref).
+        final overrides = ref.read(subscriptionActiveOverridesProvider.notifier);
+        overrides.set(sub.id, active);
         try {
           await repo.setSubscriptionActive(sub.id, active: active);
+          overrides.answered(sub.id);
           if (!context.mounted) return;
           showAppSnack(
             context,
@@ -964,6 +1118,7 @@ class SubscriptionRow extends ConsumerWidget {
                 : l.subscriptionPausedDone(sub.name),
           );
         } catch (e) {
+          overrides.drop(sub.id);
           if (!context.mounted) return;
           showAppSnack(
             context,
@@ -1029,7 +1184,9 @@ class SubscriptionRow extends ConsumerWidget {
     }
 
     final overdue = urgency == SubscriptionUrgency.overdue;
-    final when = overdue ? overdueSince(l, due!, today) : l.relativeDays(due!);
+    final when = overdue
+        ? overdueSince(l, due!, today)
+        : _dueOnItsOwnLine(context, l, due!, today);
     final whenStyle =
         text.bodySmall!.copyWith(color: overdue ? c.error : c.inkMid);
     // When, then the amount: the date may wrap to two lines beside the
@@ -1208,8 +1365,10 @@ class SubscriptionRow extends ConsumerWidget {
   }
 }
 
-/// [sub] as a row shows it while a skip moves it to [due].
-Subscription _withDue(Subscription sub, DateTime? due) => Subscription(
+/// [sub] as a row shows it while a skip moves it to [due] — or a pause or
+/// resume makes it [active].
+Subscription _withDue(Subscription sub, DateTime? due, {bool? active}) =>
+    Subscription(
       id: sub.id,
       name: sub.name,
       vendor: sub.vendor,
@@ -1218,7 +1377,7 @@ Subscription _withDue(Subscription sub, DateTime? due) => Subscription(
       nextChargeOn: due,
       startDate: sub.startDate,
       endDate: sub.endDate,
-      active: sub.active,
+      active: active ?? sub.active,
       color: sub.color,
       note: sub.note,
       monthlyAmountCents: sub.monthlyAmountCents,

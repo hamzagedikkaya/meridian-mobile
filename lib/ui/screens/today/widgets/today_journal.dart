@@ -3,6 +3,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../../../data/current_day.dart';
+import '../../../../data/data_scope.dart';
+import '../../../../data/deferred_deletes.dart';
 import '../../../../data/providers.dart';
 import '../../../../l10n/app_l10n.dart';
 import '../../../../models/date_utils.dart';
@@ -39,9 +41,17 @@ class TodayJournalSection extends ConsumerWidget {
     final loaded = ref.watch(
       journalProvider(todayJournalRange).select((a) => a.value != null),
     );
+    // An entry whose delete waits out its undo is gone already (§6.6): the
+    // card asks about today again, and never opens it.
+    final hidden = ref.watch(deferredDeletesProvider);
     final entry = ref.watch(
       journalProvider(todayJournalRange).select((a) {
-        for (final e in a.value?.data.entries ?? const <JournalEntry>[]) {
+        for (final e in withoutDeleted(
+          a.value?.data.entries ?? const <JournalEntry>[],
+          hidden,
+          DataScope.journal,
+          (e) => e.id,
+        )) {
           if (dateOnly(e.date) == day) return e;
         }
         return null;

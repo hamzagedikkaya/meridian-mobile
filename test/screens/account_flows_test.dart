@@ -8,6 +8,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
 import 'package:intl/date_symbol_data_local.dart';
+import 'package:meridian_mobile/data/current_day.dart';
 import 'package:meridian_mobile/models/account.dart';
 import 'package:meridian_mobile/ui/screens/finance/account_card.dart';
 import 'package:meridian_mobile/ui/screens/finance/finance_screen.dart';
@@ -19,6 +20,7 @@ import 'package:meridian_mobile/ui/widgets/primary_button.dart';
 
 import '../support/fake_api.dart';
 import '../support/finance_harness.dart';
+import '../support/semantics.dart';
 
 Widget _launcher(String location) => Builder(
       builder: (context) => Scaffold(
@@ -120,6 +122,31 @@ void main() {
         'color': '#D4A853',
       });
       expect(find.text('Yeni hesap'), findsNothing, reason: 'closed');
+    });
+
+    testWidgets('a new account whose answer is lost may exist already: the '
+        'form says so and "Hesabı oluştur" waits for the account list',
+        (tester) async {
+      tallPhone(tester);
+      final api = FakeApi()
+        ..on('GET /accounts', {'accounts': const []})
+        ..timeOut('POST /accounts');
+      await pumpFinance(tester, api, const FinanceScreen());
+      await tester.tap(find.text('Başka bir hesap ekle'));
+      await settleFrames(tester);
+      // The account list the write asks for is held.
+      api.hold('GET /accounts');
+      await tester.tap(find.text('Hesabı oluştur'));
+      await settleFrames(tester);
+      // Said under the form's last field.
+      await tester.dragUntilVisible(find.textContaining('kaydedilmiş olabilir'),
+          find.byType(Scrollable).first, const Offset(0, -300));
+      expect(find.textContaining('kaydedilmiş olabilir'), findsOneWidget);
+      await tester.tap(find.text('Hesabı oluştur'));
+      await settleFrames(tester);
+      expect(api.bodiesOf('POST /accounts'), hasLength(1));
+      api.release('GET /accounts');
+      await settleFrames(tester);
     });
 
     testWidgets('a name is needed; the server\'s refusal lands under its field',
@@ -440,6 +467,27 @@ void main() {
     });
   });
 
+  testWidgets('Finance: a pull holds its spinner for at least 500 ms, even '
+      'when the answer is instant (§5.5)', (tester) async {
+    tallPhone(tester);
+    final api = FakeApi();
+    await pumpFinance(tester, api, const FinanceScreen());
+    api.clearLog();
+    await tester.fling(
+        find.byType(Scrollable).first, const Offset(0, 400), 1000);
+    for (var i = 0;
+        i < 60 && !api.requests.contains('GET /finance/dashboard');
+        i++) {
+      await tester.pump(const Duration(milliseconds: 20));
+    }
+    expect(api.requests, contains('GET /finance/dashboard'));
+    await tester.pump(const Duration(milliseconds: 400));
+    expect(find.byType(RefreshProgressIndicator), findsOneWidget,
+        reason: 'answered at once, but the spinner does not flash');
+    await tester.pumpAndSettle();
+    expect(find.byType(RefreshProgressIndicator), findsNothing);
+  });
+
   group('reconcile: the real balance', () {
     test('moves the opening balance by the difference', () {
       final card = Account.fromJson(accountJson(
@@ -490,6 +538,93 @@ void main() {
       await settleFrames(tester);
       expect(api.bodiesOf('PATCH /accounts/1').last,
           {'initial_balance_cents': 0});
+    });
+
+    /// A server whose account 1 holds ₺5.000 with the ₺138,74 "Kahve" in
+    /// it, until that transaction's delete lands.
+    FakeApi liveBalance() {
+      var balance = 500000;
+      final api = FakeApi();
+      api
+        ..onRequest('GET /accounts', (_) => {
+              'accounts': [accountJson(balance: balance)],
+            })
+        ..onRequest('GET /accounts/1', (_) => {
+              'account': {
+                ...accountDetailJson(transactions: 1),
+                'balance_cents': balance,
+              },
+            })
+        ..onRequest('DELETE /transactions/316', (_) {
+          balance += 13874;
+          return null;
+        })
+        ..on('PATCH /accounts/1', {
+          'account': accountJson(initial: -1874, balance: 512000),
+        });
+      return api;
+    }
+
+    testWidgets('a transaction swiped away just before is deleted first, and '
+        'the balance is squared against what is left', (tester) async {
+      tallPhone(tester);
+      final api = liveBalance();
+      await _openAccount(tester, api);
+      await tester.drag(find.text('Kahve'), const Offset(-600, 0));
+      await settleFrames(tester);
+      expect(find.text('İşlem silindi'), findsOneWidget);
+      expect(api.requests, isNot(contains('DELETE /transactions/316')));
+
+      await tester.tap(find.text('Bakiyeyi eşitle'));
+      await settleFrames(tester);
+      expect(api.requests, contains('DELETE /transactions/316'),
+          reason: 'the waiting delete goes before the balance is squared');
+      expect(find.text('Geri al'), findsNothing,
+          reason: 'its undo could no longer be honoured');
+      expect(find.text('Şu anki: ₺5.138,74'), findsOneWidget,
+          reason: 'the sheet follows the refetched balance');
+      for (final digit in ['5', '1', '2', '0']) {
+        await tester.tap(find.text(digit).last);
+        await tester.pump();
+      }
+      await tester.tap(find.text('Kaydet'));
+      await settleFrames(tester);
+      final writes = [
+        for (final r in api.requests)
+          if (!r.startsWith('GET ')) r,
+      ];
+      expect(writes, ['DELETE /transactions/316', 'PATCH /accounts/1']);
+      // 5.120,00 − 5.138,74: the opening balance drops by ₺18,74.
+      expect(api.bodiesOf('PATCH /accounts/1').single,
+          {'initial_balance_cents': -1874});
+      expect(find.text('Bakiye eşitlendi'), findsOneWidget);
+    });
+
+    testWidgets('a balance that changes while the sheet is open is the one '
+        'squared', (tester) async {
+      tallPhone(tester);
+      final api = liveBalance();
+      await _openAccount(tester, api);
+      await tester.tap(find.text('Bakiyeyi eşitle'));
+      await settleFrames(tester);
+      expect(find.text('Şu anki: ₺5.000,00'), findsOneWidget);
+
+      // Edited on the web meanwhile: the server's balance is ₺4.861,26.
+      api
+        ..on('GET /accounts', {
+          'accounts': [accountJson(balance: 486126)],
+        })
+        ..on('GET /accounts/1', {
+          'account': {...accountDetailJson(), 'balance_cents': 486126},
+        });
+      for (final digit in ['5', '1', '2', '0']) {
+        await tester.tap(find.text(digit).last);
+        await tester.pump();
+      }
+      await tester.tap(find.text('Kaydet'));
+      await settleFrames(tester);
+      expect(api.bodiesOf('PATCH /accounts/1').single,
+          {'initial_balance_cents': 25874});
     });
   });
 
@@ -546,6 +681,121 @@ void main() {
           find.byType(CustomScrollView).first, const Offset(0, 2000));
       await settleFrames(tester);
       expect(fab.hitTestable(), findsNothing);
+    });
+
+    testWidgets('"Bu ay" is the whole month\'s, not the pages loaded so '
+        'far — and a row swiped away leaves it at once', (tester) async {
+      tallPhone(tester);
+      Map<String, dynamic> spent(int id) => {
+            ...transactionJson(id: id),
+            'description': 'Gider $id',
+            'amount_cents': 1000,
+            // Newest first, four a day.
+            'date': '2026-10-${(20 - (id - 1) ~/ 4).toString().padLeft(2, '0')}',
+          };
+      final rows = [for (var i = 1; i <= 60; i++) spent(i)];
+      final api = FakeApi()
+        ..onRequest('GET /transactions', (request) {
+          final q = request.uri.queryParameters;
+          final page = int.tryParse(q['page'] ?? '') ?? 1;
+          return {
+            'transactions': rows.skip((page - 1) * 50).take(50).toList(),
+            'meta': {
+              'total_count': 60,
+              'page': page,
+              'page_limit': 50,
+              'filtered_income_cents': 0,
+              'filtered_expense_cents': 60000,
+            },
+          };
+        });
+      await pumpFinance(
+        tester,
+        api,
+        _launcher('/finance/account/1'),
+        overrides: [
+          clockProvider.overrideWithValue(() => DateTime(2026, 10, 20, 12)),
+        ],
+      );
+      await tester.tap(find.text('open'));
+      await settleFrames(tester);
+      expect(find.text('Bu ay −₺600 gider'), findsOneWidget,
+          reason: 'the server\'s total, with one page of 50 loaded');
+
+      await tester.drag(find.text('Gider 1'), const Offset(-600, 0));
+      await settleFrames(tester);
+      expect(find.text('İşlem silindi'), findsOneWidget);
+      expect(find.text('Bu ay −₺590 gider'), findsOneWidget);
+    });
+
+    testWidgets('a pull brings "Bu ay" up to date with the rows it brings',
+        (tester) async {
+      tallPhone(tester);
+      final rows = [
+        for (var i = 1; i <= 2; i++)
+          {
+            ...transactionJson(id: i),
+            'description': 'Gider $i',
+            'amount_cents': 1000,
+            'date': '2026-10-1$i',
+          },
+      ];
+      final api = FakeApi()
+        ..onRequest('GET /transactions', (request) => {
+              'transactions': rows,
+              'meta': {
+                'total_count': rows.length,
+                'page': 1,
+                'page_limit': 50,
+                'filtered_income_cents': 0,
+                'filtered_expense_cents': [
+                  for (final r in rows) r['amount_cents'] as int,
+                ].fold<int>(0, (a, b) => a + b),
+              },
+            });
+      await pumpFinance(
+        tester,
+        api,
+        _launcher('/finance/account/1'),
+        overrides: [
+          clockProvider.overrideWithValue(() => DateTime(2026, 10, 20, 12)),
+        ],
+      );
+      await tester.tap(find.text('open'));
+      await settleFrames(tester);
+      expect(find.text('Bu ay −₺20 gider'), findsOneWidget);
+
+      // Added on the web meanwhile.
+      rows.insert(0, {
+        ...transactionJson(id: 3),
+        'description': 'Gider 3',
+        'amount_cents': 5000,
+        'date': '2026-10-19',
+      });
+      await tester.fling(
+          find.byType(Scrollable).first, const Offset(0, 400), 1000);
+      await tester.pumpAndSettle();
+      expect(find.text('Gider 3'), findsOneWidget);
+      expect(find.text('Bu ay −₺70 gider'), findsOneWidget);
+    });
+
+    testWidgets('no account list cached and none to be had: the server is '
+        'unreachable, with a retry — never an endless skeleton',
+        (tester) async {
+      tallPhone(tester);
+      final api = FakeApi()..failNetwork('GET /accounts');
+      await pumpFinance(tester, api, _launcher('/finance/account/1'));
+      await tester.tap(find.text('open'));
+      await settleFrames(tester);
+      expect(find.text('Sunucuya ulaşılamıyor'), findsOneWidget);
+
+      api.on('GET /accounts', {
+        'accounts': [accountJson()],
+      });
+      await tester.tap(find.text('Tekrar dene'));
+      await settleFrames(tester);
+      expect(find.text('Bakiyeyi eşitle'), findsOneWidget);
+      expect(find.text('Kahve'), findsOneWidget);
     });
 
     testWidgets('linked goals are a tap away', (tester) async {
@@ -621,6 +871,31 @@ void main() {
     await settleFrames(tester);
     expect(api.requests, contains('PATCH /accounts/4/unarchive'));
     expect(find.text('“Eski kart” geri yüklendi'), findsOneWidget);
+  });
+
+  testWidgets('a screen reader gets "Geri yükle" on an archived row as its '
+      'own action — not a word in a label whose double tap opens the account',
+      (tester) async {
+    tallPhone(tester);
+    final handle = tester.ensureSemantics();
+    final api = FakeApi()
+      ..on('GET /accounts', {
+        'accounts': [
+          accountJson(),
+          accountJson(id: 4, name: 'Eski kart', archived: true),
+        ],
+      })
+      ..on('PATCH /accounts/4/unarchive', {'account': accountJson(id: 4)});
+    await pumpFinance(tester, api, _launcher('/finance/accounts/archived'));
+    await tester.tap(find.text('open'));
+    await settleFrames(tester);
+    final row = tester.getSemantics(find.text('Eski kart'));
+    expect(row.getSemanticsData().label, isNot(contains('Geri yükle')));
+    expect(customActionLabels(row), ['Geri yükle']);
+    performCustomAction(row, 'Geri yükle');
+    await settleFrames(tester);
+    expect(api.requests, contains('PATCH /accounts/4/unarchive'));
+    handle.dispose();
   });
 
   group('Hesaplar', () {

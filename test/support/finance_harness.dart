@@ -4,7 +4,9 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_riverpod/misc.dart' show Override;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
+import 'package:meridian_mobile/core/formats.dart' show setAppToday;
 import 'package:meridian_mobile/core/session.dart';
+import 'package:meridian_mobile/data/current_day.dart';
 import 'package:meridian_mobile/l10n/app_l10n.dart';
 import 'package:meridian_mobile/theme/app_theme.dart';
 import 'package:meridian_mobile/ui/screens/finance/account_detail_screen.dart';
@@ -14,6 +16,7 @@ import 'package:meridian_mobile/ui/screens/finance/finance_utils.dart';
 import 'package:meridian_mobile/ui/screens/finance/subscriptions_screen.dart';
 import 'package:meridian_mobile/ui/screens/finance/transactions_screen.dart';
 
+import 'app_harness.dart' show fixtureNow;
 import 'fake_api.dart';
 
 /// A tall phone: the test font draws every glyph a full em wide, so rows
@@ -26,15 +29,26 @@ void tallPhone(WidgetTester tester) {
 }
 
 /// [home] in the app's theme and languages, with [api] behind the real
-/// repository, DataSync and read models — and a router for the finance
-/// pages it opens (`/finance/...`).
+/// repository, DataSync and read models, the clock at [now] ([fixtureNow]
+/// unless given) — so a fixture's dates read the same on any run day —
+/// and a router for the finance pages it opens (`/finance/...`). A
+/// `clockProvider` override in [overrides] takes the place of [now].
 Future<GoRouter> pumpFinance(
   WidgetTester tester,
   FakeApi api,
   Widget home, {
   Locale locale = const Locale('tr'),
+  DateTime? now,
   List<Override> overrides = const [],
 }) async {
+  final clock = now ?? fixtureNow;
+  // A test that brings its own clock (in [overrides]) keeps it, as before
+  // [now] existed: the harness then sets no clock of its own.
+  final ownClock = overrides.any((o) => identical(o.origin, clockProvider));
+  if (!ownClock) {
+    setAppToday(clock);
+    addTearDown(() => setAppToday(null));
+  }
   final router = GoRouter(
     routes: [
       GoRoute(path: '/', builder: (_, _) => home),
@@ -73,7 +87,11 @@ Future<GoRouter> pumpFinance(
   addTearDown(router.dispose);
   await tester.pumpWidget(
     ProviderScope(
-      overrides: [dioProvider.overrideWithValue(api.dio), ...overrides],
+      overrides: [
+        dioProvider.overrideWithValue(api.dio),
+        if (!ownClock) clockProvider.overrideWithValue(() => clock),
+        ...overrides,
+      ],
       retry: (_, _) => null,
       child: MaterialApp.router(
         theme: buildTheme(Brightness.dark),

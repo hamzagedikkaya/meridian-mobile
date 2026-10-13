@@ -29,6 +29,11 @@ enum _Ping { idle, checking, ok, fail }
 ///   "Adresi nereden bulurum?" under it opens [showServerAddressHelp].
 /// * A successful ping folds it into one row — a green check, the host and
 ///   "Değiştir", which opens the field again.
+/// * Only an answer for the text in the field counts: an edit drops the
+///   ping still on its way.
+/// * An address that did not answer can be tried again — "Tekrar dene" in
+///   the field, and by itself when the app comes back to the foreground
+///   (the Mac woke up, Tailscale came on).
 class ServerUrlField extends ConsumerStatefulWidget {
   final String initialUrl;
   final ValueChanged<String>? onVerifiedUrl;
@@ -52,16 +57,20 @@ class _ServerUrlFieldState extends ConsumerState<ServerUrlField> {
   _Ping _ping = _Ping.idle;
   bool _collapsed = false;
   int _seq = 0;
+  late final AppLifecycleListener _lifecycle;
 
   @override
   void initState() {
     super.initState();
     _controller = TextEditingController(text: widget.initialUrl);
+    // Back from Settings, Tailscale or a sleeping Mac: ask again.
+    _lifecycle = AppLifecycleListener(onResume: _recheck);
     _check();
   }
 
   @override
   void dispose() {
+    _lifecycle.dispose();
     _debounce?.cancel();
     _controller.dispose();
     _focus.dispose();
@@ -71,8 +80,18 @@ class _ServerUrlFieldState extends ConsumerState<ServerUrlField> {
   void _onChanged(String _) {
     widget.onStatus?.call(null);
     _debounce?.cancel();
+    // A ping still on its way was for the text before this edit.
+    _seq++;
     setState(() => _ping = _Ping.idle);
     _debounce = Timer(const Duration(milliseconds: 1500), _check);
+  }
+
+  /// Pings again when the address has not answered yet (not while a ping
+  /// or the typing debounce is on its way).
+  void _recheck() {
+    if (!mounted || _ping != _Ping.fail) return;
+    _debounce?.cancel();
+    _check();
   }
 
   Future<void> _check() async {
@@ -81,7 +100,8 @@ class _ServerUrlFieldState extends ConsumerState<ServerUrlField> {
     final seq = ++_seq;
     setState(() => _ping = _Ping.checking);
     final result = await ref.read(serverPingProvider)(url);
-    if (!mounted || seq != _seq) return;
+    // Dropped: a newer ping, or the text changed since this one left.
+    if (!mounted || seq != _seq || _controller.text.trim() != url) return;
     setState(() {
       _ping = result.ok ? _Ping.ok : _Ping.fail;
       _collapsed = result.ok;
@@ -174,8 +194,12 @@ class _ServerUrlFieldState extends ConsumerState<ServerUrlField> {
                 ),
               _Ping.ok =>
                 Icon(Icons.check_circle_rounded, size: 24, color: c.income),
-              _Ping.fail =>
-                Icon(Icons.error_outline_rounded, size: 24, color: c.error),
+              // Not a dead end (§2.2): a 48 dp "try again".
+              _Ping.fail => IconButton(
+                  tooltip: l.actionRetry,
+                  onPressed: _check,
+                  icon: Icon(Icons.refresh_rounded, size: 24, color: c.error),
+                ),
             },
           ),
         ),

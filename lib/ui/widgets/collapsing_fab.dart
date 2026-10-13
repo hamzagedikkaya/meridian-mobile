@@ -3,6 +3,7 @@ import 'package:flutter/rendering.dart' show ScrollDirection;
 
 import '../../theme/app_metrics.dart';
 import '../../theme/app_motion.dart';
+import 'app_snackbar.dart';
 
 /// Tracks a screen's scrolling for its [CollapsingFab]: put it around the
 /// screen's `Scaffold`, so scroll notifications from the body reach it and
@@ -171,6 +172,20 @@ class CollapsingFab extends StatelessWidget {
         ),
       ),
     );
+    // A tab's scaffold sits inside the shell's, which draws the snackbars
+    // and cannot see this FAB: it says where it is, so they float over it.
+    // A page's own outermost scaffold lifts them by itself.
+    final scaffold = Scaffold.maybeOf(context);
+    final nested =
+        scaffold?.context.findAncestorStateOfType<ScaffoldState>() != null;
+    return SnackClearance(
+      lift: SnackClearance.overFab,
+      active: nested && !hidden,
+      child: _hideable(fab, reduced),
+    );
+  }
+
+  Widget _hideable(Widget fab, bool reduced) {
     return IgnorePointer(
       ignoring: hidden,
       child: ExcludeSemantics(

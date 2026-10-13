@@ -121,6 +121,11 @@ class _GoalDetailScreenState extends ConsumerState<GoalDetailScreen> {
   /// not repeat it (the celebration layer keeps it once per goal ever).
   bool _celebrated = false;
 
+  /// The milestone celebrated at a tap whose value the server does not
+  /// have yet: [goal] to measure what is saved against, and how to give the
+  /// milestone back if no value past 100 % gets there ([_settleMilestone]).
+  ({Goal goal, VoidCallback giveBack})? _heldMilestone;
+
   /// Captured for a send from [dispose], when `ref` can no longer be read.
   late MeridianRepository _repo;
   late AppL10n _l;
@@ -161,8 +166,9 @@ class _GoalDetailScreenState extends ConsumerState<GoalDetailScreen> {
       _repo
           .goalUpdateProgress(widget.goalId, currentValue: value)
           .then<void>(
-            (_) {},
+            (_) => _settleMilestone(value),
             onError: (Object e) {
+              _settleMilestone(null);
               if (host != null && host.mounted) {
                 showAppSnack(
                   host,
@@ -219,6 +225,8 @@ class _GoalDetailScreenState extends ConsumerState<GoalDetailScreen> {
     final from = _shownValue(goal);
     final value = (math.max(0.0, next) * 100).round() / 100;
     if (value == from && delay != Duration.zero) return;
+    // At the tap that crosses it (§5.8: confirm only); given back if the
+    // step never reaches the server.
     if (goalPercentOf(goal, from) < 100 && goalPercentOf(goal, value) >= 100) {
       _celebrate(goal);
     }
@@ -238,11 +246,33 @@ class _GoalDetailScreenState extends ConsumerState<GoalDetailScreen> {
     }
   }
 
-  /// Tier 3 for the user's own write past 100 %, once per visit.
+  /// Tier 3 for the user's own write past 100 %, at its tap, once per
+  /// visit (the layer keeps it once per goal ever). Held until the server
+  /// has a value past 100 %.
   void _celebrate(Goal goal) {
-    if (_celebrated) return;
+    if (_celebrated || !mounted) return;
     _celebrated = true;
-    celebrateGoalReached(context, goal);
+    final giveBack = celebrateGoalReached(context, goal);
+    if (giveBack != null) _heldMilestone = (goal: goal, giveBack: giveBack);
+  }
+
+  /// A write was answered: [saved] is what the server now has (null: it
+  /// refused, and the taps behind it are dropped), [stillToGo] a value
+  /// stepped since and not sent yet. The milestone held from the tap stays
+  /// once a value past 100 % is saved; it is given back when none is saved
+  /// and none is still to go — a step taken back before it went, or a
+  /// refused write, uses nothing up (§4.30: a local write that crossed).
+  void _settleMilestone(double? saved, {double? stillToGo}) {
+    final held = _heldMilestone;
+    if (held == null) return;
+    bool reached(double? v) => v != null && goalPercentOf(held.goal, v) >= 100;
+    if (reached(saved)) {
+      _heldMilestone = null;
+    } else if (!reached(stillToGo)) {
+      _heldMilestone = null;
+      _celebrated = false;
+      held.giveBack();
+    }
   }
 
   void _step(Goal goal, int delta) {
@@ -262,9 +292,12 @@ class _GoalDetailScreenState extends ConsumerState<GoalDetailScreen> {
       if (!mounted) {
         // Left meanwhile, with taps after this one: they still go.
         final latest = _desired;
-        if (latest != null && latest != value) _sendAfterLeaving(latest);
+        final more = latest != null && latest != value;
+        _settleMilestone(value, stillToGo: more ? latest : null);
+        if (more) _sendAfterLeaving(latest);
         return;
       }
+      _settleMilestone(value, stillToGo: _desired);
       if (_desired != value) {
         // Taps landed meanwhile: they go now, or when their wait is over.
         if (_sendTimer == null) unawaited(_send());
@@ -274,6 +307,7 @@ class _GoalDetailScreenState extends ConsumerState<GoalDetailScreen> {
       setState(() => _answered = true);
     } catch (e) {
       _sending = null;
+      _settleMilestone(null);
       if (!mounted) {
         // Left meanwhile: the taps queued behind this request are dropped
         // with it (they built on a value the server refused), and that is
@@ -291,6 +325,9 @@ class _GoalDetailScreenState extends ConsumerState<GoalDetailScreen> {
       _sendTimer?.cancel();
       _sendTimer = null;
       final l = context.l10n;
+      // What "Tekrar dene" sends: the value the user chose last — a value
+      // typed after this request went out included — not the one refused.
+      final latest = _desired ?? value;
       // Back to the last value the server confirmed.
       setState(() {
         _desired = null;
@@ -304,7 +341,7 @@ class _GoalDetailScreenState extends ConsumerState<GoalDetailScreen> {
         onAction: () {
           final goal = _loadedGoal;
           if (goal != null && mounted) {
-            _setValue(goal, value, delay: Duration.zero);
+            _setValue(goal, latest, delay: Duration.zero);
           }
         },
       );
@@ -331,16 +368,23 @@ class _GoalDetailScreenState extends ConsumerState<GoalDetailScreen> {
   /// Only a goal logged by hand: its progress is set to its target — shown
   /// at once, taken back if the server refuses.
   Future<void> _markAchieved(Goal goal) async {
+    if (_busy) return;
     final l = context.l10n;
-    final from = _shownValue(goal);
-    if (goalPercentOf(goal, from) < 100) _celebrate(goal);
+    if (goalPercentOf(goal, _shownValue(goal)) < 100) _celebrate(goal);
     _sendTimer?.cancel();
     _sendTimer = null;
-    setState(() => _desired = goal.targetValue);
+    // A step answered before this still waits for its read: that read
+    // must not put the old value back while this write is out (the
+    // listener also waits while [_busy]).
+    setState(() {
+      _desired = goal.targetValue;
+      _answered = false;
+    });
     final updated = await _mutate(
       () => _repo.markGoalAchieved(goal),
       done: l.goalsMarkedAchieved,
     );
+    _settleMilestone(updated == null ? null : goal.targetValue);
     if (!mounted) return;
     setState(() {
       if (updated == null) {
@@ -551,7 +595,8 @@ class _GoalDetailScreenState extends ConsumerState<GoalDetailScreen> {
           fresh != null &&
           !identical(fresh, previous?.value) &&
           _sending == null &&
-          _sendTimer == null) {
+          _sendTimer == null &&
+          !_busy) {
         setState(() {
           _desired = null;
           _answered = false;
@@ -562,7 +607,9 @@ class _GoalDetailScreenState extends ConsumerState<GoalDetailScreen> {
     if (_goneSeen && !_goneHandled && isCurrent) _leave(l);
     final loaded = async.isGone ? null : async.value?.data;
     final preview = widget.preview?.id == widget.goalId ? widget.preview : null;
-    final goal = loaded ?? (async.isGone || async.hasFailed ? null : preview);
+    // A failed read keeps the list's copy on screen, under the offline
+    // banner (§5.6); only a goal that is gone loses it.
+    final goal = loaded ?? (async.isGone ? null : preview);
     // Until the detail lands, the preview is only looked at: its actions
     // would build on the list's numbers.
     _previewOnly = loaded == null;
@@ -585,24 +632,35 @@ class _GoalDetailScreenState extends ConsumerState<GoalDetailScreen> {
       error: (context) => async.isGone
           // A retry could only answer 404 again, so this says what
           // happened instead of blaming the connection.
-          ? EmptyState(
-              icon: Icons.delete_outline_rounded,
-              title: l.goalsGone,
-              subtitle: l.errRecordGoneBody,
-              actionLabel: l.actionBack,
-              onAction: () => Navigator.of(context).maybePop(),
+          ? goalScrollableFill(
+              EmptyState(
+                icon: Icons.delete_outline_rounded,
+                title: l.goalsGone,
+                subtitle: l.errRecordGoneBody,
+                actionLabel: l.actionBack,
+                onAction: () => Navigator.of(context).maybePop(),
+              ),
             )
-          : EmptyState(
-              icon: Icons.cloud_off_rounded,
-              title: l.goalsLoadFailed,
-              actionLabel: l.actionRetry,
-              onAction: retry,
+          // Nothing to show at all: the app's error state (§7.15), with
+          // the way to the server settings.
+          : goalScrollableFill(
+              EmptyState.error(
+                onRetry: retry,
+                onServerSettings: () => context.push('/profile/server'),
+              ),
             ),
       content: (_) => Column(
         children: [
-          // A refresh failed: the goal shown may be out of date.
+          // A refresh failed: the goal shown may be out of date. Or the
+          // first read failed: the list's copy is what there is.
           if (async.refreshFailed && async.value != null)
-            OfflineBanner(lastUpdated: async.value!.at, onRetry: retry),
+            OfflineBanner(lastUpdated: async.value!.at, onRetry: retry)
+          else if (async.hasFailed && loaded == null)
+            OfflineBanner(
+              lastUpdated:
+                  ref.read(goalsProvider).value?.at ?? DateTime.now(),
+              onRetry: retry,
+            ),
           Expanded(
             child: RefreshIndicator.adaptive(
               color: context.nok.gold,
@@ -622,9 +680,10 @@ class _GoalDetailScreenState extends ConsumerState<GoalDetailScreen> {
 
     return Scaffold(
       appBar: AppBar(
-        // The page's title is the goal itself (§6.4).
+        // The page's title is the goal itself (§6.4) — never "Hedef":
+        // nothing until it is known.
         title: Text(
-          goal?.name ?? l.titleGoal,
+          goal?.name ?? '',
           maxLines: 1,
           overflow: TextOverflow.ellipsis,
         ),
@@ -962,14 +1021,22 @@ class _GoalDetailScreenState extends ConsumerState<GoalDetailScreen> {
     final text = Theme.of(context).textTheme;
     final l = context.l10n;
     final related = goal.related!;
-    final habit = ref.watch(
+    final listed = ref.watch(
       habitsProvider.select(
         (a) =>
             a.value?.data.habits.where((h) => h.id == related.id).firstOrNull,
       ),
     );
+    final listRead = ref.watch(habitsProvider.select((a) => a.hasValue));
+    // Not among the active habits: an archived one (a goal keeps its link
+    // to it, frozen) — read on its own, so the goal still leads to it.
+    final alone = listed == null && listRead
+        ? ref.watch(habitDetailProvider(related.id)).value?.data
+        : null;
+    final habit = listed ?? alone;
+    final archived = listed == null && (alone?.archived ?? false);
     final streak = related.currentStreak ?? habit?.currentStreak ?? 0;
-    final doneToday = habit?.today.completed ?? false;
+    final doneToday = !archived && (habit?.today.completed ?? false);
     final live = !_previewOnly;
 
     return NokturnCard(
@@ -1006,7 +1073,14 @@ class _GoalDetailScreenState extends ConsumerState<GoalDetailScreen> {
             ),
           ),
           const SizedBox(height: Gap.lg),
-          if (doneToday)
+          if (archived)
+            // The server would refuse the log (`habit_archived`): say why,
+            // and the way to the habit below restores it.
+            Text(
+              l.goalsHabitArchived,
+              style: text.bodySmall!.copyWith(color: c.inkMid),
+            )
+          else if (doneToday)
             OutlinedButton.icon(
               onPressed: null,
               style: OutlinedButton.styleFrom(
@@ -1130,7 +1204,9 @@ class _GoalDetailScreenState extends ConsumerState<GoalDetailScreen> {
             style: text.bodySmall!.copyWith(color: c.inkMid),
           ),
           const SizedBox(height: Gap.md),
-          _valueLine(goalValueLabel(goal)),
+          // Full amounts, as the account card shows them: compact money is
+          // for the grid's narrow cards (§3.7).
+          _valueLine(goalProgressLabel(goal)),
           const SizedBox(height: Gap.lg),
           Row(
             children: [

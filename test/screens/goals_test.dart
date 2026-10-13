@@ -239,8 +239,9 @@ void main() {
     expect(find.text('İlk hedefini koy'), findsOneWidget);
   });
 
-  testWidgets('a refresh that shifts the grid moves each ring on from where it '
-      'was, rather than replaying its sweep from zero', (tester) async {
+  testWidgets('a refresh that shifts the grid shows each ring at its own '
+      'goal\'s value at once: never springing from the goal that had the '
+      'slot, never replaying its sweep from zero (§5.4)', (tester) async {
     tester.view.physicalSize = const Size(1000, 2600);
     tester.view.devicePixelRatio = 1.0;
     addTearDown(tester.view.resetPhysicalSize);
@@ -295,15 +296,18 @@ void main() {
       find.byType(ProgressRing),
     );
     expect(rings, hasLength(2));
-    for (final ring in rings) {
-      // Each ring moves on from a value it already showed (0.4–0.8), never
-      // from zero.
-      expect(
-        ring.paintedValue,
-        greaterThan(0.3),
-        reason: 'restarted from zero',
-      );
-    }
+    // Koşu's ring is Koşu's 0.6 (not Kitap's 0.4 on its way), Dil's 0.8.
+    expect(rings.map((r) => r.paintedValue), [
+      closeTo(0.6, 0.001),
+      closeTo(0.8, 0.001),
+    ]);
+    await tester.pump(const Duration(milliseconds: 16));
+    expect(
+      tester
+          .stateList<ProgressRingState>(find.byType(ProgressRing))
+          .map((r) => r.paintedValue),
+      [closeTo(0.6, 0.001), closeTo(0.8, 0.001)],
+    );
     await tester.pumpAndSettle();
     final settled = tester
         .stateList<ProgressRingState>(find.byType(ProgressRing))

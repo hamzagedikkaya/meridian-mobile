@@ -119,7 +119,8 @@ void main() {
         'position holds', () async {
       c.read(dataSyncProvider).refresh([transactionsProvider]);
       await settle(long);
-      expect(long.gets, hasLength(TransactionsNotifier.reloadPages));
+      // Five pages, as promised — not the constant under test.
+      expect(long.gets, hasLength(5));
       final feed = c.read(transactionsProvider(filters)).value!;
       expect(feed.items, hasLength(320));
       expect(ids(), rows, reason: 'in order, each row once');
@@ -205,7 +206,10 @@ void main() {
     late ProviderContainer c;
     late TransactionsNotifier notifier;
 
-    DateTime daysAgo(int days) => today.subtract(Duration(days: days));
+    // Calendar days, not 24-hour steps: a window across a clock change
+    // (Chile moves its clocks on 6 September 2026) still lands on midnight.
+    DateTime daysAgo(int days) =>
+        DateTime(today.year, today.month, today.day - days);
 
     void sortServer() => server.sort((a, b) {
           final byDate = b.date.compareTo(a.date);
@@ -282,7 +286,7 @@ void main() {
       c.read(dataSyncProvider).refresh([transactionsProvider]);
       await settle(api);
       expect(api.gets.where((g) => g == '/transactions'),
-          hasLength(7 + TransactionsNotifier.reloadPages));
+          hasLength(7 + 5));
       expect(shown(), onServer(),
           reason: 'still listed, once, where the server lists it');
     });

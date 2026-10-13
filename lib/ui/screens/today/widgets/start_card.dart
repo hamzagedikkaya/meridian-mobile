@@ -24,16 +24,24 @@ import '../../journal/journal_editor.dart';
 import 'today_agenda.dart';
 
 /// Whether the first-run card has been shown on this device (it then stays
-/// until it is done or hidden), and whether it was hidden for good.
+/// until it is done or hidden), whether it was hidden for good, and the
+/// steps it has shown done ([TodayStartProgress.stepNames]) — a step once
+/// done stays done, though what it made is gone (the first task finished).
 @immutable
 class TodayStartFlags {
-  const TodayStartFlags({this.active = false, this.dismissed = false});
+  const TodayStartFlags({
+    this.active = false,
+    this.dismissed = false,
+    this.done = const {},
+  });
 
   final bool active;
   final bool dismissed;
+  final Set<String> done;
 
   static const activeKey = 'today.start.active';
   static const dismissedKey = 'today.start.dismissed';
+  static const doneKey = 'today.start.done';
 }
 
 final todayStartFlagsProvider =
@@ -42,13 +50,17 @@ final todayStartFlagsProvider =
     );
 
 class TodayStartFlagsNotifier extends Notifier<TodayStartFlags> {
+  /// Read afresh for each session: signing out clears the device store, and
+  /// the next account — a new one included — decides for itself.
   @override
   TodayStartFlags build() {
+    ref.watch(sessionProvider.select((s) => s is SessionLoggedIn));
     try {
       final prefs = ref.read(sharedPrefsProvider);
       return TodayStartFlags(
         active: prefs.getBool(TodayStartFlags.activeKey) ?? false,
         dismissed: prefs.getBool(TodayStartFlags.dismissedKey) ?? false,
+        done: {...?prefs.getStringList(TodayStartFlags.doneKey)},
       );
     } catch (_) {
       return const TodayStartFlags();
@@ -66,15 +78,41 @@ class TodayStartFlagsNotifier extends Notifier<TodayStartFlags> {
   /// The card showed: it stays until done or hidden, whatever is added.
   void activate() {
     if (state.active) return;
-    state = TodayStartFlags(active: true, dismissed: state.dismissed);
+    state = TodayStartFlags(
+      active: true,
+      dismissed: state.dismissed,
+      done: state.done,
+    );
     _write(TodayStartFlags.activeKey);
   }
 
   /// "Gizle", or every step done: never again on this device.
   void dismiss() {
     if (state.dismissed) return;
-    state = TodayStartFlags(active: state.active, dismissed: true);
+    state = TodayStartFlags(
+      active: state.active,
+      dismissed: true,
+      done: state.done,
+    );
     _write(TodayStartFlags.dismissedKey);
+  }
+
+  /// The card showed [progress]: its steps done stay done.
+  void remember(TodayStartProgress progress) {
+    final done = {...state.done, ...progress.doneSteps};
+    if (done.length == state.done.length) return;
+    state = TodayStartFlags(
+      active: state.active,
+      dismissed: state.dismissed,
+      done: done,
+    );
+    try {
+      ref
+          .read(sharedPrefsProvider)
+          .setStringList(TodayStartFlags.doneKey, [...done]);
+    } catch (_) {
+      /* no device store: it lasts this run */
+    }
   }
 }
 
@@ -94,6 +132,16 @@ class TodayStartProgress {
   final bool journal;
 
   static const total = 4;
+
+  /// The steps' names, in the card's order (what [TodayStartFlags.done]
+  /// keeps).
+  static const stepNames = ['account', 'habit', 'todo', 'journal'];
+
+  /// The names of the steps done.
+  Set<String> get doneSteps => {
+    for (final (i, d) in [account, habit, todo, journal].indexed)
+      if (d) stepNames[i],
+  };
 
   int get done => [account, habit, todo, journal].where((d) => d).length;
   bool get complete => done == total;
@@ -145,11 +193,15 @@ final todayStartProvider = Provider.autoDispose<TodayStartProgress?>((ref) {
       (account != false || habit != false || journal != false)) {
     return null;
   }
+  // A step the card has shown done stays done: finishing the first task
+  // must not take its step back.
+  bool seen(bool? live, String step) =>
+      (live ?? false) || flags.done.contains(step);
   return TodayStartProgress(
-    account: account ?? false,
-    habit: habit ?? false,
-    todo: todo ?? false,
-    journal: journal ?? false,
+    account: seen(account, 'account'),
+    habit: seen(habit, 'habit'),
+    todo: seen(todo, 'todo'),
+    journal: seen(journal, 'journal'),
   );
 });
 
@@ -258,7 +310,10 @@ class _StartCardState extends ConsumerState<StartCard> {
     // Once shown, it stays through the steps that make the account "not
     // new" any more.
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted) ref.read(todayStartFlagsProvider.notifier).activate();
+      if (!mounted) return;
+      ref.read(todayStartFlagsProvider.notifier)
+        ..activate()
+        ..remember(widget.progress);
     });
     _maybeFold();
   }
@@ -266,6 +321,14 @@ class _StartCardState extends ConsumerState<StartCard> {
   @override
   void didUpdateWidget(StartCard old) {
     super.didUpdateWidget(old);
+    if (widget.progress != old.progress) {
+      // Not while building: the flags are another provider.
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) {
+          ref.read(todayStartFlagsProvider.notifier).remember(widget.progress);
+        }
+      });
+    }
     _maybeFold();
   }
 

@@ -15,6 +15,7 @@ import '../../../data/actions.dart';
 import '../../../data/current_day.dart';
 import '../../../data/data_scope.dart';
 import '../../../data/deferred_deletes.dart';
+import '../../../data/lingering_todos.dart';
 import '../../../data/providers.dart';
 import '../../../data/recent_changes.dart';
 import '../../../data/sync.dart';
@@ -26,6 +27,8 @@ import '../../../theme/app_metrics.dart';
 import '../../widgets/agenda_rows.dart' show todoPriorityColor;
 import '../../widgets/app_snackbar.dart';
 import '../../widgets/nok_sheet.dart';
+import '../today/widgets/today_clock.dart' show accountWallClock;
+import 'agenda_days.dart' show pickerRange;
 import 'todo_sheet.dart';
 
 /// Ticks [todo] off ([done]) or reopens it, on every screen at once (see
@@ -33,7 +36,9 @@ import 'todo_sheet.dart';
 /// of open todos with the refetch that follows; the snackbar's "Geri al"
 /// reopens it and puts it back at [index], where it was.
 ///
-/// [restore] is set when this call is itself the undo.
+/// [restore] is set when this call is itself the undo. Reopening a todo
+/// that only lingers on screen — a refetch already dropped it — puts it
+/// back where it lingers, so its row stays while the server answers.
 Future<void> setTodoDone(
   BuildContext context,
   WidgetRef ref,
@@ -44,6 +49,12 @@ Future<void> setTodoDone(
 }) async {
   final l = context.l10n;
   final actions = ref.read(todoActionsProvider);
+  if (!done && restore == null) {
+    final lingering = ref.read(lingeringTodosProvider).todos[todo.id];
+    if (lingering != null) {
+      restore = (todo: lingering.todo, index: lingering.index);
+    }
+  }
   if (done) {
     final place = (todo: todo, index: index);
     // Up for 6 s, then gone — on every tab, since they share the messenger —
@@ -276,7 +287,12 @@ Future<bool> moveTodos(
   final container = ProviderScope.containerOf(context, listen: false);
   final repo = ref.read(repositoryProvider);
   final sync = ref.read(dataSyncProvider);
-  final now = ref.read(clockProvider)();
+  // Due times are the account's wall clock: so is the "now" they are
+  // compared with, whatever zone the phone is in.
+  final now = accountWallClock(
+    ref.read(clockProvider)(),
+    ref.read(accountUtcOffsetProvider),
+  );
   final today = accountToday(ref);
   final target = day == null ? null : dateOnly(day);
   final landings = {for (final t in todos) t.id: _landing(t, target, now)};
@@ -365,8 +381,8 @@ Future<void> _moveBack(
       edit.rollback();
     }
     if (messenger.mounted) {
-      showAppSnack(
-        messenger.context,
+      showAppSnackOn(
+        messenger,
         failureMessage(e, l, fallback: l.todoSaveFailed),
         isError: true,
       );
@@ -377,11 +393,13 @@ Future<void> _moveBack(
 /// Asks for a day (the date picker) and moves [todo] there, with "Geri al".
 Future<void> pickTodoDay(BuildContext context, WidgetRef ref, Todo todo) async {
   final today = accountToday(ref);
+  final initial = todo.dueDay ?? today;
+  final range = pickerRange(initial, today);
   final picked = await showDatePicker(
     context: context,
-    initialDate: todo.dueDay ?? today,
-    firstDate: DateTime(today.year - 5),
-    lastDate: DateTime(today.year + 10),
+    initialDate: initial,
+    firstDate: range.first,
+    lastDate: range.last,
   );
   if (picked == null || !context.mounted) return;
   final l = context.l10n;

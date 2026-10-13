@@ -205,14 +205,12 @@ class _CategoryPickerState extends ConsumerState<_CategoryPicker> {
     );
   }
 
-  Widget _form() => SingleChildScrollView(
+  /// The form scrolls its own fields under a pinned "Ekle".
+  Widget _form() => CategoryForm(
         key: const ValueKey('form'),
-        padding: const EdgeInsets.fromLTRB(20, 0, 20, 16),
-        child: CategoryForm(
-          kind: widget.kind ?? 'expense',
-          kindEditable: widget.kind == null,
-          onSaved: (created) => _pick(OneCategory(created)),
-        ),
+        kind: widget.kind ?? 'expense',
+        kindEditable: widget.kind == null,
+        onSaved: (created) => _pick(OneCategory(created)),
       );
 
   Widget _list(BuildContext context) {

@@ -16,6 +16,7 @@ import 'package:meridian_mobile/ui/widgets/money_text.dart';
 import 'package:meridian_mobile/ui/widgets/primary_button.dart';
 
 import '../support/fake_api.dart';
+import '../support/app_harness.dart' show fixtureNow;
 import '../support/finance_harness.dart';
 
 Finder _inSheet(Finder finder) =>
@@ -105,6 +106,34 @@ void main() {
     expect(body['frequency'], 'yearly');
     expect(body.containsKey('next_charge_on'), isFalse);
     expect(find.text('Abonelik eklendi'), findsOneWidget);
+  });
+
+  testWidgets('a new one whose answer is lost may exist already: the form '
+      'says so and "Kaydet" waits for the list', (tester) async {
+    tallPhone(tester);
+    final api = _api()..timeOut('POST /subscriptions');
+    await pumpFinance(tester, api, const SubscriptionsScreen());
+    await tester.tap(find.byType(FloatingActionButton));
+    await settleFrames(tester);
+    await tester.enterText(find.byType(TextField).first, 'Spotify');
+    await tester.tap(find.text('Tutar').first);
+    await settleFrames(tester);
+    for (final key in ['9', '9']) {
+      await tester.tap(_inSheet(find.text(key)).last);
+      await tester.pump();
+    }
+    await tester.tap(_inSheet(find.text('Tamam')));
+    await settleFrames(tester);
+    // The list the write asks for is held.
+    api.hold('GET /subscriptions');
+    await tester.tap(find.text('Kaydet'));
+    await settleFrames(tester);
+    expect(find.textContaining('kaydedilmiş olabilir'), findsOneWidget);
+    await tester.tap(find.text('Kaydet'));
+    await settleFrames(tester);
+    expect(api.bodiesOf('POST /subscriptions'), hasLength(1));
+    api.release('GET /subscriptions');
+    await settleFrames(tester);
   });
 
   testWidgets('the account list could not be loaded: the account row says '
@@ -322,6 +351,75 @@ void main() {
         {'name': 'Netflix Aile'});
   });
 
+  testWidgets('moved to an account in another currency, the amount is asked '
+      'for again — its old number is never saved in the new currency',
+      (tester) async {
+    tallPhone(tester);
+    final api = _api()
+      ..on('GET /accounts', {
+        'accounts': [
+          accountJson(),
+          accountJson(id: 4, name: 'Dolar', currency: 'USD'),
+        ],
+      });
+    await _openSheet(tester, api);
+    await tester.tap(_inSheet(find.text('Düzenle')));
+    await settleFrames(tester);
+    await tester.tap(find.text('Cüzdan'));
+    await settleFrames(tester);
+    await tester.tap(_inSheet(find.text('Dolar')));
+    await settleFrames(tester);
+    expect(find.text('\$229,99'), findsNothing,
+        reason: 'not ₺229,99 read as dollars');
+
+    await tester.tap(find.text('Kaydet'));
+    await settleFrames(tester);
+    expect(api.bodiesOf('PATCH /subscriptions/6'), isEmpty);
+    expect(find.text('Hesabın para birimi farklı; tutarı da yeniden gir'),
+        findsOneWidget);
+
+    await tester.tap(find.text('Tutar').first);
+    await settleFrames(tester);
+    for (final key in ['1', '5']) {
+      await tester.tap(_inSheet(find.text(key)).last);
+      await tester.pump();
+    }
+    await tester.tap(_inSheet(find.text('Tamam')));
+    await settleFrames(tester);
+    await tester.tap(find.text('Kaydet'));
+    await settleFrames(tester);
+    expect(api.bodiesOf('PATCH /subscriptions/6').single,
+        {'account_id': 4, 'amount_cents': 1500});
+  });
+
+  testWidgets('moved to another currency and back, its own amount returns',
+      (tester) async {
+    tallPhone(tester);
+    final api = _api()
+      ..on('GET /accounts', {
+        'accounts': [
+          accountJson(),
+          accountJson(id: 4, name: 'Dolar', currency: 'USD'),
+          accountJson(id: 5, name: 'Banka'),
+        ],
+      });
+    await _openSheet(tester, api);
+    await tester.tap(_inSheet(find.text('Düzenle')));
+    await settleFrames(tester);
+    await tester.tap(find.text('Cüzdan'));
+    await settleFrames(tester);
+    await tester.tap(_inSheet(find.text('Dolar')));
+    await settleFrames(tester);
+    await tester.tap(find.text('Dolar'));
+    await settleFrames(tester);
+    await tester.tap(_inSheet(find.text('Banka')));
+    await settleFrames(tester);
+    expect(find.text('₺229,99'), findsOneWidget);
+    await tester.tap(find.text('Kaydet'));
+    await settleFrames(tester);
+    expect(api.bodiesOf('PATCH /subscriptions/6').single, {'account_id': 5});
+  });
+
   testWidgets('delete goes with "Geri al"', (tester) async {
     tallPhone(tester);
     final api = _api();
@@ -408,7 +506,7 @@ void main() {
       'this year\'s date plainly, an earlier year\'s with its year',
       (tester) async {
     tallPhone(tester);
-    final today = DateTime.now();
+    final today = fixtureNow;
     // The 1st of this month, or of last month on the 1st itself: past, and
     // this year unless today is the 1st of January.
     final thisYear = today.day > 1

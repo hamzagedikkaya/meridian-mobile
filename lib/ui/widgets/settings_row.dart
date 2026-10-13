@@ -21,7 +21,10 @@ enum ValuePlacement {
 ///   10 dp top and bottom.
 /// * [ValuePlacement.trailing] keeps the value (bodyMedium inkMid) to at
 ///   most 40 % of the row; a value that is wider — measured, not guessed —
-///   moves [ValuePlacement.below]. Above 1.3× text every value goes below.
+///   moves [ValuePlacement.below], and so does one that would leave the
+///   title too narrow for its two lines, or a word of it too wide for its
+///   column ("değerlendirme" beside "Çarşamba" at 115 %). Above 1.3× text
+///   every value goes below.
 ///   A value is never cut.
 /// * Above 1.3× text the row stacks: the icon and the end control share
 ///   the first line and the title, subtitle and value get the full width
@@ -83,6 +86,41 @@ class SettingsRow extends StatelessWidget {
   /// The widest a trailing value may be, as a share of the row.
   static const trailingShare = 0.4;
 
+  /// Whether the title fits beside a trailing value, the row being [room]
+  /// wide without it: two lines at most, no word broken.
+  bool _titleFits(
+    BuildContext context,
+    TextStyle style,
+    TextScaler scaler,
+    double room,
+  ) {
+    // The padding, the icon and its gap, the gap before the value, and
+    // the end (a chevron, or a control).
+    final endWidth = trailing != null
+        ? 60.0
+        : (chevron && onTap != null ? 20.0 + Gap.xs : 0.0);
+    final width = room - 2 * Insets.rowH - 24 - Gap.lg - Gap.md - endWidth;
+    if (width <= 0) return false;
+    final direction = Directionality.of(context);
+    TextPainter measure(String text, {int? maxLines}) => TextPainter(
+      text: TextSpan(text: text, style: style),
+      textDirection: direction,
+      textScaler: scaler,
+      maxLines: maxLines,
+    )..layout(maxWidth: width);
+    final lines = measure(title, maxLines: 2);
+    var fits = !lines.didExceedMaxLines;
+    lines.dispose();
+    for (final word in title.split(RegExp(r'\s+'))) {
+      if (!fits) break;
+      if (word.isEmpty) continue;
+      final w = measure(word);
+      fits = w.width <= width && w.computeLineMetrics().length <= 1;
+      w.dispose();
+    }
+    return fits;
+  }
+
   @override
   Widget build(BuildContext context) {
     final c = context.nok;
@@ -104,6 +142,14 @@ class SettingsRow extends StatelessWidget {
             maxLines: 1,
           )..layout();
           below = painter.width > constraints.maxWidth * trailingShare;
+          if (!below) {
+            below = !_titleFits(
+              context,
+              titleStyle,
+              scaler,
+              constraints.maxWidth - painter.width,
+            );
+          }
           painter.dispose();
         }
         final titleBlock = Column(

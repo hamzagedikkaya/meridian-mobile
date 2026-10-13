@@ -6,6 +6,8 @@ import 'package:go_router/go_router.dart';
 import '../../../../core/formats.dart';
 import '../../../../core/session.dart';
 import '../../../../data/current_day.dart';
+import '../../../../data/data_scope.dart';
+import '../../../../data/deferred_deletes.dart';
 import '../../../../data/providers.dart';
 import '../../../../l10n/app_l10n.dart';
 import '../../../../models/event.dart';
@@ -129,6 +131,39 @@ class _HeaderChips extends ConsumerWidget {
             : null,
       ),
     );
+    // `/home`'s month adds every account's minor units unconverted
+    // (contract §1.7). With an active account in another currency, the
+    // chip shows Finance's month instead — the figure the chip opens on.
+    final otherCurrency =
+        money != null &&
+        ref.watch(
+          accountsProvider.select(
+            (a) =>
+                a.value?.data.any(
+                  (account) =>
+                      !account.archived &&
+                      account.currency.toUpperCase() !=
+                          money.currency.toUpperCase(),
+                ) ??
+                false,
+          ),
+        );
+    final financeMonth = otherCurrency
+        ? ref.watch(
+            financeDashboardProvider.select((a) {
+              final dash = a.value?.data;
+              if (dash != null) {
+                return (
+                  net: dash.month.netCents,
+                  currency: dash.currency,
+                  subunit: dash.subunitToUnit,
+                );
+              }
+              // Unknown until it lands; a failed read leaves `/home`'s.
+              return a.hasError ? money : null;
+            }),
+          )
+        : money;
     // The first-run card carries "Nakit hesabı aç": one control per action
     // (D42).
     final starting = ref.watch(todayStartProvider.select((p) => p != null));
@@ -136,16 +171,18 @@ class _HeaderChips extends ConsumerWidget {
     final Widget? glance;
     if (money == null || (starting && noAccount == true)) {
       glance = null;
-    } else if (noAccount == null || (noAccount && !decided)) {
+    } else if (noAccount == null ||
+        (noAccount && !decided) ||
+        financeMonth == null) {
       // Not known yet whether there is an account (or whether the
       // first-run card will offer one): a bone, never a "₺0" a new
       // account would then take back.
       glance = const _ChipBone();
     } else {
       glance = MoneyGlance(
-        netCents: noAccount ? null : money.net,
-        currency: money.currency,
-        subunitToUnit: money.subunit,
+        netCents: noAccount ? null : financeMonth.net,
+        currency: financeMonth.currency,
+        subunitToUnit: financeMonth.subunit,
         onTap: () => context.go('/finance'),
         onStart: () => openTodayCashAccount(context, ref),
       );
@@ -497,7 +534,14 @@ TodayNextUpInfo? todayNextUpOf(BuildContext context, WidgetRef ref) {
   final fromHome = ref.watch(
     homeProvider.select((a) => a.value?.data.todayEvents),
   );
-  final events = listed ?? fromHome ?? const <Event>[];
+  // An event whose delete waits out its undo is gone from here too (§6.6),
+  // as from the Today card.
+  final events = withoutDeleted(
+    listed ?? fromHome ?? const <Event>[],
+    ref.watch(deferredDeletesProvider),
+    DataScope.events,
+    (e) => e.id,
+  );
   final now = watchTodayNow(context, ref);
 
   Occurrence? current;

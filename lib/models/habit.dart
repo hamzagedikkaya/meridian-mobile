@@ -583,7 +583,9 @@ class HabitInput {
     final previousDescription =
         before.description.trim().isEmpty ? null : before.description.trim();
     return {
-      if (name != before.name) 'name': name,
+      // Compared as the form sends it: a name stored with a stray space is
+      // the same name.
+      if (name.trim() != before.name.trim()) 'name': name.trim(),
       if (frequency != before.frequency) 'frequency': frequency,
       if (targetCount != before.targetCount) 'target_count': targetCount,
       if (color.toUpperCase() != before.color.toUpperCase()) 'color': color,

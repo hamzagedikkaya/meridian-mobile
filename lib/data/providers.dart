@@ -21,7 +21,7 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_riverpod/misc.dart'
-    show FutureProviderFamily, ProviderOrFamily;
+    show FutureProviderFamily, ProviderBase;
 
 import '../core/api.dart';
 import '../core/session.dart';
@@ -60,8 +60,42 @@ final repositoryProvider = Provider<MeridianRepository>((ref) {
   return MeridianRepository(
     ref.watch(dioProvider),
     writes: ref.watch(dataSyncProvider),
+    lastAccount: () => _lastAccount(ref),
+    forgetLastAccount: (id) {
+      try {
+        final prefs = ref.read(sharedPrefsProvider);
+        if (prefs.getInt(PrefKeys.lastAccountId) == id) {
+          prefs.remove(PrefKeys.lastAccountId);
+        }
+      } catch (_) {
+        // No preferences (a test without them): nothing remembered.
+      }
+    },
   );
 });
+
+/// The last-used account ([PrefKeys.lastAccountId]) unless the accounts on
+/// screen say it is archived or gone; null without one.
+int? _lastAccount(Ref ref) {
+  final int? id;
+  try {
+    id = ref.read(sharedPrefsProvider).getInt(PrefKeys.lastAccountId);
+  } catch (_) {
+    return null;
+  }
+  if (id == null) return null;
+  // Only a list already read: asking for it here would fetch it. Read from
+  // the container: the repository does not depend on the accounts.
+  final container = ref.container;
+  if (container.exists(accountsProvider)) {
+    final accounts = container.read(accountsProvider).value?.data;
+    if (accounts != null &&
+        !accounts.any((a) => a.id == id && !a.archived)) {
+      return null;
+    }
+  }
+  return id;
+}
 
 // --- Shared read-model plumbing ----------------------------------------------
 
@@ -154,7 +188,7 @@ Future<Fetched<T>> fetched<T>(
   Future<T> Function(MeridianRepository repo) load, {
   bool dateRelative = true,
   DataScope? recordOf,
-  ProviderOrFamily? detail,
+  ProviderBase<Object?>? detail,
 }) async {
   if (dateRelative) ref.watch(currentDayProvider);
   ref.revalidateOnShow();
@@ -163,7 +197,11 @@ Future<Fetched<T>> fetched<T>(
   final clock = ref.read(clockProvider);
   final repo = ref.watch(repositoryProvider);
   try {
-    return Fetched(await retried(ref, () => load(repo)), clock());
+    final value = await retried(ref, () => load(repo));
+    if (detail != null && ref.mounted) {
+      ref.read(dataSyncProvider).recordFound(detail);
+    }
+    return Fetched(value, clock());
   } on ApiException catch (e) {
     if (recordOf != null &&
         detail != null &&
@@ -379,7 +417,7 @@ final FutureProviderFamily<Fetched<AccountDetail>, int> accountDetailProvider =
     (r) => r.fetchAccount(id),
     dateRelative: false,
     recordOf: DataScope.accounts,
-    detail: accountDetailProvider,
+    detail: accountDetailProvider(id),
   ),
   retry: _retriedInFetch,
 );
@@ -401,7 +439,7 @@ final FutureProviderFamily<Fetched<CategoryUsage>, int> categoryUsageProvider =
     (r) => r.fetchCategory(id),
     dateRelative: false,
     recordOf: DataScope.categories,
-    detail: categoryUsageProvider,
+    detail: categoryUsageProvider(id),
   ),
   retry: _retriedInFetch,
 );
@@ -467,8 +505,14 @@ final class HabitCadence extends Notifier<Map<int, bool>> {
   var _reading = false;
 
   /// None known yet: a habit is missing until a habit payload names it.
+  /// Each session starts again: another account (another server) has its
+  /// own habits under the same ids.
   @override
-  Map<int, bool> build() => const {};
+  Map<int, bool> build() {
+    ref.watch(sessionProvider.select((s) => s is SessionLoggedIn));
+    _reading = false;
+    return const {};
+  }
 
   void learn(Iterable<Habit> habits) {
     Map<int, bool>? learned;
@@ -537,7 +581,7 @@ final FutureProviderFamily<Fetched<Habit>, int> habitDetailProvider =
       return habit;
     },
     recordOf: DataScope.habits,
-    detail: habitDetailProvider,
+    detail: habitDetailProvider(id),
   ),
   retry: _retriedInFetch,
 );
@@ -556,7 +600,7 @@ final FutureProviderFamily<Fetched<Goal>, int> goalDetailProvider =
     ref,
     (r) => r.fetchGoal(id),
     recordOf: DataScope.goals,
-    detail: goalDetailProvider,
+    detail: goalDetailProvider(id),
   ),
   retry: _retriedInFetch,
 );
@@ -638,7 +682,7 @@ final FutureProviderFamily<Fetched<Event>, int> eventDetailProvider =
     (r) => r.fetchEvent(id),
     dateRelative: false,
     recordOf: DataScope.events,
-    detail: eventDetailProvider,
+    detail: eventDetailProvider(id),
   ),
   retry: _retriedInFetch,
 );
@@ -661,7 +705,7 @@ final FutureProviderFamily<Fetched<JournalEntry>, int> journalEntryProvider =
     (r) => r.fetchJournalEntry(id),
     dateRelative: false,
     recordOf: DataScope.journal,
-    detail: journalEntryProvider,
+    detail: journalEntryProvider(id),
   ),
   retry: _retriedInFetch,
 );
@@ -787,8 +831,12 @@ final agendaOverdueProvider =
         AgendaOverdueNotifier.new);
 
 class AgendaOverdueNotifier extends Notifier<Fetched<int>?> {
+  /// Each session starts without one: the count is the signed-in account's.
   @override
-  Fetched<int>? build() => null;
+  Fetched<int>? build() {
+    ref.watch(sessionProvider.select((s) => s is SessionLoggedIn));
+    return null;
+  }
 
   void report(Fetched<int> count) {
     final shown = state;
@@ -1293,7 +1341,7 @@ final FutureProviderFamily<Fetched<TransactionDetail>, int>
     (r) => r.fetchTransaction(id),
     dateRelative: false,
     recordOf: DataScope.transactions,
-    detail: transactionDetailProvider,
+    detail: transactionDetailProvider(id),
   ),
   retry: _retriedInFetch,
 );

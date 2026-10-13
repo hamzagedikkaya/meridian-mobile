@@ -350,6 +350,92 @@ void main() {
       });
     }
 
+    for (final viaOnTap in [false, true]) {
+      testWidgets('a tap taken back after a failed write un-fills in 200 ms, '
+          'without a pop (${viaOnTap ? 'onTap' : 'onToggle'})', (tester) async {
+        var checked = false;
+        late StateSetter set;
+        await tester.pumpWidget(app(Center(
+          child: StatefulBuilder(builder: (context, setState) {
+            set = setState;
+            void flip() => setState(() => checked = !checked);
+            return viaOnTap
+                ? CheckPop(checked: checked, color: Colors.green, onTap: flip)
+                : CheckPop(
+                    checked: checked, color: Colors.green, onToggle: flip);
+          }),
+        )));
+        double fill() => ((tester
+                .widget<CustomPaint>(find.descendant(
+                    of: find.byType(CheckPop),
+                    matching: find.byType(CustomPaint)))
+                .painter as dynamic)
+            .fill as Animation<double>)
+            .value;
+        await tester.tap(find.byType(CheckPop));
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 400));
+        await tester.pumpAndSettle();
+        expect(fill(), 1.0);
+
+        // The write fails: the screen puts the old state back.
+        set(() => checked = false);
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 100));
+        expect(fill(), allOf(greaterThan(0.0), lessThan(1.0)),
+            reason: 'on its way out, not gone in one frame');
+        final scale = tester
+            .widget<ScaleTransition>(find.descendant(
+                of: find.byType(CheckPop),
+                matching: find.byType(ScaleTransition)))
+            .scale
+            .value;
+        expect(scale, 1.0, reason: 'no pop');
+        await tester.pump(const Duration(milliseconds: 150));
+        expect(fill(), 0.0);
+
+        // A later data change is the data's: at once.
+        set(() => checked = true);
+        await tester.pump();
+        expect(fill(), 1.0);
+        await tester.pumpAndSettle();
+      });
+
+      testWidgets('once the write has had its time, a change back is the '
+          'data\'s: at once (${viaOnTap ? 'onTap' : 'onToggle'})',
+          (tester) async {
+        var checked = false;
+        late StateSetter set;
+        await tester.pumpWidget(app(Center(
+          child: StatefulBuilder(builder: (context, setState) {
+            set = setState;
+            void flip() => setState(() => checked = !checked);
+            return viaOnTap
+                ? CheckPop(checked: checked, color: Colors.green, onTap: flip)
+                : CheckPop(
+                    checked: checked, color: Colors.green, onToggle: flip);
+          }),
+        )));
+        double fill() => ((tester
+                .widget<CustomPaint>(find.descendant(
+                    of: find.byType(CheckPop),
+                    matching: find.byType(CustomPaint)))
+                .painter as dynamic)
+            .fill as Animation<double>)
+            .value;
+        await tester.tap(find.byType(CheckPop));
+        await tester.pumpAndSettle();
+        expect(fill(), 1.0);
+
+        // The write went through; later the web unchecks it.
+        await tester.pump(const Duration(seconds: 10));
+        set(() => checked = false);
+        await tester.pump();
+        expect(fill(), 0.0, reason: 'a web edit shows at once (§4.22)');
+        await tester.pumpAndSettle();
+      });
+    }
+
     testWidgets('reduced motion: filled at once, no scale', (tester) async {
       var checked = false;
       await tester.pumpWidget(app(
@@ -747,6 +833,46 @@ void main() {
       await tester.pump(); // the layer's microtask
       await tester.pump(); // its frame
       expect(find.byType(ConfettiBurst), findsNothing);
+    });
+
+    testWidgets('another account signing in on this phone gets its own '
+        'celebration of the day', (tester) async {
+      SharedPreferences.setMockInitialValues({});
+      final prefs = await SharedPreferences.getInstance();
+      late CelebrationController layer;
+      final container = ProviderContainer(overrides: [
+        sharedPrefsProvider.overrideWithValue(prefs),
+        sessionProvider.overrideWith(_SwitchableSession.new),
+      ]);
+      addTearDown(container.dispose);
+      await tester.pumpWidget(UncontrolledProviderScope(
+        container: container,
+        child: app(CelebrationLayer(
+          child: Builder(builder: (context) {
+            layer = CelebrationLayer.maybeOf(context)!;
+            return const SizedBox(height: 400);
+          }),
+        )),
+      ));
+      final day = DateTime(2026, 10, 4);
+      expect(layer.allDone(origin: Offset.zero, day: day), isTrue);
+      await tester.pumpAndSettle();
+      await tester.pump(Motion.milestoneHold);
+      await tester.pumpAndSettle();
+
+      // Signed out (the device's keys go with the account), then another
+      // account signs in and finishes its day.
+      final session =
+          container.read(sessionProvider.notifier) as _SwitchableSession;
+      session.set(const SessionLoggedOut());
+      await prefs.clear();
+      await tester.pump();
+      session.set(const SessionLoggedIn());
+      await tester.pump();
+      expect(layer.allDone(origin: Offset.zero, day: day), isTrue);
+      await tester.pumpAndSettle();
+      await tester.pump(Motion.milestoneHold);
+      await tester.pumpAndSettle();
     });
 
     testWidgets('a refused write gives the day back: the real finish still '
@@ -1499,4 +1625,12 @@ class _Rows extends StatelessWidget {
           child: SizedBox(height: 40, child: Text('Satır $id')),
         ),
       );
+}
+
+/// A session a test signs in and out.
+class _SwitchableSession extends SessionController {
+  @override
+  SessionState build() => const SessionLoggedIn();
+
+  void set(SessionState next) => state = next;
 }

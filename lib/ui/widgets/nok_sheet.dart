@@ -83,16 +83,31 @@ Future<T?> showNokSheet<T>(
             child: content(context),
           ),
         );
-      } else if (Motion.reduced(sheetContext)) {
+      } else {
         // AnimatedSize cannot take zero time (it would re-lay itself out
         // mid-layout): under reduced motion the sheet just takes its size.
-        sheet = Builder(builder: content);
-      } else {
-        sheet = AnimatedSize(
-          duration: Motion.collapse,
-          curve: Motion.surfaceIn,
-          alignment: Alignment.topCenter,
-          child: Builder(builder: content),
+        final sized = Motion.reduced(sheetContext)
+            ? Builder(builder: content)
+            : AnimatedSize(
+                duration: Motion.collapse,
+                curve: Motion.surfaceIn,
+                alignment: Alignment.topCenter,
+                child: Builder(builder: content),
+              );
+        // The keyboard lifts the sheet here, outside the size animation:
+        // inside it, a keyboard coming up would be animated too, leaving
+        // the field and the button under the keyboard for a moment. The
+        // content sees no inset, so a sheet that pads itself by it (most
+        // that take input) is not lifted twice.
+        sheet = Padding(
+          padding: EdgeInsets.only(
+            bottom: MediaQuery.viewInsetsOf(sheetContext).bottom,
+          ),
+          child: MediaQuery.removeViewInsets(
+            context: sheetContext,
+            removeBottom: true,
+            child: sized,
+          ),
         );
       }
       return AnnotatedRegion(

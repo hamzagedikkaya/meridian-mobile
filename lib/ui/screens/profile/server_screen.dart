@@ -35,6 +35,13 @@ class _ServerScreenState extends ConsumerState<ServerScreen> {
   HealthResult? _result;
   bool _saving = false;
 
+  /// The test now on its way: an answer to an older one — for an address
+  /// since edited, or tested again — is dropped.
+  int _seq = 0;
+
+  /// The address [_result] is for (normalized): only it counts as tested.
+  String? _testedUrl;
+
   @override
   void initState() {
     super.initState();
@@ -49,9 +56,12 @@ class _ServerScreenState extends ConsumerState<ServerScreen> {
 
   void _onChanged(String _) {
     // Always: the field's hint (two lines while empty) follows the text.
+    // A test still on its way was for the text before this edit.
+    _seq++;
     setState(() {
       _phase = _Phase.idle;
       _result = null;
+      _testedUrl = null;
     });
   }
 
@@ -61,15 +71,18 @@ class _ServerScreenState extends ConsumerState<ServerScreen> {
       showAppSnack(context, context.l10n.serverEmpty, isError: true);
       return;
     }
+    final seq = ++_seq;
     setState(() {
       _phase = _Phase.testing;
       _result = null;
+      _testedUrl = null;
     });
     final res = await ref.read(serverPingProvider)(url);
-    if (!mounted) return;
+    if (!mounted || seq != _seq) return;
     setState(() {
       _phase = _Phase.done;
       _result = res;
+      _testedUrl = normalizeServerUrl(url);
     });
     res.ok ? Haptics.confirm() : Haptics.reject();
   }
@@ -81,12 +94,17 @@ class _ServerScreenState extends ConsumerState<ServerScreen> {
       showAppSnack(context, l.serverEmpty, isError: true);
       return;
     }
-    final verified = _phase == _Phase.done && (_result?.ok ?? false);
+    // Verified only by a test of the address in the field now.
+    final verified =
+        _phase == _Phase.done &&
+        (_result?.ok ?? false) &&
+        _testedUrl == normalizeServerUrl(url);
     if (!verified) {
+      final signsOut = _signsOut(url);
       final go = await showNokSheet<bool>(
         context,
         title: l.serverUnverifiedTitle,
-        builder: (context) => const _SaveAnywaySheet(),
+        builder: (context) => _SaveAnywaySheet(signsOut: signsOut),
       );
       if (go != true || !mounted) return;
     }
@@ -100,9 +118,16 @@ class _ServerScreenState extends ConsumerState<ServerScreen> {
     await ref.read(serverUrlProvider.notifier).set(url);
     if (unchanged) sync.refreshAll();
     if (!mounted) return;
-    showAppSnack(context, l.serverSaved);
+    showAppSnack(context, unchanged ? l.serverSaved : l.serverSavedSignIn);
     context.pop();
   }
+
+  /// Saving [url] signs this phone out: a different address than the one
+  /// in use, while signed in (its token belongs to the old server).
+  bool _signsOut(String url) =>
+      url.trim().isNotEmpty &&
+      normalizeServerUrl(url) != ref.read(serverUrlProvider) &&
+      ref.read(sessionProvider) is SessionLoggedIn;
 
   @override
   Widget build(BuildContext context) {
@@ -145,6 +170,31 @@ class _ServerScreenState extends ConsumerState<ServerScreen> {
             alignment: AlignmentDirectional.centerStart,
             child: ServerAddressHelpButton(),
           ),
+          // Said before Save, not after: a new address signs out.
+          if (_signsOut(_controller.text))
+            Padding(
+              padding: const EdgeInsets.only(bottom: Gap.sm),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Padding(
+                    padding: const EdgeInsets.only(top: 1),
+                    child: Icon(
+                      Icons.info_outline_rounded,
+                      size: 16,
+                      color: c.inkMid,
+                    ),
+                  ),
+                  const SizedBox(width: Gap.sm),
+                  Expanded(
+                    child: Text(
+                      l.serverChangeSignsOut,
+                      style: text.bodySmall!.copyWith(color: c.inkMid),
+                    ),
+                  ),
+                ],
+              ),
+            ),
           const SizedBox(height: Gap.xs),
           OutlinedButton.icon(
             onPressed: testing ? null : _test,
@@ -185,7 +235,9 @@ class _ServerScreenState extends ConsumerState<ServerScreen> {
 /// (design-analysis §7.1): "Yine de kaydet" first, "Vazgeç" under it. Pops
 /// true to save.
 class _SaveAnywaySheet extends StatelessWidget {
-  const _SaveAnywaySheet();
+  /// Saving signs this phone out: said here too.
+  final bool signsOut;
+  const _SaveAnywaySheet({required this.signsOut});
 
   @override
   Widget build(BuildContext context) {
@@ -211,6 +263,13 @@ class _SaveAnywaySheet extends StatelessWidget {
                 l.serverUnverifiedBody,
                 style: text.bodyMedium!.copyWith(color: c.inkMid),
               ),
+              if (signsOut) ...[
+                const SizedBox(height: Gap.sm),
+                Text(
+                  l.serverChangeSignsOut,
+                  style: text.bodyMedium!.copyWith(color: c.inkMid),
+                ),
+              ],
               const SizedBox(height: Gap.xxl),
               PrimaryButton(
                 label: l.serverSaveAnyway,

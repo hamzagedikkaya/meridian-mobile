@@ -27,8 +27,9 @@ enum CheckPopShape { circle, roundedSquare }
 /// * **Data changes are not taps.** When [checked] changes because the data
 ///   did — a refresh, an edit on the web, a hidden tab coming back — the
 ///   control shows the new state without a pop or a haptic. A change that
-///   takes the user's tap back (the write failed) empties or fills it in
-///   [Motion.quick], without a pop; the screen plays [Haptics.reject].
+///   takes the user's tap back (the write failed, within
+///   [CheckPop.rollbackWindow]) empties or fills it in [Motion.quick],
+///   without a pop; the screen plays [Haptics.reject].
 ///
 /// Two ways to wire it:
 ///
@@ -104,6 +105,13 @@ class CheckPop extends StatefulWidget {
   /// How long the check's fill takes.
   static const fillIn = Motion.fillIn;
 
+  /// How long after a tap a change back to what it showed before counts as
+  /// the tap taken back (its write failed) and un-fills in [Motion.quick].
+  /// A write that is refused, or cannot reach the server, says so well
+  /// within it (the API's connect timeout); one that waits out a timeout
+  /// is put back at once, like any other data change.
+  static const rollbackWindow = Duration(seconds: 5);
+
   @override
   State<CheckPop> createState() => _CheckPopState();
 }
@@ -130,6 +138,26 @@ class _CheckPopState extends State<CheckPop> with TickerProviderStateMixin {
   bool _tapPending = false;
   int _tapRun = 0;
 
+  /// What the control showed before the user's last tap, once that tap has
+  /// shown, for [CheckPop.rollbackWindow]: the screens update at once and
+  /// write afterwards, so a failed write comes back later as a plain data
+  /// change to this state — and is taken back in [Motion.quick] rather than
+  /// in one frame. Past the window a change is the data's again (a web
+  /// edit, a refresh, an undo) and shows at once.
+  bool? _beforeTap;
+  Timer? _beforeTapExpiry;
+
+  void _rememberBeforeTap(bool? before) {
+    _beforeTapExpiry?.cancel();
+    _beforeTapExpiry = null;
+    _beforeTap = before;
+    if (before == null) return;
+    _beforeTapExpiry = Timer(CheckPop.rollbackWindow, () {
+      _beforeTap = null;
+      _beforeTapExpiry = null;
+    });
+  }
+
   Offset? _downAt;
   int _popRun = 0;
 
@@ -143,13 +171,23 @@ class _CheckPopState extends State<CheckPop> with TickerProviderStateMixin {
     if (_pendingLocal != null) {
       final mine = _pendingLocal == checked;
       _pendingLocal = null;
+      _rememberBeforeTap(mine ? !checked : null);
       // Already animated by the tap — or the tap taken back: no pop.
       if (!mine) _settleFill(checked);
       return;
     }
     if (_tapPending) {
       _endTapWindow();
+      _rememberBeforeTap(!checked);
       _playTap(checked);
+      return;
+    }
+    final takenBack = _beforeTap == checked;
+    _rememberBeforeTap(null);
+    if (takenBack) {
+      // The tap's write failed and the screen took it back: un-filled (or
+      // filled) in 200 ms, no pop, so the user sees it go.
+      _settleFill(checked);
       return;
     }
     // A refresh, a web edit, a tab coming back: the state, nothing more.
@@ -158,6 +196,7 @@ class _CheckPopState extends State<CheckPop> with TickerProviderStateMixin {
 
   @override
   void dispose() {
+    _beforeTapExpiry?.cancel();
     _fill.dispose();
     _scale.dispose();
     super.dispose();

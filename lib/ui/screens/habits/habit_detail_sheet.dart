@@ -91,6 +91,13 @@ class _HabitDetailSheetState extends ConsumerState<_HabitDetailSheet> {
   /// A context that outlives the sheet, for the snackbar after it closes.
   BuildContext get _host => Navigator.of(context, rootNavigator: true).context;
 
+  /// The sheet's own scaffold: a snackbar while the sheet stays open is
+  /// drawn over it there — the app's would sit under the sheet, unseen.
+  final _scaffold = GlobalKey<ScaffoldState>();
+
+  /// Where a message about the open sheet goes.
+  BuildContext get _here => _scaffold.currentContext ?? context;
+
   // --- Logging a day ---------------------------------------------------------
 
   /// Sets [day]'s count to [count]: shown at once, then sent. Today goes
@@ -154,8 +161,13 @@ class _HabitDetailSheetState extends ConsumerState<_HabitDetailSheet> {
 
   // --- Actions ---------------------------------------------------------------
 
+  /// The form says nothing itself: its "Alışkanlık güncellendi" is said
+  /// here, over the sheet it comes back to.
   Future<void> _edit(Habit habit) async {
-    await openHabitForm(context, habit: habit);
+    final l = context.l10n;
+    final saved = await openHabitForm(context, habit: habit, announce: false);
+    if (saved == null || identical(saved, habit) || !mounted) return;
+    showAppSnack(_here, l.habitsUpdated);
   }
 
   /// Archives at once, with "Geri al". When goals count the habit, a
@@ -194,7 +206,7 @@ class _HabitDetailSheetState extends ConsumerState<_HabitDetailSheet> {
       if (!mounted) return;
       setState(() => _busy = false);
       showAppSnack(
-        context,
+        _here,
         failureMessage(e, l, fallback: l.habitsArchiveFailed),
         isError: true,
       );
@@ -209,6 +221,8 @@ class _HabitDetailSheetState extends ConsumerState<_HabitDetailSheet> {
       host,
       habit,
       sync: ref.read(dataSyncProvider),
+      // The sheet stays open on a failure: it says why over itself.
+      failHost: _here,
     );
     if (!mounted) return;
     if (ok) {
@@ -243,7 +257,7 @@ class _HabitDetailSheetState extends ConsumerState<_HabitDetailSheet> {
     // not be loaded, which the calendar's heading then says.
     final loaded = async.value?.data;
     final habit = _withWanted(loaded ?? widget.initial);
-    return SyncHint.over(
+    final sheet = SyncHint.over(
       active: async.isRefetching,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -260,6 +274,16 @@ class _HabitDetailSheetState extends ConsumerState<_HabitDetailSheet> {
             ),
           ),
         ],
+      ),
+    );
+    // Its own messenger and a see-through scaffold: what is said while the
+    // sheet stays open shows at its foot, above it.
+    return ScaffoldMessenger(
+      child: Scaffold(
+        key: _scaffold,
+        backgroundColor: Colors.transparent,
+        resizeToAvoidBottomInset: false,
+        body: sheet,
       ),
     );
   }
@@ -406,9 +430,12 @@ class _HabitDetailSheetState extends ConsumerState<_HabitDetailSheet> {
                       ? '${habit.currentStreak}'
                       : '–',
                   label: l.habitsStatStreak,
+                  // Never "Rekor 0" either: no record yet is none.
                   semanticLabel: habit.currentStreak > 0
                       ? l.streakDays(habit.currentStreak)
-                      : l.streakNewRecord(habit.longestStreak),
+                      : habit.longestStreak > 0
+                      ? l.streakNewRecord(habit.longestStreak)
+                      : l.habitsStatNone(l.habitsStatStreak),
                 ),
                 StatTile(
                   // No record yet is not a record of 0 (§7.15).
@@ -416,6 +443,9 @@ class _HabitDetailSheetState extends ConsumerState<_HabitDetailSheet> {
                       ? '${habit.longestStreak}'
                       : '–',
                   label: l.habitsStatRecord,
+                  semanticLabel: habit.longestStreak > 0
+                      ? null
+                      : l.habitsStatNone(l.habitsStatRecord),
                 ),
                 StatTile(
                   // A habit made today has no rate yet, not a rate of 0.
@@ -423,6 +453,9 @@ class _HabitDetailSheetState extends ConsumerState<_HabitDetailSheet> {
                       ? l.percent(HabitCard.rateOf(habit))
                       : '–',
                   label: l.habitsStatRate30d,
+                  semanticLabel: HabitCard.hasHistory(habit)
+                      ? null
+                      : l.habitsStatNone(l.habitsStatRate30d),
                 ),
               ],
             ),
@@ -491,7 +524,7 @@ class _HabitDetailSheetState extends ConsumerState<_HabitDetailSheet> {
             SingleChildScrollView(
               scrollDirection: Axis.horizontal,
               child: MiniHeatmap(
-                chain: habit.chain,
+                chain: habitShownChain(habit),
                 fill: tone.fill,
                 today: habit.today.date,
                 startDate: habit.startDate,
@@ -640,7 +673,8 @@ class _HabitDetailSheetState extends ConsumerState<_HabitDetailSheet> {
 }
 
 /// Brings [habit] back from the archive; says so on [host] unless [quiet]
-/// (an undo needs no confirmation), and says why when it fails. Takes the
+/// (an undo needs no confirmation), and says why when it fails — on
+/// [failHost] when given (a sheet that stays open). Takes the
 /// repository rather than a ref: an undo runs after the sheet has closed.
 /// [sync] hears of it, so the habit's card grows back in, washed.
 Future<bool> _restoreHabit(
@@ -649,6 +683,7 @@ Future<bool> _restoreHabit(
   Habit habit, {
   bool quiet = false,
   DataSync? sync,
+  BuildContext? failHost,
 }) async {
   final l = host.l10n;
   try {
@@ -659,9 +694,10 @@ Future<bool> _restoreHabit(
     }
     return true;
   } catch (e) {
-    if (host.mounted) {
+    final say = failHost != null && failHost.mounted ? failHost : host;
+    if (say.mounted) {
       showAppSnack(
-        host,
+        say,
         failureMessage(e, l, fallback: l.habitsUnarchiveFailed),
         isError: true,
       );

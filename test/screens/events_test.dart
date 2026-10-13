@@ -16,6 +16,7 @@ import 'package:meridian_mobile/ui/screens/agenda/event_sheet.dart';
 import 'package:meridian_mobile/ui/screens/today/today_screen.dart';
 import 'package:meridian_mobile/ui/widgets/check_pop.dart';
 import 'package:meridian_mobile/ui/widgets/choice_wrap.dart';
+import 'package:meridian_mobile/ui/widgets/primary_button.dart';
 
 import '../support/app_harness.dart';
 import '../support/fake_api.dart';
@@ -283,6 +284,70 @@ void main() {
       expect(find.widgetWithText(TextField, 'Mat getir'), findsOneWidget);
     });
 
+    testWidgets('"Düzenle" when the full event cannot be read: the sheet '
+        'closes and the reason is seen, not hidden under it', (tester) async {
+      final api = FakeApi()..failNetwork('GET /events/12');
+      await openSheet(tester, api, Event.fromJson(eventJson()));
+      await tester.tap(find.text('Düzenle'));
+      await settleFrames(tester);
+      expect(find.text('Etkinliği düzenle'), findsNothing);
+      expect(find.byType(BottomSheet), findsNothing);
+      expect(
+        find.text('Etkinlik yüklenemedi').hitTestable(),
+        findsOneWidget,
+      );
+    });
+
+    for (final fails in [true, false]) {
+      testWidgets('"Düzenle" tapped twice while the full event is on its way '
+          '(${fails ? 'it fails' : 'it comes'}): only the sheet closes, not '
+          'the screen under it', (tester) async {
+        final api = FakeApi()..hold('GET /events/12');
+        final event = Event.fromJson(eventJson());
+        await pumpWithRoutes(
+          tester,
+          api,
+          home: opener(
+            (context) => Navigator.of(context).push(
+              MaterialPageRoute<void>(
+                builder: (_) => Scaffold(
+                  body: Builder(
+                    builder: (page) => Center(
+                      child: TextButton(
+                        onPressed: () => showEventSheet(page, event),
+                        child: const Text('page two'),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        );
+        await tester.tap(find.text('open'));
+        await settleFrames(tester);
+        await tester.tap(find.text('page two'));
+        await settleFrames(tester);
+        await tester.tap(find.text('Düzenle'));
+        await tester.pump(const Duration(milliseconds: 80));
+        await tester.tap(find.text('Düzenle'));
+        await tester.pump(const Duration(milliseconds: 80));
+        if (fails) api.failNetwork('GET /events/12');
+        api.release('GET /events/12');
+        await settleFrames(tester);
+        await tester.pumpAndSettle();
+        expect(tester.takeException(), isNull);
+        expect(find.byType(BottomSheet), findsNothing);
+        if (fails) {
+          expect(find.text('page two'), findsOneWidget);
+          expect(find.text('Etkinlik yüklenemedi'), findsOneWidget);
+        } else {
+          expect(find.text('Etkinliği düzenle'), findsOneWidget);
+          expect(find.text('page two', skipOffstage: false), findsOneWidget);
+        }
+      });
+    }
+
     testWidgets('a series asks: this one and the rest end the series the day '
         'before; the whole series goes with "Geri al"', (tester) async {
       final api = FakeApi()
@@ -293,7 +358,8 @@ void main() {
       await openSheet(tester, api, series, day: DateTime(2026, 10, 11));
       expect(find.textContaining('Her hafta'), findsOneWidget,
           reason: 'how it repeats');
-      expect(find.textContaining('tüm seriyi'), findsNothing);
+      // The delete's choices wait for "Sil".
+      expect(find.text('Tüm seriyi sil'), findsNothing);
       expect(find.textContaining('serideki tüm etkinlikleri'), findsOneWidget);
 
       await tester.tap(find.text('Sil'));
@@ -301,8 +367,23 @@ void main() {
       expect(find.text('Tekrarlayan etkinlik'), findsOneWidget);
       expect(find.text('11 Ekim öncesindeki etkinlikler kalır.'),
           findsOneWidget);
-      expect(find.textContaining('Yalnızca bu'), findsNothing,
-          reason: 'a series is one record: there is no "only this one"');
+      // A series is one record: there is no "only this one" — the choices
+      // are exactly these two.
+      final choices = find.descendant(
+        of: find.byType(BottomSheet).last,
+        matching: find.byWidgetPredicate(
+            (w) => w is PrimaryButton || w is TextButton),
+      );
+      expect(
+        [
+          for (final w in tester.widgetList(choices))
+            if (w is PrimaryButton)
+              w.label
+            else if ((w as TextButton).child case final Text t)
+              t.data,
+        ]..removeWhere((label) => label == null),
+        unorderedEquals(['Bu ve sonrakileri sil', 'Tüm seriyi sil']),
+      );
       await tester.tap(find.text('Bu ve sonrakileri sil'));
       await settleFrames(tester);
       expect(api.bodiesOf('PATCH /events/12').single,

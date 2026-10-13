@@ -16,6 +16,60 @@ import 'habit_day_cell.dart';
 /// The first day of [day]'s month.
 DateTime monthOf(DateTime day) => DateTime(day.year, day.month);
 
+/// Whether [habit] as read says what [day] holds: a day of its chain — which
+/// has every day from its first through today, or through the archive day
+/// (contract §5.1) — or today for an active habit. A day before the chain
+/// read (further back than the year the detail reads, or the list's two
+/// weeks while the detail loads) or after an archived habit's last day is
+/// not known: it is drawn without a log, and never set from a guess — a
+/// write would overwrite what the day really has.
+bool habitDayKnown(Habit habit, DateTime day) {
+  final d = dateOnly(day);
+  if (!habit.archived && d == dateOnly(habit.today.date)) return true;
+  final chain = habit.chain;
+  return chain.isNotEmpty &&
+      !d.isBefore(dateOnly(chain.first.date)) &&
+      !d.isAfter(dateOnly(chain.last.date));
+}
+
+/// [habit]'s chain as drawn: an archived habit owes nothing, so its
+/// archive day while still open (`today_pending`) shows no log — not the
+/// gold "bekliyor" ring (§4.23, contract §5.1).
+List<ChainDay> habitShownChain(Habit habit) => !habit.archived
+    ? habit.chain
+    : [
+        for (final d in habit.chain)
+          d.status == ChainStatus.todayPending
+              ? ChainDay(date: d.date, status: ChainStatus.noHabits)
+              : d,
+      ];
+
+/// A habit's log on [day] for a screen reader: today's as
+/// [AppL10n.habitLogSemantics] says it ("Koşu, bugün tamamlandı"), any
+/// other day with its date ("Koşu, 3 Ekim 2026, yapıldı") — never "today"
+/// for a day that is not.
+String habitDayLogSemantics(
+  AppL10n l, {
+  required String name,
+  required DateTime day,
+  required DateTime today,
+  required int count,
+  required int target,
+  required bool done,
+}) {
+  if (dateOnly(day) == dateOnly(today)) {
+    return l.habitLogSemantics(name, count: count, target: target, done: done);
+  }
+  final dated = l.habitsDaySemantics(
+    formatDate(day, withYear: true),
+    count: count,
+    target: target,
+    done: done,
+    loggable: true,
+  );
+  return '$name, $dated';
+}
+
 /// A habit's month as a calendar (design-analysis §4.23): Monday-first
 /// weeks, one cell per day — at least 44 dp wide and 48 dp tall, 2 dp
 /// apart — drawn by [HabitDayPainter] in its calendar look (the day's
@@ -179,13 +233,19 @@ class _DayCell extends StatelessWidget {
     final c = context.nok;
     final text = Theme.of(context).textTheme;
     final l = context.l10n;
-    final loggable = habit.canLog(day);
+    final known = habitDayKnown(habit, day);
+    final loggable = habit.canLog(day) && known;
     final count = habit.countOn(day);
     final today = dateOnly(habit.today.date);
     final inRange =
         !day.isAfter(today) &&
         (habit.startDate == null || !day.isBefore(dateOnly(habit.startDate!)));
-    final state = !inRange
+    // A day the habit as read does not cover has no log to show — never
+    // "missed" (§4.23), as the heatmap draws it.
+    final state = !inRange || !known
+        ? HabitDayState.none
+        // Archived on its last day, still open: it owes nothing.
+        : habit.archived && entry?.status == ChainStatus.todayPending
         ? HabitDayState.none
         : habitDayStateOf(
             entry?.status ??
@@ -239,13 +299,15 @@ class _DayCell extends StatelessWidget {
     return Semantics(
       button: loggable,
       selected: selected,
-      label: l.habitsDaySemantics(
-        formatDate(day, withYear: true),
-        count: count,
-        target: habit.countsWithinDay ? habit.targetCount : 1,
-        done: done,
-        loggable: loggable,
-      ),
+      label: inRange && !known
+          ? '${formatDate(day, withYear: true)}, ${l.habitsDayStateNone}'
+          : l.habitsDaySemantics(
+              formatDate(day, withYear: true),
+              count: count,
+              target: habit.countsWithinDay ? habit.targetCount : 1,
+              done: done,
+              loggable: loggable,
+            ),
       // The label replaces the cell's own, which takes the InkWell's tap
       // action with it: give it back here.
       onTap: onTap,
@@ -363,7 +425,19 @@ class HabitDayEditor extends StatelessWidget {
       reason = l.habitsDayBeforeStart(
         formatDate(habit.startDate ?? d, withYear: true),
       );
+    } else if (!habitDayKnown(habit, d)) {
+      // Not read: what it holds is not known, so it is not set from here.
+      reason = l.habitsDayUnknown;
     }
+    String semantics(int target) => habitDayLogSemantics(
+      l,
+      name: habit.name,
+      day: d,
+      today: today,
+      count: count,
+      target: target,
+      done: done,
+    );
 
     Widget step(IconData icon, String tooltip, bool enabled, int next) =>
         IconButton.filledTonal(
@@ -407,12 +481,7 @@ class HabitDayEditor extends StatelessWidget {
                 Expanded(
                   child: Semantics(
                     liveRegion: true,
-                    label: l.habitLogSemantics(
-                      habit.name,
-                      count: count,
-                      target: target,
-                      done: done,
-                    ),
+                    label: semantics(target),
                     excludeSemantics: true,
                     child: Text(
                       '$count / $target',
@@ -437,12 +506,7 @@ class HabitDayEditor extends StatelessWidget {
                 CheckPop(
                   checked: done,
                   tone: tone,
-                  semanticLabel: l.habitLogSemantics(
-                    habit.name,
-                    count: count,
-                    target: 1,
-                    done: done,
-                  ),
+                  semanticLabel: semantics(1),
                   onToggle: () => onSet(done ? 0 : target),
                 ),
                 const SizedBox(width: Gap.lg),

@@ -49,6 +49,46 @@ Future<void> _type(WidgetTester tester, String digits) async {
 void main() {
   setUpAll(initializeDateFormatting);
 
+  testWidgets('the category list still loading is not "none left": a '
+      'spinner, then the categories',
+      (tester) async {
+    tallPhone(tester);
+    final api = FakeApi()
+      ..on('GET /finance/dashboard', _dashboard())
+      ..on('GET /budgets', budgetsJson(budgets: const [], budgetable: [5]))
+      ..hold('GET /finance_categories');
+    await pumpFinance(tester, api, const FinanceScreen());
+    await tester.tap(find.text('Bütçe koy'));
+    await settleFrames(tester);
+    expect(_inSheet(find.textContaining('kategori kalmadı')), findsNothing);
+    expect(_inSheet(find.text('Yeni kategori')), findsNothing);
+    expect(_inSheet(find.byType(CircularProgressIndicator)), findsOneWidget);
+    api.release('GET /finance_categories');
+    await settleFrames(tester);
+    expect(_inSheet(find.text('Market')), findsOneWidget);
+  });
+
+  testWidgets('a category list that fails: the server is unreachable, with a '
+      'retry — never "none left"', (tester) async {
+    tallPhone(tester);
+    final api = FakeApi()
+      ..on('GET /finance/dashboard', _dashboard())
+      ..on('GET /budgets', budgetsJson(budgets: const [], budgetable: [5]))
+      ..failNetwork('GET /finance_categories');
+    await pumpFinance(tester, api, const FinanceScreen());
+    await tester.tap(find.text('Bütçe koy'));
+    await settleFrames(tester);
+    expect(_inSheet(find.textContaining('kategori kalmadı')), findsNothing);
+    expect(_inSheet(find.text('Sunucuya ulaşılamıyor')), findsOneWidget);
+
+    api.on('GET /finance_categories', {
+      'categories': [categoryJson()],
+    });
+    await tester.tap(_inSheet(find.text('Tekrar dene')));
+    await settleFrames(tester);
+    expect(_inSheet(find.text('Market')), findsOneWidget);
+  });
+
   testWidgets('a new budget: only the categories that can take one, a limit '
       'on the keypad', (tester) async {
     tallPhone(tester);

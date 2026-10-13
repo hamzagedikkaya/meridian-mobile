@@ -27,10 +27,11 @@ class ThemeModeController extends Notifier<ThemeMode> {
     state = mode;
     await ref.read(sharedPrefsProvider).setString(_key, mode.name);
     if (ref.read(sessionProvider) is! SessionLoggedIn) return true;
+    final epoch = ref.read(sessionProvider.notifier).epoch;
     try {
       final user =
           await ref.read(repositoryProvider).updateMe(themePreference: mode.name);
-      ref.read(sessionProvider.notifier).replaceUser(user);
+      ref.read(sessionProvider.notifier).replaceUser(user, epoch: epoch);
       return true;
     } catch (_) {
       return false;

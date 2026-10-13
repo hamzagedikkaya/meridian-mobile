@@ -24,6 +24,8 @@ const allowed = <String, List<String>>{
   'lib/ui/widgets/server_url_field.dart': [],
   // How often the journal editor puts a draft aside.
   'lib/ui/screens/journal/journal_editor.dart': ['journalDraftInterval ='],
+  // How long after a tap a change back counts as its write having failed.
+  'lib/ui/widgets/check_pop.dart': ['rollbackWindow ='],
   // How long after a tap the server's answer may still earn a milestone.
   'lib/ui/screens/habits/habits_screen.dart': ['_milestoneWindow ='],
   // The clock's wake-up at the next minute.

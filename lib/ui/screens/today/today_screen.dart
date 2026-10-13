@@ -50,6 +50,12 @@ class _TodayScreenState extends ConsumerState<TodayScreen>
   @override
   AppTab get tab => AppTab.today;
 
+  /// A context under the capture bar's scope (the body's): what quick add
+  /// and the forms opened from the bar say on saving is shown above the
+  /// bar from it (`snackMarginFor`) — this State's own context sits above
+  /// that scope.
+  BuildContext? _host;
+
   /// Pull-to-refresh: Today summarises every domain, so it syncs everything.
   Future<void> _refresh() async {
     Haptics.armed();
@@ -89,25 +95,30 @@ class _TodayScreenState extends ConsumerState<TodayScreen>
         backgroundColor: c.bg,
         body: EntranceHost(
           child: CaptureBarLayout(
-            body: StatusBarScrim.over(
-              child: LoadPhaseSwitcher(
-                phase: view.phase,
-                skeleton: (_) => const TodaySkeleton(),
-                error: (_) => _errorState(context),
-                content: (_) => _content(
-                  context,
-                  offline: view.offline,
-                  lastUpdated: view.at,
-                  refetching: view.refetching,
-                ),
-              ),
+            body: Builder(
+              builder: (host) {
+                _host = host;
+                return StatusBarScrim.over(
+                  child: LoadPhaseSwitcher(
+                    phase: view.phase,
+                    skeleton: (_) => const TodaySkeleton(),
+                    error: (_) => _errorState(context),
+                    content: (_) => _content(
+                      context,
+                      offline: view.offline,
+                      lastUpdated: view.at,
+                      refetching: view.refetching,
+                    ),
+                  ),
+                );
+              },
             ),
             bar: CaptureBar(
               label: l.todayCaptureLabel,
-              onOpen: () => openQuickAdd(context),
+              onOpen: () => openQuickAdd(_host ?? context),
               secondaryIcon: Icons.payments_outlined,
               secondaryTooltip: l.todayCaptureTransaction,
-              onSecondary: () => openTransactionForm(context),
+              onSecondary: () => openTransactionForm(_host ?? context),
             ),
           ),
         ),

@@ -22,7 +22,6 @@ import '../../../theme/app_motion.dart';
 import '../../../theme/app_typography.dart';
 import '../../widgets/app_snackbar.dart';
 import '../../widgets/collapsing_fab.dart';
-import '../../widgets/day_header.dart';
 import '../../widgets/empty_state.dart';
 import '../../widgets/nok_chip.dart';
 import '../../widgets/offline_banner.dart';
@@ -31,6 +30,7 @@ import '../../widgets/row_motion.dart';
 import '../../widgets/skeletons.dart';
 import '../../widgets/sync_hint.dart';
 import 'category_picker.dart';
+import 'date_presets.dart';
 import 'filter_chip_bar.dart';
 import 'finance_utils.dart';
 import 'transaction_form_screen.dart';
@@ -322,18 +322,7 @@ class _TransactionsScreenState extends ConsumerState<TransactionsScreen> {
 
   /// The date presets, by key: this month, the last 30 days, this year.
   ({DateTime from, DateTime to})? _preset(String key, DateTime today) =>
-      switch (key) {
-        'month' => (
-            from: DateTime(today.year, today.month, 1),
-            to: DateTime(today.year, today.month + 1, 0),
-          ),
-        '30d' => (from: today.subtract(const Duration(days: 30)), to: today),
-        'year' => (
-            from: DateTime(today.year, 1, 1),
-            to: DateTime(today.year, 12, 31),
-          ),
-        _ => null,
-      };
+      txDatePreset(key, today);
 
   /// Which preset the current range is, if any.
   String? _presetKey(DateTime today) {
@@ -866,21 +855,9 @@ class _TransactionsScreenState extends ConsumerState<TransactionsScreen> {
                 decimals: MoneyDecimals.auto,
               ),
           ].join(' · ');
-    var header =
-        DayHeader.forDay(context, g.day, today: today, trailing: total);
-    if (g.day.year != today.year) {
-      // İşlemler pages back through years: a day of another year says
-      // which ("Pazartesi · 29 Eylül 2025").
-      final name = switch (dayDelta(g.day, now: today)) {
-        -1 => l.dayYesterday,
-        1 => l.dayTomorrow,
-        _ => formatWeekday(g.day),
-      };
-      header = DayHeader(
-        label: '$name · ${formatDate(g.day, withYear: true)}',
-        trailing: total,
-      );
-    }
+    // İşlemler pages back through years: a day of another year says which.
+    final header =
+        historyDayHeader(context, g.day, today: today, trailing: total);
     if (total == null) return header;
     // One heading for a screen reader: "Bugün · 4 Ekim, Gider −₺1.240".
     return Semantics(

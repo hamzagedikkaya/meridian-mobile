@@ -7,10 +7,12 @@ import 'package:go_router/go_router.dart';
 
 import '../../../core/formats.dart';
 import '../../../core/haptics.dart';
+import '../../../core/session.dart';
 import '../../../data/current_day.dart';
 import '../../../data/data_scope.dart';
 import '../../../data/deferred_deletes.dart';
 import '../../../data/providers.dart';
+import '../../../data/search.dart';
 import '../../../data/sync.dart';
 import '../../../l10n/app_l10n.dart';
 import '../../../models/journal.dart';
@@ -80,6 +82,12 @@ class _JournalScreenState extends ConsumerState<JournalScreen>
   /// stays on screen instead of a skeleton.
   JournalBundle? _lastShown;
 
+  /// Under the tab's own Scaffold: a snackbar shown from there floats over
+  /// the "Yaz" FAB ([snackMarginFor]); this state's context sits above it.
+  final _bodyKey = GlobalKey();
+
+  BuildContext get _bodyContext => _bodyKey.currentContext ?? context;
+
   @override
   void dispose() {
     _filterTimer?.cancel();
@@ -88,7 +96,9 @@ class _JournalScreenState extends ConsumerState<JournalScreen>
 
   Future<void> _refresh() async {
     refreshTab(ref, AppTab.journal);
-    await settleRefresh([ref.read(journalProvider(_range).future)]);
+    await settleRefresh([
+      ref.read(journalProvider(_range).future),
+    ], minimum: Motion.refreshMinimum);
   }
 
   void _setRange(String range) {
@@ -155,12 +165,13 @@ class _JournalScreenState extends ConsumerState<JournalScreen>
   void _delete(JournalEntry entry) {
     final l = context.l10n;
     final repo = ref.read(repositoryProvider);
+    final drafts = ref.read(draftStoreProvider);
     deleteWithUndo(
-      context,
+      _bodyContext,
       ref.read(deferredDeletesProvider.notifier),
       record: (scope: DataScope.journal, id: entry.id),
       message: l.journalDeleted,
-      send: () => repo.deleteJournalEntry(entry.id),
+      send: () => deleteJournalEntryAndDraft(repo, drafts, entry.id),
       failedMessage: l.journalDeleteFailed,
     );
   }
@@ -201,7 +212,7 @@ class _JournalScreenState extends ConsumerState<JournalScreen>
   Future<void> _runAction(JournalEntry entry, String action) async {
     switch (action) {
       case 'edit':
-        await openJournalEditor(context, entry: entry);
+        await openJournalEditor(_bodyContext, entry: entry);
       case 'delete':
         _delete(entry);
     }
@@ -272,9 +283,10 @@ class _JournalScreenState extends ConsumerState<JournalScreen>
           floatingActionButton: CollapsingFab(
             icon: Icons.edit_outlined,
             label: l.journalFabWrite,
-            onPressed: () => openJournalEditor(context),
+            onPressed: () => openJournalEditor(_bodyContext),
           ),
           body: EntranceHost(
+            key: _bodyKey,
             child: SyncHint.over(
               active: async.isRefetching || previous != null,
               child: LoadPhaseSwitcher(
@@ -410,7 +422,8 @@ class _JournalScreenState extends ConsumerState<JournalScreen>
               Gap.md,
             ),
             child: _TodayPrompt(
-              onMood: (mood) => openJournalEditor(context, initialMood: mood),
+              onMood: (mood) =>
+                  openJournalEditor(_bodyContext, initialMood: mood),
             ),
           ),
         )
@@ -481,7 +494,44 @@ class _JournalScreenState extends ConsumerState<JournalScreen>
                   ),
           ),
         ),
+      // The server lists the newest 180 of a range; the count and the moods
+      // are the whole range's. Say so where the list stops (§7).
+      if (!empty && bundle.entries.length < bundle.entriesCount)
+        SliverToBoxAdapter(child: _cappedNote(context, bundle.entries.length)),
     ];
+  }
+
+  /// "En yeni 180 kayıt gösteriliyor" — and search, which reaches the
+  /// older ones.
+  Widget _cappedNote(BuildContext context, int shown) {
+    final c = context.nok;
+    final l = context.l10n;
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(
+        Insets.gutter,
+        Gap.sm,
+        Insets.gutter,
+        Gap.lg,
+      ),
+      child: Column(
+        children: [
+          Text(
+            l.journalNewestShown(shown),
+            textAlign: TextAlign.center,
+            style: Theme.of(
+              context,
+            ).textTheme.bodySmall!.copyWith(color: c.inkMid),
+          ),
+          // Only where search is offered (`SearchEntryButton`'s rule).
+          if (ref.watch(searchOfferedProvider))
+            TextButton.icon(
+              onPressed: () => context.push('/search'),
+              icon: const Icon(Icons.search_rounded, size: 18),
+              label: Text(l.journalSearchOlder),
+            ),
+        ],
+      ),
+    );
   }
 
   Widget _noMatch(BuildContext context, bool filtered) {

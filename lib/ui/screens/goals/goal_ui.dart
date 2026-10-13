@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:intl/intl.dart';
 
 import '../../../core/formats.dart';
 import '../../../l10n/app_l10n.dart';
@@ -46,11 +47,12 @@ bool goalIsFinancial(Goal g) => g.targetType == 'financial';
 }
 
 /// Trim a trailing `.0` from goal values (kg / level / days).
-/// Written with the language's decimal mark ("7,50" in Turkish, "7.50" in
-/// English).
-String formatGoalNumber(double v) => v == v.roundToDouble()
-    ? v.toInt().toString()
-    : v.toStringAsFixed(2).replaceAll('.', decimalMark());
+/// Written with the language's marks: thousands grouped and its decimal
+/// mark ("98.765", "7,50" in Turkish; "98,765", "7.50" in English) — as
+/// the keypad and the form show the same number.
+String formatGoalNumber(double v) => NumberFormat(
+  v == v.roundToDouble() ? '#,##0' : '#,##0.00',
+).format(v);
 
 /// Money-correct rendering of a raw goal value (major units) for financial goals.
 String formatGoalMoney(
@@ -104,7 +106,7 @@ String goalProgressLabel(Goal g, {double? current}) {
 /// Target-only label used in the achieved/abandoned rows.
 String goalTargetLabel(Goal g) {
   if (goalIsFinancial(g)) return formatGoalMoney(g, g.targetValue);
-  final unit = g.unit.isEmpty ? '' : ' ${g.unit}';
+  final unit = g.unit.isEmpty ? '' : '$nbsp${g.unit}';
   return '${formatGoalNumber(g.targetValue)}$unit';
 }
 
@@ -114,6 +116,19 @@ String goalTargetLabel(Goal g) {
 Widget goalRingCenter(double ringSize, Widget label) => SizedBox(
   width: ringSize * 0.66,
   child: FittedBox(fit: BoxFit.scaleDown, child: label),
+);
+
+/// [child] centred in at least the whole height it is given, scrolling
+/// when it needs more (small screens, landscape, large text) — so a pull
+/// still refreshes and its button stays in reach (§8.3).
+Widget goalScrollableFill(Widget child) => LayoutBuilder(
+  builder: (context, constraints) => SingleChildScrollView(
+    physics: const AlwaysScrollableScrollPhysics(),
+    child: ConstrainedBox(
+      constraints: BoxConstraints(minHeight: constraints.maxHeight),
+      child: Center(child: child),
+    ),
+  ),
 );
 
 /// The goal ring's Hero tag: the grid card's 72 dp ring flies to the

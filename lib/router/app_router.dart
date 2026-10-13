@@ -155,6 +155,55 @@ String? _returnTo(String? from) {
   return from;
 }
 
+/// A record's id in the path; null when it is not one (a link from
+/// outside the app), which goes to the record's list instead.
+int? _idOf(GoRouterState state) {
+  final id = int.tryParse(state.pathParameters['id'] ?? '');
+  return id != null && id > 0 ? id : null;
+}
+
+/// The pages pushed over the tabs on the root navigator that can also be
+/// the only page there: [BackToToday] gives them a way back to Today.
+const _standAlonePages = {'/goals', '/search'};
+
+/// Whether [page], opened with `go`, has a way back: a page under it (its
+/// tab, or its parent route) or a [BackToToday] of its own. A root-level
+/// page such as Profile or the server page alone has neither — no back
+/// arrow, no tab bar, and the system back would close the app.
+bool _standsAlone(RouteMatchList page) {
+  final chain = page.matches;
+  if (chain.isEmpty) return false;
+  if (chain.first is ShellRouteMatch) return true;
+  if (chain.whereType<RouteMatch>().length > 1) return true;
+  return _standAlonePages.contains(page.fullPath);
+}
+
+/// The pages pushed with `push`, bottom to top, wherever their navigator.
+Iterable<ImperativeRouteMatch> _pushed(List<RouteMatchBase> matches) sync* {
+  for (final match in matches) {
+    if (match is ImperativeRouteMatch) yield match;
+    if (match is ShellRouteMatch) yield* _pushed(match.matches);
+  }
+}
+
+/// Where the user is: the page on top of the stack. A page opened with
+/// `push` (every detail and management page) is not in [state]'s location,
+/// which stays the page it was pushed over; so while [state] is the
+/// current location — the session changing under it — the top of the
+/// router's stack says where the user was. A pushed page that cannot stand
+/// on its own ([_standsAlone]) gives way to the one under it, down to
+/// [state]'s location.
+String _topLocation(GoRouter? router, GoRouterState state) {
+  final config = router?.routerDelegate.currentConfiguration;
+  if (config == null || config.isEmpty || config.uri != state.uri) {
+    return state.uri.toString();
+  }
+  for (final page in _pushed(config.matches).toList().reversed) {
+    if (_standsAlone(page.matches)) return page.matches.uri.toString();
+  }
+  return state.uri.toString();
+}
+
 /// p24's todo links (`/todos?filter=today&list=3`), on the Agenda tab: the
 /// filter becomes its view (`undated` is the inbox; every open todo when
 /// there is none), the list stays. Always with a view, so a mounted Agenda
@@ -179,8 +228,9 @@ String _agendaForTodos(Map<String, String> query) {
 /// and the old archived-accounts page redirect to where they live now.
 final routerProvider = Provider<GoRouter>((ref) {
   final refresh = _SessionRefresh(ref);
+  GoRouter? router;
 
-  return GoRouter(
+  return router = GoRouter(
     navigatorKey: _rootKey,
     initialLocation: '/splash',
     refreshListenable: refresh,
@@ -198,7 +248,7 @@ final routerProvider = Provider<GoRouter>((ref) {
         if (session.expired && loc != '/splash') {
           return Uri(
             path: '/login',
-            queryParameters: {'from': state.uri.toString()},
+            queryParameters: {'from': _topLocation(router, state)},
           ).toString();
         }
         return '/login';
@@ -259,10 +309,11 @@ final routerProvider = Provider<GoRouter>((ref) {
           GoRoute(
             path: ':id',
             parentNavigatorKey: _rootKey,
+            redirect: (_, state) => _idOf(state) == null ? '/goals' : null,
             // The goal tapped comes along (`extra`), so its ring — the
             // hero's landing spot — is there in the first frame.
             builder: (_, state) => GoalDetailScreen(
-              goalId: int.parse(state.pathParameters['id']!),
+              goalId: _idOf(state)!,
               preview: state.extra is Goal ? state.extra as Goal : null,
             ),
           ),
@@ -365,8 +416,10 @@ final routerProvider = Provider<GoRouter>((ref) {
                   GoRoute(
                     path: 'account/:id',
                     parentNavigatorKey: _rootKey,
+                    redirect: (_, state) =>
+                        _idOf(state) == null ? '/finance/accounts' : null,
                     builder: (_, state) => AccountDetailScreen(
-                      accountId: int.parse(state.pathParameters['id']!),
+                      accountId: _idOf(state)!,
                     ),
                   ),
                   GoRoute(
@@ -436,8 +489,10 @@ final routerProvider = Provider<GoRouter>((ref) {
                   GoRoute(
                     path: ':id',
                     parentNavigatorKey: _rootKey,
+                    redirect: (_, state) =>
+                        _idOf(state) == null ? '/journal' : null,
                     builder: (_, state) => JournalDetailScreen(
-                      entryId: int.parse(state.pathParameters['id']!),
+                      entryId: _idOf(state)!,
                     ),
                   ),
                 ],

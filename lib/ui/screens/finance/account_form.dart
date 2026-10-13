@@ -88,6 +88,10 @@ class _AccountFormScreenState extends ConsumerState<AccountFormScreen> {
   bool? _isDefault;
 
   bool _saving = false;
+
+  /// A new account's answer was lost: the account list as it was then.
+  /// "Kaydet" waits until a newer one is in (see [_save]).
+  Fetched<List<Account>>? _unsureOver;
   String? _nameError;
   String? _currencyError;
   String? _balanceError;
@@ -278,8 +282,19 @@ class _AccountFormScreenState extends ConsumerState<AccountFormScreen> {
         _nameError = nameError;
         _currencyError = currencyError;
         _balanceError = balanceError;
-        _formError =
-            placed ? null : failureMessage(e, l, fallback: l.accountSaveFailed);
+        // A new account whose answer was lost may exist already (POST
+        // is not safe to repeat): say so, and hold "Kaydet" until the
+        // account list — refetched by the write — has come in.
+        final maybe = existing == null &&
+            refusal != null &&
+            refusal.isNetwork &&
+            refusal.mayHaveArrived;
+        if (maybe) _unsureOver = ref.read(accountsProvider).value;
+        _formError = placed
+            ? null
+            : (maybe
+                ? l.financeSaveMaybe
+                : failureMessage(e, l, fallback: l.accountSaveFailed));
       });
     }
   }
@@ -316,7 +331,10 @@ class _AccountFormScreenState extends ConsumerState<AccountFormScreen> {
       actionLabel: _isEdit ? l.actionSave : l.accountFormCreate,
       busy: _saving,
       dirty: _dirty(currency, color),
-      onAction: () => _save(currency, color),
+      onAction: _unsureOver != null &&
+              identical(ref.watch(accountsProvider).value, _unsureOver)
+          ? null
+          : () => _save(currency, color),
       children: [
         FormLabel(l.accountFormType),
         ChoiceWrap<String>(

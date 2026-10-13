@@ -25,7 +25,13 @@ enum AppTab {
   List<ProviderOrFamily> get readModels => switch (this) {
         AppTab.today => [homeProvider, eventsProvider, journalProvider],
         AppTab.agenda => [todosProvider, eventsProvider, todoListsProvider],
-        AppTab.finance => [financeDashboardProvider, accountsProvider],
+        // The subscriptions too: the monthly fixed cost, their card and
+        // the setup card's subscription step.
+        AppTab.finance => [
+            financeDashboardProvider,
+            accountsProvider,
+            subscriptionsProvider,
+          ],
         AppTab.habits => [habitsProvider],
         AppTab.journal => [journalProvider],
       };

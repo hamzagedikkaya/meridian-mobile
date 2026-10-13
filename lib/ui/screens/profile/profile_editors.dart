@@ -354,10 +354,13 @@ class _NameSheetState extends ConsumerState<_NameSheet> {
           },
           decoration: InputDecoration(
             labelText: l.profileName,
-            helperText: l.profileNameHint,
             errorText: _nameError,
           ),
         ),
+        // A note, not helperText: Material draws that on one line, cut
+        // beside the counter (§7.13).
+        const SizedBox(height: Gap.sm),
+        _Note(l.profileNameHint),
       ],
     );
   }
@@ -490,7 +493,11 @@ class _EmailSheetState extends ConsumerState<_EmailSheet> {
   @override
   Widget build(BuildContext context) {
     final l = context.l10n;
+    // Closing unsaved — X, back, the scrim, after a refusal — must not
+    // offer to store what was typed: only a save commits it
+    // (`finishAutofillContext` there).
     return AutofillGroup(
+      onDisposeAction: AutofillContextAction.cancel,
       child: _EditorFrame(
         title: l.profileEmailTitle,
         actionLabel: l.actionSave,
@@ -567,6 +574,12 @@ class _PasswordSheetState extends ConsumerState<_PasswordSheet> {
   /// Bumped on a wrong current password: that field shakes.
   var _wrongPassword = 0;
 
+  /// The change went out but no answer came back in time: the server may
+  /// have changed the password (and replaced the token). Sending it again
+  /// blindly would go out with a token that may be dead, so the sheet only
+  /// closes now.
+  var _mayHaveChanged = false;
+
   @override
   void dispose() {
     for (final c in [_current, _password, _confirmation]) {
@@ -619,8 +632,10 @@ class _PasswordSheetState extends ConsumerState<_PasswordSheet> {
   }
 
   Future<void> _save() async {
-    // A second send would leave with the token the first one replaces.
-    if (_saving) return;
+    // A second send would leave with the token the first one replaces —
+    // also after a lost answer, from the keyboard's Done as from the
+    // button: the sheet only closes then.
+    if (_saving || _mayHaveChanged) return;
     final l = context.l10n;
     _submitted = true;
     final problems = _check(l);
@@ -654,6 +669,14 @@ class _PasswordSheetState extends ConsumerState<_PasswordSheet> {
       if (!mounted) return;
       Haptics.reject();
       final refusal = e is ApiException ? e : null;
+      if (refusal != null && refusal.isNetwork && refusal.mayHaveArrived) {
+        setState(() {
+          _saving = false;
+          _mayHaveChanged = true;
+          _formError = l.profilePasswordMaybeChanged;
+        });
+        return;
+      }
       final current = switch (refusal?.code) {
         'invalid_current_password' => l.errInvalidCurrentPassword,
         'current_password_required' => l.errCurrentPasswordRequired,
@@ -677,11 +700,15 @@ class _PasswordSheetState extends ConsumerState<_PasswordSheet> {
   @override
   Widget build(BuildContext context) {
     final l = context.l10n;
+    // Closing unsaved — X, back, the scrim, after a refusal — must not
+    // offer to store what was typed: only a save commits it
+    // (`finishAutofillContext` there).
     return AutofillGroup(
+      onDisposeAction: AutofillContextAction.cancel,
       child: _EditorFrame(
         title: l.profilePasswordTitle,
-        actionLabel: l.profilePasswordTitle,
-        onAction: _save,
+        actionLabel: _mayHaveChanged ? l.actionClose : l.profilePasswordTitle,
+        onAction: _mayHaveChanged ? () => Navigator.of(context).pop() : _save,
         busy: _saving,
         formError: _formError,
         children: [

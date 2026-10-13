@@ -41,6 +41,7 @@ final class ProfileActions {
     String? timezone,
     int? weeklyReviewDay,
   }) async {
+    final epoch = _ref.read(sessionProvider.notifier).epoch;
     final user = await _ref.read(repositoryProvider).updateMe(
           name: name,
           email: email,
@@ -49,7 +50,8 @@ final class ProfileActions {
           timezone: timezone,
           weeklyReviewDay: weeklyReviewDay,
         );
-    _ref.read(sessionProvider.notifier).replaceUser(user);
+    // An answer that lands after a sign-out is not the next account's.
+    _ref.read(sessionProvider.notifier).replaceUser(user, epoch: epoch);
     return user;
   }
 
@@ -84,6 +86,11 @@ final class ProfileActions {
     }
   }
 
+  /// The journal editor keeps a draft as `{fields, base, updated_at}`: what
+  /// is typed, and what the editor opened with. It is unsaved writing when
+  /// the two differ (a new date, mood or energy counts as much as text). A
+  /// flat draft (an older build's) has something in it when any of its
+  /// fields is filled.
   static bool _draftHasContent(String raw) {
     if (raw.trim().isEmpty) return false;
     final Object? draft;
@@ -93,6 +100,20 @@ final class ProfileActions {
       return true;
     }
     if (draft is! Map) return true;
+    final fields = draft['fields'];
+    if (fields is Map) {
+      final base = draft['base'];
+      if (base is Map) {
+        return fields.keys.toSet().union(base.keys.toSet()).any(
+          (key) => '${fields[key] ?? ''}' != '${base[key] ?? ''}',
+        );
+      }
+      return _filled(fields);
+    }
+    return _filled(draft);
+  }
+
+  static bool _filled(Map draft) {
     bool filled(Object? value) => value is String && value.trim().isNotEmpty;
     return filled(draft['title']) ||
         filled(draft['body']) ||
@@ -124,9 +145,5 @@ final class ProfileActions {
         return e.kind == ApiErrorKind.unauthorized;
       }
     });
-    // What the app keeps about the account outside the screens, which go
-    // with the signed-in shell.
-    _ref.invalidate(habitCadenceProvider);
-    _ref.invalidate(deferredDeletesProvider);
   }
 }

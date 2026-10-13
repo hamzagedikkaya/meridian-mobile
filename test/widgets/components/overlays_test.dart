@@ -4,7 +4,9 @@
 library;
 
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart' show RenderParagraph;
 import 'package:flutter_test/flutter_test.dart';
+import 'package:meridian_mobile/l10n/app_l10n.dart';
 import 'package:meridian_mobile/theme/app_colors.dart';
 import 'package:meridian_mobile/ui/widgets/app_snackbar.dart';
 import 'package:meridian_mobile/ui/widgets/capture_bar.dart';
@@ -110,6 +112,53 @@ void main() {
       final settled = tester.getTopLeft(find.text('Sheet')).dy;
       await tester.pump(const Duration(milliseconds: 100));
       expect(tester.getTopLeft(find.text('Sheet')).dy, settled);
+    });
+
+    testWidgets('a keyboard coming up lifts an input sheet at once: its '
+        'button is never under the keyboard', (tester) async {
+      await pumpComponent(
+        tester,
+        _opener(
+          (context) => showNokSheet<void>(
+            context,
+            title: 'Görev',
+            showClose: true,
+            // Pads itself by the keyboard, as the app's input sheets do.
+            builder: (sheet) => Padding(
+              padding: EdgeInsets.only(
+                bottom: MediaQuery.viewInsetsOf(sheet).bottom,
+              ),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const TextField(),
+                  PrimaryButton(label: 'Kaydet', onPressed: () {}),
+                ],
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.tap(find.text('open'));
+      await tester.pumpAndSettle();
+      const keyboard = 300.0;
+      tester.view.viewInsets = const FakeViewPadding(bottom: keyboard * 3);
+      addTearDown(tester.view.resetViewInsets);
+      final keyboardTop = 780 - keyboard;
+      for (var frame = 0; frame < 20; frame++) {
+        await tester.pump(const Duration(milliseconds: 16));
+        expect(
+          tester.getRect(find.byType(PrimaryButton)).bottom,
+          lessThanOrEqualTo(keyboardTop),
+          reason: 'frame $frame',
+        );
+      }
+      await tester.pumpAndSettle();
+      // Lifted once, not twice.
+      expect(
+        tester.getRect(find.byType(PrimaryButton)).bottom,
+        greaterThan(keyboardTop - 80),
+      );
     });
 
     testWidgets('draggable detail sheets open at 60 %', (tester) async {
@@ -270,6 +319,172 @@ void main() {
       final bar = tester.getRect(find.byType(CaptureBar));
       expect(snack.overlaps(bar.deflate(8)), isFalse);
       expect(snack.bottom, lessThanOrEqualTo(bar.top + 8));
+    });
+
+    // Screens pass their State's context, which sits above their own
+    // scaffold or capture bar layout: the FAB and the bar on view still
+    // lift the snackbar, as does a messenger kept for a later message.
+    Widget tabAbove(Widget Function(BuildContext context) tab) => Scaffold(
+          bottomNavigationBar: const SizedBox(height: 64),
+          body: Builder(builder: tab),
+        );
+
+    Widget fabTab(BuildContext context, {bool hidden = false}) =>
+        CollapsingFabScope(
+          child: Scaffold(
+            body: Center(
+              child: TextButton(
+                // The screen's own context: above its scaffold.
+                onPressed: () => showAppSnack(context, 'İşlem kaydedildi'),
+                child: const Text('open'),
+              ),
+            ),
+            floatingActionButton: CollapsingFab(
+              icon: Icons.add_rounded,
+              label: 'İşlem',
+              hidden: hidden,
+              onPressed: () {},
+            ),
+          ),
+        );
+
+    testWidgets('from a screen\'s own context it still clears the tab\'s FAB',
+        (tester) async {
+      await pumpComponent(tester, tabAbove(fabTab), bare: true);
+      await tester.tap(find.text('open'));
+      await tester.pumpAndSettle();
+      final snack = _snackRect(tester);
+      final fab = tester.getRect(find.byType(FloatingActionButton));
+      expect(snack.overlaps(fab), isFalse);
+      expect(snack.bottom, lessThanOrEqualTo(fab.top));
+    });
+
+    testWidgets('from a screen\'s own context it still clears the capture bar',
+        (tester) async {
+      await pumpComponent(
+        tester,
+        tabAbove(
+          (context) => CaptureBarLayout(
+            body: Center(
+              child: TextButton(
+                onPressed: () => showAppSnack(context, 'Görev eklendi'),
+                child: const Text('open'),
+              ),
+            ),
+            bar: CaptureBar(onOpen: () {}, label: 'Ekle: görev…'),
+          ),
+        ),
+        bare: true,
+      );
+      await tester.tap(find.text('open'));
+      await tester.pumpAndSettle();
+      final snack = _snackRect(tester);
+      final bar = tester.getRect(find.byType(CaptureBar));
+      expect(snack.overlaps(bar.deflate(8)), isFalse);
+      expect(snack.bottom, lessThanOrEqualTo(bar.top + 8));
+    });
+
+    testWidgets('a FAB on a tab in the background, or a hidden one, lifts '
+        'nothing', (tester) async {
+      late BuildContext outer;
+      await pumpComponent(
+        tester,
+        Scaffold(
+          bottomNavigationBar: const SizedBox(height: 64),
+          body: Builder(
+            builder: (context) {
+              outer = context;
+              return Stack(
+                children: [
+                  TickerMode(
+                    enabled: false,
+                    child: Offstage(child: Builder(builder: fabTab)),
+                  ),
+                ],
+              );
+            },
+          ),
+        ),
+        bare: true,
+      );
+      expect(snackMarginFor(outer).bottom, 12);
+
+      await pumpComponent(
+        tester,
+        tabAbove((context) {
+          outer = context;
+          return fabTab(context, hidden: true);
+        }),
+        bare: true,
+      );
+      expect(snackMarginFor(outer).bottom, 12);
+
+      await pumpComponent(
+        tester,
+        tabAbove((context) {
+          outer = context;
+          return fabTab(context);
+        }),
+        bare: true,
+      );
+      expect(snackMarginFor(outer).bottom, 80);
+    });
+
+    // A failed "Geri al" after "Ödendi" says what is left and where: the
+    // whole of it fits the snackbar's two lines at 1.3× in either language.
+    for (final locale in const [Locale('tr'), Locale('en')]) {
+      for (final scale in const [1.0, 1.3]) {
+        testWidgets('the undo-failure messages fit two lines '
+            '(${locale.languageCode}, $scale×)', (tester) async {
+          late ScaffoldMessengerState messenger;
+          late AppL10n l;
+          await pumpComponent(
+            tester,
+            Builder(builder: (context) {
+              messenger = ScaffoldMessenger.of(context);
+              l = context.l10n;
+              return const SizedBox.expand();
+            }),
+            locale: locale,
+            textScale: scale,
+          );
+          for (final message in [
+            l.subscriptionUndoFailed,
+            l.subscriptionUndoNothingChanged,
+            l.subscriptionUndoUnsure,
+            l.subscriptionSkipUndoFailed,
+          ]) {
+            showAppSnackOn(messenger, message, isError: true);
+            await tester.pumpAndSettle();
+            final text = tester.renderObject<RenderParagraph>(
+                find.text(message));
+            expect(text.didExceedMaxLines, isFalse, reason: message);
+            messenger.removeCurrentSnackBar();
+            await tester.pumpAndSettle();
+          }
+        });
+      }
+    }
+
+    testWidgets('showAppSnackOn says it on a kept messenger, over the FAB',
+        (tester) async {
+      late ScaffoldMessengerState messenger;
+      await pumpComponent(
+        tester,
+        tabAbove((context) {
+          messenger = ScaffoldMessenger.of(context);
+          return fabTab(context);
+        }),
+        bare: true,
+      );
+      showAppSnackOn(messenger, 'Geri alınamadı', isError: true);
+      await tester.pumpAndSettle();
+      expect(tester.takeException(), isNull);
+      expect(find.text('Geri alınamadı'), findsOneWidget);
+      expect(find.byIcon(Icons.error_rounded), findsOneWidget);
+      final snack = _snackRect(tester);
+      final fab = tester.getRect(find.byType(FloatingActionButton));
+      expect(snack.overlaps(fab), isFalse);
     });
 
     testWidgets('tones: success and error carry their icon; plain has none', (

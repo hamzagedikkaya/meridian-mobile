@@ -105,15 +105,10 @@ class _GoalsScreenState extends ConsumerState<GoalsScreen> {
           child: LoadPhaseSwitcher(
             phase: phase,
             skeleton: (_) => const _GoalsSkeleton(),
-            error: (_) => ListView(
-              physics: const AlwaysScrollableScrollPhysics(),
-              children: [
-                SizedBox(
-                  height: MediaQuery.sizeOf(context).height * 0.7,
-                  child: EmptyState.error(onRetry: _retry),
-                ),
-              ],
-            ),
+            // At least the screen's height, and taller when it needs to be
+            // (small screens, landscape, large text): it scrolls, so "Tekrar
+            // dene" is always in reach.
+            error: (_) => goalScrollableFill(EmptyState.error(onRetry: _retry)),
             content: (_) => _content(async, bundle!),
           ),
         ),
@@ -230,16 +225,19 @@ class _GoalsScreenState extends ConsumerState<GoalsScreen> {
     final columns = _gridColumns(context);
     return goalGridRows([
       for (var i = 0; i < active.length; i++)
-        // Deliberately not keyed. Each card is the only child of its slot,
-        // so a key could never follow a goal into another slot of the
-        // grid: it would only force a remount, replaying the ring's sweep
-        // from zero. Unkeyed, each slot updates in place when a refresh
-        // shifts the grid, and its ring moves from the old value to the
-        // new one.
-        Entrance.staggered(
-          play: true,
-          index: i,
-          child: GoalCard(goal: active[i]),
+        // Keyed by goal: when a refresh shifts the grid (a goal achieved,
+        // abandoned or deleted), a card that changes slot mounts afresh at
+        // its own value — its ring never springs from the goal that had the
+        // slot before (§5.4: a refetch updates in place, unanimated). A
+        // card mounted after the first frame does not sweep or enter: the
+        // entrance gate is spent by then.
+        KeyedSubtree(
+          key: ValueKey(('goal-card', active[i].id)),
+          child: Entrance.staggered(
+            play: true,
+            index: i,
+            child: GoalCard(goal: active[i]),
+          ),
         ),
     ], columns: columns);
   }

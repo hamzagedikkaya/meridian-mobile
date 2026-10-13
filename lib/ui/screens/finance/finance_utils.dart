@@ -4,10 +4,12 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/formats.dart';
 import '../../../core/session.dart';
+import '../../../l10n/app_l10n.dart';
 import '../../../data/providers.dart' show TxFilters;
 import '../../../models/account.dart';
 import '../../../models/date_utils.dart';
 import '../../../theme/entity_color.dart';
+import '../../widgets/day_header.dart';
 
 /// The İşlemler route with [filters] in its query — how Finance drills
 /// into a category, the uncategorized spending or a month.
@@ -117,12 +119,14 @@ String formatCurrencySums(List<CurrencySum> sums) => [
         ),
     ].join(' · ');
 
-/// The account new transactions start on, as this device remembers it
-/// ([PrefKeys.lastAccountId]); null without one (or without preferences, in
-/// tests).
+/// The account the user made the default on this device ("Varsayılan
+/// hesap", [PrefKeys.defaultAccountId]); null without one (or without
+/// preferences, in tests). The last account used is kept apart
+/// ([PrefKeys.lastAccountId]): saving a transaction elsewhere never moves
+/// the default.
 int? defaultAccountId(WidgetRef ref) {
   try {
-    return ref.read(sharedPrefsProvider).getInt(PrefKeys.lastAccountId);
+    return ref.read(sharedPrefsProvider).getInt(PrefKeys.defaultAccountId);
   } catch (_) {
     return null;
   }
@@ -134,12 +138,52 @@ void setDefaultAccountId(WidgetRef ref, int? id, {int? unless}) {
   try {
     final prefs = ref.read(sharedPrefsProvider);
     if (id != null) {
-      prefs.setInt(PrefKeys.lastAccountId, id);
+      prefs.setInt(PrefKeys.defaultAccountId, id);
     } else if (unless != null &&
-        prefs.getInt(PrefKeys.lastAccountId) == unless) {
-      prefs.remove(PrefKeys.lastAccountId);
+        prefs.getInt(PrefKeys.defaultAccountId) == unless) {
+      prefs.remove(PrefKeys.defaultAccountId);
     }
   } catch (_) {
     // No preferences (a test without them): nothing to remember.
   }
+}
+
+/// The accounts a new transaction may start on, best first: the default
+/// the user chose, then the one the last transaction was saved on. The
+/// caller takes the first it can still offer (an archived default falls
+/// through to the last one used).
+List<int> preferredAccountIds(WidgetRef ref) {
+  try {
+    final prefs = ref.read(sharedPrefsProvider);
+    return [
+      ?prefs.getInt(PrefKeys.defaultAccountId),
+      ?prefs.getInt(PrefKeys.lastAccountId),
+    ];
+  } catch (_) {
+    return const [];
+  }
+}
+
+/// A day's heading in a transaction history — İşlemler, an account's —
+/// which pages back through years: a day of another year says which
+/// ("Pazartesi · 29 Eylül 2025"); this year's read as everywhere else.
+DayHeader historyDayHeader(
+  BuildContext context,
+  DateTime day, {
+  required DateTime today,
+  String? trailing,
+}) {
+  if (day.year == today.year) {
+    return DayHeader.forDay(context, day, today: today, trailing: trailing);
+  }
+  final l = context.l10n;
+  final name = switch (dayDelta(day, now: today)) {
+    -1 => l.dayYesterday,
+    1 => l.dayTomorrow,
+    _ => formatWeekday(day),
+  };
+  return DayHeader(
+    label: '$name · ${formatDate(day, withYear: true)}',
+    trailing: trailing,
+  );
 }

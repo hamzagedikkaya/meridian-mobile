@@ -6,13 +6,15 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../../core/api.dart';
 import '../../../../core/formats.dart';
 import '../../../../core/haptics.dart';
-import '../../../../core/session.dart';
 import '../../../../core/turkish_case.dart';
 import '../../../../data/actions.dart';
 import '../../../../data/current_day.dart';
 import '../../../../data/data_scope.dart';
 import '../../../../data/deferred_deletes.dart';
 import '../../../../data/providers.dart';
+import '../../../../data/recent_changes.dart';
+import '../../../../data/repository.dart';
+import '../../../../data/sync.dart';
 import '../../../../l10n/app_l10n.dart';
 import '../../../../models/account.dart';
 import '../../../../models/home.dart';
@@ -30,6 +32,7 @@ import '../../../widgets/choice_wrap.dart';
 import '../../../widgets/nok_chip.dart';
 import '../../../widgets/nok_sheet.dart';
 import '../../../widgets/primary_button.dart';
+import '../../finance/finance_utils.dart' show preferredAccountIds;
 import '../../finance/transaction_form_screen.dart' as tx_form;
 
 /// Quick add (design-analysis §7.3): one line that becomes a task, an
@@ -136,6 +139,27 @@ class _QuickCaptureSheetState extends ConsumerState<_QuickCaptureSheet> {
   /// What the line will become: the type picked, else the guess.
   QuickAddKind? get _resolved => _kind ?? guessQuickAddKind(_controller.text);
 
+  /// What a save's confirmation needs, kept current while the sheet is
+  /// up: the sheet can be closed while a request is on its way (its close
+  /// button, back, a drag), and an answer that lands after that is still
+  /// named — with "Geri al" — on the screen it was opened from, when the
+  /// sheet's own context and ref are gone.
+  late AppL10n _l;
+  late DeferredDeletes _deletes;
+  late MeridianRepository _repo;
+  late HabitActions _habitActions;
+  late DataSync _sync;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    _l = context.l10n;
+    _deletes = ref.read(deferredDeletesProvider.notifier);
+    _repo = ref.read(repositoryProvider);
+    _habitActions = ref.read(habitActionsProvider);
+    _sync = ref.read(dataSyncProvider);
+  }
+
   @override
   void dispose() {
     _controller.dispose();
@@ -172,11 +196,15 @@ class _QuickCaptureSheetState extends ConsumerState<_QuickCaptureSheet> {
   /// Closes the sheet and names what was saved, with "Geri al" and
   /// "Düzenle" when there are ones — on the screen's messenger, above its
   /// capture bar.
+  ///
+  /// The sheet already closed (an answer that came after it was), the
+  /// screen still says what was saved.
   void _done(_Saved saved) {
-    final l = context.l10n;
+    final l = _l;
     final opener = widget.opener;
     final undo = saved.undo;
     final edit = saved.edit;
+    if (!mounted && !opener.mounted) return;
     showAppSnack(
       opener.mounted ? opener : context,
       saved.message,
@@ -190,8 +218,13 @@ class _QuickCaptureSheetState extends ConsumerState<_QuickCaptureSheet> {
       secondaryLabel: undo != null && edit != null ? l.actionEdit : null,
       onSecondary: undo != null ? edit : null,
     );
-    Navigator.of(context).pop();
+    if (mounted) Navigator.of(context).pop();
   }
+
+  /// Rows the line created grow in and are washed where they land (§5.4),
+  /// as from any other add.
+  void _noteCreated(DataScope scope, int id) =>
+      _sync.noteChange(scope, id, ChangeKind.inserted);
 
   // --- Sending -------------------------------------------------------------------
 
@@ -241,10 +274,20 @@ class _QuickCaptureSheetState extends ConsumerState<_QuickCaptureSheet> {
     };
     setState(() => _busy = true);
     try {
-      final result = await ref
-          .read(repositoryProvider)
-          .quickCapture(text, asTodo: asTodo);
-      if (!mounted) return;
+      final result = await _repo.quickCapture(text, asTodo: asTodo);
+      if (result.saved) {
+        switch (result.capturedType) {
+          case 'todo' when result.todo != null:
+            _noteCreated(DataScope.todos, result.todo!.id);
+          case 'transaction' when result.transaction != null:
+            _noteCreated(DataScope.transactions, result.transaction!.id);
+        }
+      }
+      if (!mounted) {
+        // Closed while it was on its way: what was saved is still said.
+        if (result.saved) _done(_savedCapture(_l, result, counts));
+        return;
+      }
       if (!result.saved) {
         Haptics.tick();
         final suggestion = result.suggestion;
@@ -278,12 +321,13 @@ class _QuickCaptureSheetState extends ConsumerState<_QuickCaptureSheet> {
     }
     setState(() => _busy = true);
     try {
-      final todo = await ref
-          .read(repositoryProvider)
-          .createTodo(TodoInput(title: text, dueDate: _taskDay()));
-      if (!mounted) return;
-      Haptics.confirm();
-      _done(_savedTodo(l, todo));
+      final todo = await _repo.createTodo(
+        TodoInput(title: text, dueDate: _taskDay()),
+      );
+      _noteCreated(DataScope.todos, todo.id);
+      if (mounted) Haptics.confirm();
+      // Closed while it was on its way, it is still said on the screen.
+      _done(_savedTodo(_l, todo));
     } catch (e) {
       if (!mounted) return;
       Haptics.reject();
@@ -341,9 +385,12 @@ class _QuickCaptureSheetState extends ConsumerState<_QuickCaptureSheet> {
         DataScope.accounts,
         (a) => a.id,
       );
-      final last = _lastAccountId();
-      for (final a in offered) {
-        if (a.id == last) return (known: true, account: a);
+      // The user's default, else the last account used: the first of
+      // them still offered.
+      for (final id in preferredAccountIds(ref)) {
+        for (final a in offered) {
+          if (a.id == id) return (known: true, account: a);
+        }
       }
       return (
         known: true,
@@ -353,16 +400,6 @@ class _QuickCaptureSheetState extends ConsumerState<_QuickCaptureSheet> {
       return (known: false, account: null);
     } finally {
       sub.close();
-    }
-  }
-
-  /// The account the last transaction was saved on, as stored on this
-  /// device; null when none is (or the store is not there, as in tests).
-  int? _lastAccountId() {
-    try {
-      return ref.read(sharedPrefsProvider).getInt(PrefKeys.lastAccountId);
-    } catch (_) {
-      return null;
     }
   }
 
@@ -391,11 +428,16 @@ class _QuickCaptureSheetState extends ConsumerState<_QuickCaptureSheet> {
   }
 
   /// Event suggestion: hand it to the event form; once saved, done.
+  ///
+  /// The form is opened from the screen quick add was opened on: its
+  /// "eklendi" is said there, above the capture bar — the sheet's own
+  /// context sees no bar (`snackMarginFor`), and is gone by then.
   Future<void> _addAsEvent(
     Future<bool> Function(BuildContext, EventSuggestion) open,
     EventSuggestion suggestion,
   ) async {
-    final saved = await open(context, suggestion);
+    final opener = widget.opener;
+    final saved = await open(opener.mounted ? opener : context, suggestion);
     if (saved && mounted) Navigator.of(context).pop();
   }
 
@@ -549,8 +591,8 @@ class _QuickCaptureSheetState extends ConsumerState<_QuickCaptureSheet> {
   ///
   /// What it needs is read now: the sheet is gone by the time it runs.
   VoidCallback _undoDelete(AppL10n l, DeletedRecord record) {
-    final deletes = ref.read(deferredDeletesProvider.notifier);
-    final repo = ref.read(repositoryProvider);
+    final deletes = _deletes;
+    final repo = _repo;
     final opener = widget.opener;
     final deleteIt = record.scope == DataScope.todos
         ? () => repo.deleteTodo(record.id)
@@ -572,8 +614,8 @@ class _QuickCaptureSheetState extends ConsumerState<_QuickCaptureSheet> {
   /// "Geri al" on a habit check-in: the day's count goes back to [before]
   /// (`PUT /habits/:id/logs/:date`), on every screen at once.
   VoidCallback _undoHabit(int habitId, int before, DateTime? day) {
-    final l = context.l10n;
-    final actions = ref.read(habitActionsProvider);
+    final l = _l;
+    final actions = _habitActions;
     final opener = widget.opener;
     return () {
       actions.setToday(habitId, before, day: day).catchError((Object _) {

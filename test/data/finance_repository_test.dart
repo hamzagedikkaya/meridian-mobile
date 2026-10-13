@@ -8,6 +8,9 @@ import 'package:dio/dio.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:meridian_mobile/core/api.dart';
+import 'package:meridian_mobile/data/data_scope.dart';
+import 'package:meridian_mobile/data/deferred_deletes.dart';
+import 'package:meridian_mobile/data/recent_changes.dart';
 import 'package:meridian_mobile/data/providers.dart';
 import 'package:meridian_mobile/data/repository.dart';
 import 'package:meridian_mobile/models/account.dart';
@@ -194,6 +197,37 @@ void main() {
   });
 
   group('transactions', () {
+    test('a transaction created, edited or brought back here is noted, so '
+        'its row animates (§4.29, §5.4)', () async {
+      final changes = container.read(recentChangesProvider.notifier);
+      final saved = await repo.createTransaction(TransactionInput(
+        kind: 'expense',
+        amountCents: 2500,
+        date: DateTime(2026, 10, 4),
+        accountId: 1,
+      ));
+      expect(changes.of(DataScope.transactions, saved.id),
+          ChangeKind.inserted);
+
+      final before = Transaction.fromJson(transactionJson());
+      await repo.updateTransaction(
+        before,
+        TransactionInput(
+          kind: before.kind,
+          amountCents: 999,
+          date: before.date,
+          accountId: before.account.id,
+        ),
+      );
+      expect(changes.of(DataScope.transactions, 316), ChangeKind.updated);
+
+      const record = (scope: DataScope.transactions, id: 317);
+      final deletes = container.read(deferredDeletesProvider.notifier);
+      deletes.stage(record, send: () async {});
+      deletes.undo(record);
+      expect(changes.of(DataScope.transactions, 317), ChangeKind.restored);
+    });
+
     test('uncategorized asks for category_id=none; incoming transfers only '
         'come with an account', () async {
       recordQueries('/transactions', (_) => {
@@ -301,6 +335,47 @@ void main() {
   });
 
   group('categories', () {
+    group('moving a category\'s transactions', () {
+      void twoToMove() => api
+        ..on('GET /transactions', {
+          'transactions': [transactionJson(), transactionJson(id: 317)],
+          'meta': const {
+            'total_count': 2,
+            'page': 1,
+            'page_limit': 50,
+            'filtered_income_cents': 0,
+            'filtered_expense_cents': 0,
+          },
+        })
+        ..on('PATCH /transactions/316',
+            {'error': 'not_found', 'code': 'not_found'}, status: 404);
+
+      test('a transaction deleted meanwhile is skipped', () async {
+        twoToMove();
+        api
+          ..on('PATCH /transactions/317', transactionJson(id: 317))
+          ..on('GET /finance_categories/8',
+              {'category': categoryUsageJson(id: 8)});
+        expect(await repo.moveCategoryTransactions(5, 8), 1);
+      });
+
+      test('the category to move to deleted meanwhile stops the move',
+          () async {
+        twoToMove();
+        api
+          ..on('PATCH /transactions/317',
+              {'error': 'not_found', 'code': 'not_found'}, status: 404)
+          ..on('GET /finance_categories/8',
+              {'error': 'not_found', 'code': 'not_found'}, status: 404);
+        await expectLater(
+          repo.moveCategoryTransactions(5, 8),
+          throwsA(isA<CategoryMoveFailed>()
+              .having((e) => e.moved, 'moved', 0)
+              .having((e) => e.total, 'total', 2)),
+        );
+      });
+    });
+
     test('the detail says what a delete would touch', () async {
       api.on('GET /finance_categories/5', {
         'category': categoryUsageJson(children: 1, transactions: 47, budgets: 1),

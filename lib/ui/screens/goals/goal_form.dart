@@ -253,6 +253,16 @@ class _GoalFormScreenState extends ConsumerState<GoalFormScreen> {
 
   bool get _financial => _type == 'financial';
 
+  /// What "Mevcut ilerleme" shows: what was entered, or — for a linked
+  /// goal made one logged by hand (unlinked, or another type) — the value
+  /// it keeps (contract: the habit's count or the balance stays the
+  /// goal's progress), never a 0 it does not have.
+  double? get _shownCurrent {
+    final before = _editing;
+    if (_current != null || before == null || before.isManual) return _current;
+    return before.currentValue;
+  }
+
   /// The name of the habit [_related] points at, from the habits loaded —
   /// for a link given up front (`initialHabitId`), which comes without it.
   String? get _linkedHabitName {
@@ -323,11 +333,16 @@ class _GoalFormScreenState extends ConsumerState<GoalFormScreen> {
     final now = ref.read(currentDayProvider);
     final initial = _deadline ?? _monthsAhead(now, 1);
     final first = initial.isBefore(now) ? initial : now;
+    // Ten years ahead — or further, for a deadline set further out on the
+    // web: the picker needs its selected day within its range.
+    final tenYears = DateTime(now.year + 10);
     final picked = await showDatePicker(
       context: context,
       initialDate: initial,
       firstDate: DateTime(first.year - 1),
-      lastDate: DateTime(now.year + 10),
+      lastDate: initial.isAfter(tenYears)
+          ? DateTime(initial.year + 1)
+          : tenYears,
     );
     if (picked != null) setState(() => _deadline = picked);
   }
@@ -537,7 +552,7 @@ class _GoalFormScreenState extends ConsumerState<GoalFormScreen> {
           const SizedBox(height: Gap.lg),
           GoalValueField(
             label: l.goalsFormCurrentValue,
-            value: _current,
+            value: _shownCurrent,
             kind: GoalValueKind.count(_unit.text.trim()),
             errorText: _currentError,
             onChanged: (v) => setState(() {

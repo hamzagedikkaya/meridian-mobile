@@ -19,6 +19,7 @@ import 'package:meridian_mobile/ui/screens/habits/habits_screen.dart';
 import 'package:meridian_mobile/ui/screens/habits/widgets/counter_pill.dart';
 import 'package:meridian_mobile/ui/widgets/check_pop.dart';
 
+import '../support/app_harness.dart';
 import '../support/fake_api.dart';
 
 Widget _app(FakeApi api, Widget home) => ProviderScope(
@@ -296,6 +297,54 @@ void main() {
         });
       }
     }
+  });
+
+  group('the log sheet for a day other than today', () {
+    Widget opener(DateTime date) => Scaffold(
+      body: Builder(
+        builder: (context) => Center(
+          child: TextButton(
+            onPressed: () =>
+                showHabitLogSheet(context, habitId: 7, date: date),
+            child: const Text('open'),
+          ),
+        ),
+      ),
+    );
+
+    testWidgets('when /habits cannot be read: why, and a retry — never '
+        '"Kayıt bulunamadı" (§7.15)', (tester) async {
+      final api = FakeApi()..failNetwork('GET /habits');
+      await pumpWithRoutes(
+        tester,
+        api,
+        home: opener(DateTime(2026, 10, 3)),
+      );
+      await tester.tap(find.text('open'));
+      await settleFrames(tester);
+      expect(find.text('Kayıt bulunamadı'), findsNothing);
+      expect(find.text('Tekrar dene'), findsOneWidget);
+
+      api.on('GET /habits', _habits());
+      await tester.tap(find.text('Tekrar dene'));
+      await settleFrames(tester);
+      expect(find.text('Kaydet'), findsOneWidget);
+    });
+
+    testWidgets('its check is read with its date, not as today', (
+      tester,
+    ) async {
+      final api = FakeApi()..on('GET /habits', _habits());
+      await pumpWithRoutes(
+        tester,
+        api,
+        home: opener(DateTime(2026, 10, 3)),
+      );
+      await tester.tap(find.text('open'));
+      await settleFrames(tester);
+      final check = tester.widget<CheckPop>(find.byType(CheckPop));
+      expect(check.semanticLabel, 'Koşu, 3 Ekim 2026, yapıldı');
+    });
   });
 
   testWidgets('a ring says what it is to a screen reader', (tester) async {

@@ -153,6 +153,39 @@ void main() {
       expectGuess('-250 yarın market', QuickAddKind.expense);
     });
 
+    test('the 2026-10-05 money rules: ₺ after the sign, a "- " list item, '
+        'a phone number', () {
+      expectGuess('-₺250 kahve', QuickAddKind.expense);
+      expectGuess('- ₺250 kahve', QuickAddKind.expense);
+      expectGuess('-₺ 250 kahve', QuickAddKind.expense);
+      expectGuess('+₺1.500 maaş', QuickAddKind.income);
+      expectGuess('+ ₺1500 maaş', QuickAddKind.income);
+      expectGuess('−₺85 kahve', QuickAddKind.expense);
+      expectGuess('-₺250 yarın kira', QuickAddKind.expense);
+      expectGuess('- 250 TL kahve', QuickAddKind.expense);
+      // A plain "-" then a space is a list item: a todo.
+      expectGuess('- 3 yumurta al', QuickAddKind.task);
+      expectGuess('- 250 kahve', QuickAddKind.task);
+      expectGuess('- 0 kahve', QuickAddKind.task);
+      // Another group of digits after the number: a phone number, a todo.
+      expectGuess('+90 532 123 45 67 ara', QuickAddKind.task);
+      expectGuess('+90 (532) 123 45 67', QuickAddKind.task);
+      expectGuess('+90 532 kahve', QuickAddKind.task);
+      expectGuess('-250 532 kahve', QuickAddKind.task);
+      expectGuess('-12,50 2 adet', QuickAddKind.task);
+      expectGuess('-45 2 simit', QuickAddKind.task);
+      expectGuess('+1500 2026 maaşı', QuickAddKind.task);
+    });
+
+    test('day words joined by "-" or "/" are day words', () {
+      expectGuess('perşembe-cuma', QuickAddKind.event);
+      expectGuess('cuma/cumartesi', QuickAddKind.event);
+      expectGuess('salı/çarşamba', QuickAddKind.event);
+      expectGuess('yarın-akşam toplantı', QuickAddKind.event);
+      expectGuess('sunday-brunch', QuickAddKind.event);
+      expectGuess('tomorrow/today', QuickAddKind.event);
+    });
+
     test('habit: and alışkanlık:, any case, with or without Turkish '
         'letters', () {
       expectGuess('habit: run', QuickAddKind.habit);
@@ -221,6 +254,14 @@ void main() {
       expectSplit('250₺ kira', 25000, 'kira');
       expectSplit('0,250 çay', 25, 'çay');
       expectSplit('1,250.50 rent', 125050, 'rent');
+    });
+
+    test('a lira sign before the number goes with it', () {
+      expectSplit('-₺250 kahve', 25000, 'kahve');
+      expectSplit('−₺85 kahve', 8500, 'kahve');
+      expectSplit('+₺1.500 maaş', 150000, 'maaş');
+      expectSplit('₺85 kahve', 8500, 'kahve');
+      expectSplit('- ₺250 kahve', 25000, 'kahve');
     });
 
     test('no number, or one that cannot be read', () {

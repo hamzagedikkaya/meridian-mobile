@@ -119,8 +119,20 @@ abstract class AppL10n {
   /// The search page's name: the search icon's tooltip (WP-16).
   String get titleSearch;
 
-  /// "Ödendi" taken back: the payment and the due date could not be put back.
+  /// "Ödendi" taken back: the due date went back, but the expense the
+  /// payment recorded could not be deleted.
   String get subscriptionUndoFailed;
+
+  /// "Ödendi" taken back: the due date could not be put back, so nothing
+  /// changed — the payment is still recorded.
+  String get subscriptionUndoNothingChanged;
+
+  /// "Ödendi" taken back: the due date's answer was lost, so it may be
+  /// back — while the payment is still recorded.
+  String get subscriptionUndoUnsure;
+
+  /// "Atla" taken back: the due date could not be put back.
+  String get subscriptionSkipUndoFailed;
   // endregion
 
   // --- Search ----------------------------------------------------------------
@@ -333,6 +345,10 @@ abstract class AppL10n {
   String get todayAllHabitsDone;
   String get todayNoHabitsYet;
   String get todayNoGoalsYet;
+
+  /// Today's goals slot when no goal is active and the account is not new:
+  /// its goals may all be achieved or let go.
+  String get todayNoActiveGoals;
   String get todayOpenTodos;
   String get todayNoOpenTodos;
   String get todayTodosFailed;
@@ -487,13 +503,17 @@ abstract class AppL10n {
   /// A todo's due day, with its time when it has one ("Yarın · 18:00").
   String todoDue(DateTime day, String? time);
 
-  /// Screen readers: a todo row — its title, when it is due, and whether it
-  /// is overdue or done.
+  /// Screen readers: a todo row — its title, when it is due, whether it
+  /// is overdue or done, a high or urgent [priority] (the bar's colour
+  /// says it on screen), its [list] and whether it has [notes] (§4.6).
   String todoSemantics(
     String title, {
     String? due,
     required bool overdue,
     required bool done,
+    String priority = 'medium',
+    String? list,
+    bool notes = false,
   });
   String get todoAdd;
   String get todoAddInline;
@@ -625,8 +645,19 @@ abstract class AppL10n {
   String eventSeriesEnded(String title);
   String get eventLoadFailed;
 
-  /// Screen readers: an event row — its title, when, and where.
-  String eventSemantics(String title, {required String when, String? where});
+  /// Screen readers: an event row — its title, when, how it repeats
+  /// ([repeat]), where, and whether it is over ([ended]).
+  String eventSemantics(
+    String title, {
+    required String when,
+    String? where,
+    String? repeat,
+    bool ended = false,
+  });
+
+  /// A recurring event whose rule the row does not have (list payloads
+  /// carry only `recurring`), or one set up on the web: its meta line.
+  String get eventRepeats;
 
   /// The Agenda tab's views (§7.4): its chips, one at a time.
   String get agendaViewUpcoming;
@@ -801,6 +832,14 @@ abstract class AppL10n {
   String get txSaved;
   String get txUpdated;
   String get txSaveFailed;
+
+  /// A new transaction (or a copy) whose answer was lost: the server may
+  /// have saved it, so it is not offered again straight away.
+  String get txSaveMaybe;
+
+  /// A new account or subscription whose answer was lost: it may have been
+  /// saved, so the form waits for the list before offering it again.
+  String get financeSaveMaybe;
 
   /// A transaction's sheet: the other row of its linked pair (the web saves
   /// an expense on one account with an income on another), and what
@@ -1388,6 +1427,17 @@ abstract class AppL10n {
   String get habitsDayStateNone;
   String get habitsLegendToday;
   String get habitsDayCannotLog;
+  /// A calendar day whose log was not read (further back than the history
+  /// read, or while the detail loads): it is not set from a guess.
+  String get habitsDayUnknown;
+  /// The card's long-press action, as a screen reader names it after
+  /// "double-tap and hold to": a verb phrase, not an instruction.
+  String get habitLogLongPressHint;
+  /// The perfect-day history without a running streak: its record only.
+  String habitsPerfectRecordOnly(int record);
+  /// A stat tile with nothing to count yet, for a screen reader
+  /// ("Seri: henüz yok").
+  String habitsStatNone(String stat);
   String habitsStartedOn(String date);
   /// The detail's cadence pill: "Günlük · 8/gün", "Haftalık · 3 gün".
   String habitsCadenceDaily(int target);
@@ -1523,6 +1573,8 @@ abstract class AppL10n {
 
   /// The goal card's long-press action for a goal logged by hand.
   String get goalsAddProgress;
+  /// A goal's habit is archived: it cannot be logged from the goal.
+  String get goalsHabitArchived;
 
   /// Deadline chips: "1 ay", "3 ay", "6 ay"; and the one that picks a date.
   String goalsDeadlineMonths(int months);
@@ -1559,6 +1611,35 @@ abstract class AppL10n {
   String get journalUpdated;
   String get journalAdded;
   String get journalSaveFailed;
+
+  /// The editor was closed while its save was on its way, and it failed:
+  /// the text is a draft, which "Aç" ([journalOpenDraft]) brings back.
+  String get journalSaveFailedKept;
+  String get journalOpenDraft;
+
+  /// An edit's save answered 404 after the editor closed: the entry is
+  /// gone, the text is the new entry's draft.
+  String get journalGoneDraftKept;
+
+  /// A new entry's save got no answer in time and the journal could not
+  /// tell whether it arrived: in the editor, beside [journalSaveAnyway]
+  /// (send it without looking; Kaydet looks first).
+  String get journalMaybeSaved;
+  String get journalSaveAnyway;
+
+  /// [journalMaybeSaved], once the editor has closed: the next "Kaydet"
+  /// looks first.
+  String get journalMaybeSavedLater;
+
+  /// The journal list stops at the server's newest 180 of a range.
+  String journalNewestShown(int count);
+  String get journalSearchOlder;
+
+  /// A link tapped in a web entry: its address, to copy.
+  String get journalLinkTitle;
+  String get journalLinkCopy;
+  String get journalLinkCopied;
+
   /// A web entry with formatting the plain editor cannot keep.
   String journalRichNotice(String formatting);
   String get journalRichConfirmTitle;
@@ -1695,6 +1776,10 @@ abstract class AppL10n {
 
   /// A profile change that never got an answer.
   String get profileSaveFailed;
+
+  /// A password change that got no answer in time: it may have gone
+  /// through.
+  String get profilePasswordMaybeChanged;
   String get profileOptionsFailed;
   String get profileCurrencyNote;
   String profileCurrencyConfirmTitle(String code);
@@ -1726,6 +1811,11 @@ abstract class AppL10n {
   String get serverUnverifiedBody;
   String get serverSaveAnyway;
   String get serverSaved;
+
+  /// A different address than the one in use: saving it signs this phone
+  /// out (the session belongs to the old server).
+  String get serverChangeSignsOut;
+  String get serverSavedSignIn;
 
   // Data: the management pages, each one row away (design-analysis §6.7).
   String get profileSectionData;

@@ -142,6 +142,13 @@ class _TransactionFormScreenState extends ConsumerState<TransactionFormScreen> {
   final _descCtrl = TextEditingController();
   final _noteCtrl = TextEditingController();
   bool _saving = false;
+
+  /// A new transaction's answer was lost (a send or receive timeout): the
+  /// server may have saved it — POST /transactions is not safe to repeat
+  /// (contract §1.8). "Kaydet" waits until the account list this was
+  /// noted against has been refetched (the write reported itself, so the
+  /// balances reload), and the form says to check first.
+  Fetched<List<Account>>? _unsureOver;
   bool _seeded = false;
 
   /// The keypad has made way for the description (and the note).
@@ -246,16 +253,6 @@ class _TransactionFormScreenState extends ConsumerState<TransactionFormScreen> {
   String get _currency => _account?.currency ?? 'TRY';
   int get _cents => _draft.minorUnits(_subunit);
 
-  /// The account the last transaction was saved on, as stored on this
-  /// device; null when none is (or the store is not there, as in tests).
-  int? _lastAccountId() {
-    try {
-      return ref.read(sharedPrefsProvider).getInt(PrefKeys.lastAccountId);
-    } catch (_) {
-      return null;
-    }
-  }
-
   void _rememberAccount(int id) {
     try {
       ref.read(sharedPrefsProvider).setInt(PrefKeys.lastAccountId, id);
@@ -304,8 +301,18 @@ class _TransactionFormScreenState extends ConsumerState<TransactionFormScreen> {
         return null;
       }
 
+      // The account asked for, else the user's default, else the last one
+      // used — the first of them still offered.
+      Account? preferred() {
+        for (final id in preferredAccountIds(ref)) {
+          final a = usable(id);
+          if (a != null) return a;
+        }
+        return null;
+      }
+
       final picked = usable(widget.initialAccountId) ??
-          usable(_lastAccountId()) ??
+          preferred() ??
           (offered.length == 1 ? offered.single : null);
       if (picked != null) {
         final cents = widget.initialAmountCents;
@@ -707,12 +714,19 @@ class _TransactionFormScreenState extends ConsumerState<TransactionFormScreen> {
             ?(field('finance_category') ?? field('finance_category_id')),
         'date': ?field('date'),
       };
+      final maybe = existing == null &&
+          refusal != null &&
+          refusal.isNetwork &&
+          refusal.mayHaveArrived;
       setState(() {
         _saving = false;
         _fieldErrors = placed;
+        if (maybe) _unsureOver = ref.read(accountsProvider).value;
         _error = placed.isNotEmpty
             ? null
-            : failureMessage(e, l, fallback: l.txSaveFailed);
+            : (maybe
+                ? l.txSaveMaybe
+                : failureMessage(e, l, fallback: l.txSaveFailed));
       });
     }
   }
@@ -856,7 +870,10 @@ class _TransactionFormScreenState extends ConsumerState<TransactionFormScreen> {
       actionLabel: _isEdit ? l.actionUpdate : l.actionSave,
       busy: _saving,
       dirty: dirty,
-      onAction: _submit,
+      // Held while a lost answer may still turn out to have been saved.
+      onAction: _unsureOver != null && identical(accounts.value, _unsureOver)
+          ? null
+          : _submit,
       errorText: _error,
       top: top,
       bottom: bottom,
@@ -1400,7 +1417,7 @@ class _BottomUpFormFrame extends StatefulWidget {
   final String actionLabel;
   final bool busy;
   final bool dirty;
-  final VoidCallback onAction;
+  final VoidCallback? onAction;
   final String? errorText;
   final Widget top;
   final Widget bottom;

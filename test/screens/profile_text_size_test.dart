@@ -21,8 +21,9 @@ import 'package:meridian_mobile/ui/screens/profile/profile_screen.dart';
 
 import '../support/app_fonts.dart';
 
-// A long name and e-mail, the longest values the rows hold.
-const _user = User(
+// A long name and e-mail, the longest values the rows hold; the weekly
+// review on [day] (0 Sunday … 6 Saturday).
+User _user([int day = 0]) => User(
   id: 9,
   displayName: 'Hamza Gedikkaya',
   initials: 'HG',
@@ -34,7 +35,7 @@ const _user = User(
   timezone: 'Buenos Aires',
   timezoneIana: 'America/Argentina/Buenos_Aires',
   utcOffset: Duration(hours: -3),
-  weeklyReviewDay: 0,
+  weeklyReviewDay: day,
 );
 
 /// Every paragraph laid out now: none is cut short.
@@ -58,66 +59,93 @@ void main() {
 
   for (final locale in const [Locale('tr'), Locale('en')]) {
     for (final scale in const [1.0, 1.3, 1.5, 2.0]) {
-      testWidgets('${locale.languageCode} at ${scale}x: every row whole, top '
-          'to bottom', (tester) async {
-        tester.view.physicalSize = const Size(1080, 2340);
-        tester.view.devicePixelRatio = 3.0;
-        addTearDown(tester.view.resetPhysicalSize);
-        addTearDown(tester.view.resetDevicePixelRatio);
-        SharedPreferences.setMockInitialValues({
-          PrefKeys.serverUrl: 'http://meridian.test:3000',
-        });
-        final prefs = await SharedPreferences.getInstance();
-        await tester.pumpWidget(ProviderScope(
-          overrides: [
-            sharedPrefsProvider.overrideWithValue(prefs),
-            currentUserProvider.overrideWithValue(_user),
-            apiHealthProvider.overrideWith(
-              (ref) async => (ok: true, latencyMs: 38, version: '1.0.0'),
-            ),
-          ],
-          child: MaterialApp(
-            theme: buildTheme(Brightness.dark),
-            locale: locale,
-            localizationsDelegates: const [
-              AppL10n.delegate,
-              GlobalMaterialLocalizations.delegate,
-              GlobalWidgetsLocalizations.delegate,
-              GlobalCupertinoLocalizations.delegate,
-            ],
-            supportedLocales: AppL10n.supportedLocales,
-            builder: (context, child) => MediaQuery(
-              data: MediaQuery.of(context)
-                  .copyWith(textScaler: TextScaler.linear(scale)),
-              child: child!,
-            ),
-            home: const ProfileScreen(),
-          ),
-        ));
-        await tester.pumpAndSettle();
-        expect(tester.takeException(), isNull);
-
-        // A screenful at a time, down to the end of the list.
-        final position = tester
-            .state<ScrollableState>(find.byType(Scrollable).first)
-            .position;
-        var screens = 0;
-        while (true) {
-          _expectNothingCut(tester, 'at ${position.pixels.round()} dp');
-          if (position.pixels >= position.maxScrollExtent) break;
-          position.jumpTo(
-            (position.pixels + position.viewportDimension * 0.8)
-                .clamp(0, position.maxScrollExtent),
-          );
-          await tester.pumpAndSettle();
-          expect(tester.takeException(), isNull);
-          expect(++screens, lessThan(40), reason: 'the list ends');
-        }
-        expect(
-          find.text(locale.languageCode == 'tr' ? 'Çıkış yap' : 'Sign out'),
-          findsOneWidget,
-        );
-      });
+      testWidgets(
+        '${locale.languageCode} at ${scale}x: every row whole, top '
+        'to bottom',
+        (tester) => _expectWhole(tester, locale, scale, 0),
+      );
     }
   }
+
+  // A long weekday beside "Haftalık değerlendirme", below the 1.3× stack:
+  // Android's Large (1.15×) and Largest (1.3×) font sizes on a 360 dp phone.
+  for (final day in const [1, 3, 4, 6]) {
+    for (final scale in const [1.15, 1.2, 1.3]) {
+      testWidgets(
+        'tr at ${scale}x, weekly review on day $day: the row is '
+        'whole',
+        (tester) => _expectWhole(tester, const Locale('tr'), scale, day),
+      );
+    }
+  }
+}
+
+Future<void> _expectWhole(
+  WidgetTester tester,
+  Locale locale,
+  double scale,
+  int day,
+) async {
+  tester.view.physicalSize = const Size(1080, 2340);
+  tester.view.devicePixelRatio = 3.0;
+  addTearDown(tester.view.resetPhysicalSize);
+  addTearDown(tester.view.resetDevicePixelRatio);
+  SharedPreferences.setMockInitialValues({
+    PrefKeys.serverUrl: 'http://meridian.test:3000',
+  });
+  final prefs = await SharedPreferences.getInstance();
+  await tester.pumpWidget(
+    ProviderScope(
+      overrides: [
+        sharedPrefsProvider.overrideWithValue(prefs),
+        currentUserProvider.overrideWithValue(_user(day)),
+        apiHealthProvider.overrideWith(
+          (ref) async => (ok: true, latencyMs: 38, version: '1.0.0'),
+        ),
+      ],
+      child: MaterialApp(
+        theme: buildTheme(Brightness.dark),
+        locale: locale,
+        localizationsDelegates: const [
+          AppL10n.delegate,
+          GlobalMaterialLocalizations.delegate,
+          GlobalWidgetsLocalizations.delegate,
+          GlobalCupertinoLocalizations.delegate,
+        ],
+        supportedLocales: AppL10n.supportedLocales,
+        builder: (context, child) => MediaQuery(
+          data: MediaQuery.of(
+            context,
+          ).copyWith(textScaler: TextScaler.linear(scale)),
+          child: child!,
+        ),
+        home: const ProfileScreen(),
+      ),
+    ),
+  );
+  await tester.pumpAndSettle();
+  expect(tester.takeException(), isNull);
+
+  // A screenful at a time, down to the end of the list.
+  final position = tester
+      .state<ScrollableState>(find.byType(Scrollable).first)
+      .position;
+  var screens = 0;
+  while (true) {
+    _expectNothingCut(tester, 'at ${position.pixels.round()} dp');
+    if (position.pixels >= position.maxScrollExtent) break;
+    position.jumpTo(
+      (position.pixels + position.viewportDimension * 0.8).clamp(
+        0,
+        position.maxScrollExtent,
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(tester.takeException(), isNull);
+    expect(++screens, lessThan(40), reason: 'the list ends');
+  }
+  expect(
+    find.text(locale.languageCode == 'tr' ? 'Çıkış yap' : 'Sign out'),
+    findsOneWidget,
+  );
 }

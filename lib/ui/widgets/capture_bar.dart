@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../../l10n/app_l10n.dart';
 import '../../theme/app_colors.dart';
 import '../../theme/app_metrics.dart';
+import 'app_snackbar.dart';
 import 'pressable_scale.dart';
 
 /// Marks the part of the tree that has a [CaptureBar] at its bottom, so a
@@ -34,7 +35,17 @@ class CaptureBarLayout extends StatelessWidget {
       child: Stack(
         children: [
           Positioned.fill(child: body),
-          Positioned(left: 0, right: 0, bottom: 0, child: bar),
+          Positioned(
+            left: 0,
+            right: 0,
+            bottom: 0,
+            // Snackbars shown from anywhere float over it while it is on
+            // view (`snackMarginFor`).
+            child: SnackClearance(
+              lift: SnackClearance.overCaptureBar,
+              child: bar,
+            ),
+          ),
         ],
       ),
     );

@@ -5,6 +5,7 @@ library;
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:go_router/go_router.dart';
 import 'package:intl/date_symbol_data_local.dart';
 import 'package:meridian_mobile/ui/screens/finance/categories_screen.dart';
 
@@ -483,5 +484,110 @@ void main() {
       'income:Diğer gelir',
     ]);
     expect(find.text('Hazır kategoriler eklendi'), findsOneWidget);
+  });
+
+  testWidgets('a starter set that half failed offers the retry it asks '
+      'for', (tester) async {
+    tallPhone(tester);
+    final api = FakeApi()
+      ..on('GET /finance_categories', {'categories': const []})
+      ..blip('POST /finance_categories');
+    await pumpFinance(tester, api, const CategoriesScreen());
+    await tester.tap(find.text('Hazır kategorileri ekle'));
+    await settleFrames(tester);
+    expect(api.bodiesOf('POST /finance_categories'), hasLength(10));
+    expect(find.text('Kategorilerin bir kısmı eklenemedi, tekrar dene'),
+        findsOneWidget);
+
+    // The set runs again (the names already there are refused as taken,
+    // and skipped); this time every one goes through.
+    await tester.tap(find.text('Tekrar dene'));
+    await settleFrames(tester);
+    final retried = api.bodiesOf('POST /finance_categories').skip(10);
+    expect([for (final body in retried) (body as Map)['name']],
+        contains('Market'));
+    expect(find.text('Hazır kategoriler eklendi'), findsOneWidget);
+  });
+
+  group('the new-category sheet with the keyboard up', () {
+    // 360×780 dp, a 24 dp status bar, a 300 dp keyboard (its top at 480).
+    const keyboardTop = 780.0 - 300;
+    void phoneWithKeyboard(WidgetTester tester, double textScale) {
+      tester.view.physicalSize = const Size(360, 780) * 3;
+      tester.view.devicePixelRatio = 3.0;
+      tester.view.padding = const FakeViewPadding(top: 24 * 3);
+      tester.view.viewInsets = const FakeViewPadding(bottom: 300 * 3);
+      tester.platformDispatcher.textScaleFactorTestValue = textScale;
+      addTearDown(tester.view.reset);
+      addTearDown(tester.platformDispatcher.clearTextScaleFactorTestValue);
+    }
+
+    /// Eight expense categories: the colour row is far down the form.
+    Map<String, dynamic> manyRoots() => {
+          'categories': [
+            for (var i = 0; i < 8; i++)
+              categoryJson(id: 20 + i, name: 'Kök $i', position: i),
+          ],
+        };
+
+    for (final scale in [1.0, 2.0]) {
+      testWidgets('at ${scale}x: "Ekle" stays above the keyboard, and ✓ puts '
+          'the keyboard away instead of saving', (tester) async {
+        phoneWithKeyboard(tester, scale);
+        final api = FakeApi()..on('GET /finance_categories', manyRoots());
+        await pumpFinance(tester, api, const CategoriesScreen());
+        await tester.tap(find.byType(FloatingActionButton));
+        await settleFrames(tester);
+        expect(tester.takeException(), isNull, reason: 'nothing overflows');
+        final add = _inSheet(find.text('Ekle'));
+        expect(add.hitTestable(), findsOneWidget);
+        expect(tester.getRect(find.byType(FilledButton).last).bottom,
+            lessThanOrEqualTo(keyboardTop));
+
+        await tester.enterText(_inSheet(find.byType(TextField)), 'Ekmek');
+        await tester.testTextInput.receiveAction(TextInputAction.done);
+        await settleFrames(tester);
+        expect(api.bodiesOf('POST /finance_categories'), isEmpty,
+            reason: 'the parent and colour are still to choose');
+        expect(find.byType(BottomSheet), findsOneWidget);
+      });
+    }
+  });
+
+  testWidgets('a create in flight is sent once: ✓ after "Ekle" neither '
+      'sends it again nor closes the page under the sheet', (tester) async {
+    tallPhone(tester);
+    final api = FakeApi()..hold('POST /finance_categories');
+    await pumpFinance(
+      tester,
+      api,
+      Builder(
+        builder: (context) => Scaffold(
+          body: Center(
+            child: TextButton(
+              onPressed: () => context.push('/finance/categories'),
+              child: const Text('open'),
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.tap(find.text('open'));
+    await settleFrames(tester);
+    await tester.tap(find.byType(FloatingActionButton));
+    await settleFrames(tester);
+    await tester.enterText(_inSheet(find.byType(TextField)), 'Ekmek');
+    await tester.tap(_inSheet(find.text('Ekle')));
+    await settleFrames(tester);
+    await tester.testTextInput.receiveAction(TextInputAction.done);
+    await settleFrames(tester);
+    expect(api.bodiesOf('POST /finance_categories'), hasLength(1));
+
+    api.release('POST /finance_categories');
+    await settleFrames(tester);
+    expect(api.bodiesOf('POST /finance_categories'), hasLength(1));
+    expect(find.byType(BottomSheet), findsNothing);
+    expect(find.byType(CategoriesScreen), findsOneWidget,
+        reason: 'Kategoriler is still open');
   });
 }

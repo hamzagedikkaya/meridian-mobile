@@ -16,7 +16,7 @@ const journalMoodEmojis = <String, String>{
   'good': '🙂',
   'neutral': '😐',
   'bad': '🙁',
-  'awful': '😢',
+  'awful': '😞',
 };
 
 /// Prefer the server-provided emoji, fall back to the local map.

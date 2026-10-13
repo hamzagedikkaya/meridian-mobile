@@ -404,11 +404,26 @@ void main() {
         locale: locale,
       );
       expect(tester.takeException(), isNull);
-      await expectLater(tester, meetsGuideline(androidTapTargetGuideline));
-      await expectLater(tester, meetsGuideline(labeledTapTargetGuideline));
-      await tester.drag(find.byType(CustomScrollView), const Offset(0, -2000));
-      await tester.pumpAndSettle();
-      expect(tester.takeException(), isNull);
+      // The guidelines skip whatever touches the edge of the view, so they
+      // run again at each step down to the end of the screen: every target
+      // below the fold is measured too.
+      final position = tester
+          .state<ScrollableState>(find.descendant(
+            of: find.byType(CustomScrollView),
+            matching: find.byType(Scrollable),
+          ).first)
+          .position;
+      for (var step = 0; step < 30; step++) {
+        await expectLater(tester, meetsGuideline(androidTapTargetGuideline));
+        await expectLater(tester, meetsGuideline(labeledTapTargetGuideline));
+        if (position.pixels >= position.maxScrollExtent) break;
+        await tester.drag(
+            find.byType(CustomScrollView), const Offset(0, -250));
+        await tester.pumpAndSettle();
+        expect(tester.takeException(), isNull);
+      }
+      expect(position.pixels, position.maxScrollExtent,
+          reason: 'measured down to the end');
       handle.dispose();
     });
 
@@ -437,8 +452,9 @@ void main() {
       );
       // The amount is whole (",00" dropped, §3.7), never cut.
       expect(
-        _texts(tester).where((t) => t.contains('1.234.567') ||
-            t.contains('1,234,567')),
+        _texts(
+          tester,
+        ).where((t) => t.contains('1.234.567') || t.contains('1,234,567')),
         isNotEmpty,
       );
       expect(_texts(tester).where((t) => t.contains('567,00')), isEmpty);
@@ -602,9 +618,9 @@ void main() {
     for (var i = 0; i < 12; i++) {
       expect(tester.takeException(), isNull);
       expect(
-        _texts(tester).where(
-          (t) => t != 'Başlayalım · 0/4' && zeros.hasMatch(t),
-        ),
+        _texts(
+          tester,
+        ).where((t) => t != 'Başlayalım · 0/4' && zeros.hasMatch(t)),
         isEmpty,
         reason: 'frame $i',
       );
@@ -668,8 +684,8 @@ void main() {
   });
 
   group('lingering todos', () {
-    final todo = Todo.fromJson({
-      'id': 77,
+    Map<String, dynamic> todoMap(int id) => {
+      'id': id,
       'title': 'Faturayı öde',
       'status': 'pending',
       'priority': 'medium',
@@ -677,7 +693,8 @@ void main() {
       'overdue': false,
       'position': 1,
       'subtask_count': 0,
-    });
+    };
+    final todo = Todo.fromJson(todoMap(77));
 
     /// Today over an empty day, with [todo] ticked off and folded into
     /// "1 tamamlandı"; [shown] says whether its tab is shown.
@@ -710,19 +727,63 @@ void main() {
       return container;
     }
 
-    testWidgets('leaving the tab lets them go: back on Today, a day with '
-        'nothing planned is the calm line', (tester) async {
+    testWidgets('leaving the tab lets the lingering rows go, but a day '
+        'whose tasks are all done is still "Hepsi tamam", never "plan yok" '
+        '(§7.15)', (tester) async {
       final shown = ValueNotifier(true);
       addTearDown(shown.dispose);
       final container = await ticked(tester, shown);
+      // Ticked again and still lingering when the tab is left: its row
+      // goes, but it is finished all the same.
+      final other = Todo.fromJson(todoMap(78));
+      container.read(lingeringTodosProvider.notifier).add(other, 0);
+      await tester.pump();
       shown.value = false;
       await tester.pump();
       await tester.pump();
-      expect(container.read(lingeringTodosProvider).finished, 0);
+      expect(container.read(lingeringTodosProvider).isEmpty, isTrue);
+      expect(container.read(lingeringTodosProvider).finished, 2);
       shown.value = true;
       await tester.pumpAndSettle();
-      expect(find.text('1 tamamlandı'), findsNothing);
-      expect(find.text('Bugün plan yok — sakin bir gün'), findsOneWidget);
+      expect(find.text('2 tamamlandı'), findsOneWidget);
+      expect(find.text('Hepsi tamam'), findsOneWidget);
+      expect(find.text('Bugün plan yok — sakin bir gün'), findsNothing);
+    });
+
+    testWidgets('a todo ticked a moment before the tab is left still makes '
+        'the day "Hepsi tamam"', (tester) async {
+      final shown = ValueNotifier(true);
+      addTearDown(shown.dispose);
+      tester.view.physicalSize = const Size(1170, 3900);
+      tester.view.devicePixelRatio = 3.0;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      await pumpToday(
+        tester,
+        {...emptyHome(), 'today': '2026-07-11'},
+        accounts: [todayAccountJson()],
+        wrap: (screen) => ValueListenableBuilder<bool>(
+          valueListenable: shown,
+          builder: (_, on, child) => TickerMode(enabled: on, child: child!),
+          child: screen,
+        ),
+      );
+      final container = ProviderScope.containerOf(
+        tester.element(find.byType(TodayScreen)),
+      );
+      // Ticked (the refetch dropped it), and the tab left a second later,
+      // while it still lingers.
+      container.read(lingeringTodosProvider.notifier).add(todo, 0);
+      await tester.pump();
+      await tester.pump(const Duration(seconds: 1));
+      shown.value = false;
+      await tester.pump();
+      await tester.pump();
+      shown.value = true;
+      await tester.pumpAndSettle();
+      expect(find.text('Hepsi tamam'), findsOneWidget);
+      expect(find.text('1 tamamlandı'), findsOneWidget);
+      expect(find.text('Bugün plan yok — sakin bir gün'), findsNothing);
     });
 
     testWidgets('a new day forgets yesterday\'s ticks: "plan yok", not '
@@ -733,7 +794,8 @@ void main() {
       container
           .read(homeProvider.notifier)
           .patch(
-            (_) => HomeSummary.fromJson({...emptyHome(), 'today': '2026-07-12'}),
+            (_) =>
+                HomeSummary.fromJson({...emptyHome(), 'today': '2026-07-12'}),
           );
       await tester.pump();
       expect(find.text('1 tamamlandı'), findsNothing);

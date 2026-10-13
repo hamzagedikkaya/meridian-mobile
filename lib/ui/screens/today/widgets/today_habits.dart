@@ -89,19 +89,31 @@ class _TodayHabitsSectionState extends ConsumerState<TodayHabitsSection> {
   /// habit done or not flips; one counted several times a day goes up one
   /// per tap, and once full a tap opens its log, where it can step back.
   /// Quick taps all count (see [HabitActions]).
+  ///
+  /// Until it is known how often a habit with a target above one repeats,
+  /// a tap still steps it up one: the server keeps any count of a weekly or
+  /// monthly habit as its target, so one step is right for every cadence,
+  /// whereas the target (or 0) would fill or wipe a daily count. A habit
+  /// already done then opens its log instead of being cleared.
   Future<void> _toggle(HomeHabit habit, Offset origin) async {
     final counts = _counts(habit);
-    if (counts && habit.todayCount >= habit.targetCount) {
+    final steps =
+        counts ||
+        (habit.targetCount > 1 &&
+            ref.read(habitActionsProvider).isDaily(habit.id) == null);
+    if (steps &&
+        (habit.todayCount >= habit.targetCount ||
+            (!counts && habit.completedToday))) {
       await showHabitLogSheet(context, habitId: habit.id);
       return;
     }
-    final count = counts
+    final count = steps
         ? habit.todayCount + 1
         : (habit.completedToday ? 0 : habit.targetCount);
     final completes = !habit.completedToday && count >= habit.targetCount;
     // A step that does not finish the day ticks; the finishing tap is the
     // CheckPop's (and its haptic).
-    if (counts && !completes) Haptics.tick();
+    if (steps && !completes) Haptics.tick();
     setState(() => completes ? _hold(habit.id) : _release(habit.id));
 
     bool allDone() {
@@ -138,8 +150,9 @@ class _TodayHabitsSectionState extends ConsumerState<TodayHabitsSection> {
     }
   }
 
+  /// A long press's own haptic is played where it was pressed (the row's
+  /// InkWell, or the ring: see [HomeHabitRow]), once.
   void _openLog(HomeHabit habit) {
-    Feedback.forLongPress(context);
     showHabitLogSheet(context, habitId: habit.id);
   }
 

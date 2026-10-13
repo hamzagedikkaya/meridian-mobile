@@ -286,6 +286,14 @@ final class DataSync implements WriteListener {
 
   /// A repository write tells which record it created, edited or brought
   /// back, so that row — and only that row — animates (`RecentChanges`).
+  @override
+  void noteWritten(DataScope scope, int id, {required bool created}) =>
+      noteChange(
+        scope,
+        id,
+        created ? ChangeKind.inserted : ChangeKind.updated,
+      );
+
   void noteChange(DataScope scope, int id, ChangeKind kind) {
     if (_disposed) return;
     _container.read(recentChangesProvider.notifier).record(scope, id, kind);
@@ -358,12 +366,32 @@ final class DataSync implements WriteListener {
 
   void _invalidate(ProviderOrFamily model) => _container.invalidate(model);
 
+  /// Details that answered 404 — their records deleted elsewhere — and have
+  /// not loaded since. [recordGone] leaves them out of the refetch it starts.
+  final _notFound = <ProviderBase<Object?>>{};
+
   /// A record of [scope] is gone — [detail], the read model of that one
   /// record, was just answered 404 because it was deleted on the web or
   /// another device. Every other read model that may still show it refetches
   /// now; [detail] itself is left alone (asking again would only 404 again).
-  void recordGone(DataScope scope, {required ProviderOrFamily detail}) =>
-      refresh(readModelsFor(scope).where((model) => model != detail));
+  ///
+  /// Nor is any other record's detail that already answered 404: two
+  /// details on screen whose records are both gone (an account and one of
+  /// its transactions) would otherwise refetch each other without end.
+  /// They are remembered here rather than read: a read would wake a hidden
+  /// screen's paused read model and fetch it before it is shown.
+  void recordGone(DataScope scope, {required ProviderBase<Object?> detail}) {
+    if (_disposed) return;
+    _notFound.add(detail);
+    final family = detail.from;
+    refresh(
+      readModelsFor(scope).where((m) => m != detail && m != family),
+      except: {..._notFound},
+    );
+  }
+
+  /// [detail] loaded: its record is there (again).
+  void recordFound(ProviderBase<Object?> detail) => _notFound.remove(detail);
 
   /// Refetches every read model — visible ones at once, hidden tabs when they
   /// are next shown — and the signed-in user (name, currency; the greeting and
@@ -410,6 +438,7 @@ final class DataSync implements WriteListener {
     _flush = null;
     _dirty.clear();
     _deleted.clear();
+    _notFound.clear();
     _userDirty = false;
   }
 }

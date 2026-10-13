@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -86,12 +88,21 @@ class _PassedItem extends _Item {
 ///
 /// Todos come from `/home` (overdue ones and today's; later days are on
 /// the Agenda); events from today's `GET /events`, or `/home`'s until they
-/// land.
+/// land. `/home` lists only the soonest [homeTodoCap] open todos: when it
+/// lists that many, today's own (`GET /todos?filter=today`) are read as
+/// well, and the overdue todos neither lists are counted from `/home`'s
+/// overdue count — into "+N daha" and the header's count.
 class TodayAgendaSection extends ConsumerStatefulWidget {
   const TodayAgendaSection({super.key});
 
   /// The most rows the card lists.
   static const maxRows = 6;
+
+  /// The most open todos `/home` lists (contract §3, `upcoming_todos`).
+  static const homeTodoCap = 6;
+
+  /// Today's open todos, read besides `/home` once its list is full.
+  static const todaysTodos = TodoQuery(filter: 'today');
 
   /// How many times the Today card was built: the rebuild test's counter.
   @visibleForTesting
@@ -109,22 +120,34 @@ class _TodayAgendaSectionState extends ConsumerState<TodayAgendaSection> {
   bool? _shown;
   DateTime? _day;
 
+  /// Whether `/home` listed its full [TodayAgendaSection.homeTodoCap]
+  /// todos today. It stays so for the day: a swipe that takes one off
+  /// `/home` at once must not stop the reads that count the rest (today's
+  /// list, the unlisted overdue) until the refetches land — the card would
+  /// shrink for a moment and grow back.
+  bool _homeWasFull = false;
+
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
     final shown = TickerMode.valuesOf(context).enabled;
-    // The tab was left: what lingered (and "n tamamlandı") goes, without
-    // motion (§4.29) — the card stays mounted behind the other tabs, so
-    // [LingeringTodos] would never see its last listener leave.
-    if (_shown == true && !shown) _clearLingering();
+    // The tab was left: what lingered goes, without motion (§4.29) — the
+    // card stays mounted behind the other tabs, so [LingeringTodos] would
+    // never see its last listener leave. What was finished stays the
+    // day's: a day done is still "Hepsi tamam", never "plan yok" (§7.15).
+    if (_shown == true && !shown) _clearLingering(keepFinished: true);
     _shown = shown;
   }
 
   /// Empties [LingeringTodos] once this frame is built (a provider is not
   /// changed while widgets build).
-  void _clearLingering() {
+  void _clearLingering({bool keepFinished = false}) {
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted) ref.read(lingeringTodosProvider.notifier).clear();
+      if (mounted) {
+        ref
+            .read(lingeringTodosProvider.notifier)
+            .clear(keepFinished: keepFinished);
+      }
     });
   }
 
@@ -161,8 +184,20 @@ class _TodayAgendaSectionState extends ConsumerState<TodayAgendaSection> {
           for (final t in h.upcomingTodos)
             if (t.id != todo.id) t,
         ],
+        // No longer overdue once it is tomorrow's: the unlisted overdue
+        // ones the card counts stay as many.
+        overdueCount: todo.overdue
+            ? (h.overdueCount - 1).clamp(0, h.overdueCount)
+            : h.overdueCount,
       ),
     );
+    // Today's own list, when the card reads it, lets it go too.
+    const todays = TodayAgendaSection.todaysTodos;
+    final listEdit = ref.exists(todosProvider(todays))
+        ? ref
+              .read(todosProvider(todays).notifier)
+              .patch((b) => _withoutTodo(b, todo.id))
+        : null;
     final messenger = ScaffoldMessenger.of(context);
     final sync = ref.read(dataSyncProvider);
 
@@ -172,7 +207,10 @@ class _TodayAgendaSectionState extends ConsumerState<TodayAgendaSection> {
         if (h.upcomingTodos.any((t) => t.id == todo.id)) return h;
         final rows = [...h.upcomingTodos];
         rows.insert((at < 0 ? rows.length : at).clamp(0, rows.length), todo);
-        return h.copyWith(upcomingTodos: rows);
+        return h.copyWith(
+          upcomingTodos: rows,
+          overdueCount: todo.overdue ? h.overdueCount + 1 : h.overdueCount,
+        );
       });
       sync.noteChange(DataScope.todos, todo.id, ChangeKind.restored);
       try {
@@ -181,8 +219,8 @@ class _TodayAgendaSectionState extends ConsumerState<TodayAgendaSection> {
       } catch (e) {
         restore.rollback();
         if (messenger.mounted) {
-          showAppSnack(
-            messenger.context,
+          showAppSnackOn(
+            messenger,
             failureMessage(e, l, fallback: l.todoSaveFailed),
             isError: true,
           );
@@ -193,6 +231,7 @@ class _TodayAgendaSectionState extends ConsumerState<TodayAgendaSection> {
     try {
       await repo.postponeTodo(todo.id, tomorrow);
       edit.confirm();
+      listEdit?.confirm();
       if (mounted) {
         showAppSnack(
           context,
@@ -204,6 +243,7 @@ class _TodayAgendaSectionState extends ConsumerState<TodayAgendaSection> {
       return true;
     } catch (e) {
       edit.rollback();
+      listEdit?.rollback();
       if (mounted) {
         showAppSnack(
           context,
@@ -231,13 +271,37 @@ class _TodayAgendaSectionState extends ConsumerState<TodayAgendaSection> {
     if (rolledOver) {
       _clearLingering();
       _showPassed = false;
+      _homeWasFull = false;
     }
     _day = day;
-    final upcoming =
+    final fromHome =
         ref.watch(homeProvider.select((a) => a.value?.data.upcomingTodos)) ??
         const <Todo>[];
+    // `/home`'s list is full: today's todos may be past it. Today's own
+    // list fills them in; the overdue ones in neither are counted below.
+    final homeFull = _homeWasFull =
+        _homeWasFull || fromHome.length >= TodayAgendaSection.homeTodoCap;
+    final todaysListed = homeFull
+        ? ref.watch(
+            todosProvider(
+              TodayAgendaSection.todaysTodos,
+            ).select((a) => a.value?.data.todos),
+          )
+        : null;
+    final overdueCount = homeFull
+        ? ref.watch(homeProvider.select((a) => a.value?.data.overdueCount)) ?? 0
+        : 0;
+    final upcoming = todaysListed == null
+        ? fromHome
+        : [
+            ...fromHome,
+            for (final t in todaysListed)
+              if (!fromHome.any((h) => h.id == t.id)) t,
+          ];
     final watched = ref.watch(lingeringTodosProvider);
     final lingering = rolledOver ? const LingeringState() : watched;
+    // "n tamamlandı" counts what this card would have listed.
+    final finished = lingering.finishedWhere((t) => _isTodays(t, day));
     final hidden = ref.watch(deferredDeletesProvider);
     final window = EventWindow(day, day);
     final listed = ref.watch(
@@ -254,7 +318,7 @@ class _TodayAgendaSectionState extends ConsumerState<TodayAgendaSection> {
     // --- Todos: overdue and today's, the lingering ones back in place.
     final todos = [
       for (final t in withoutDeleted(
-        mergeInto(upcoming, lingering),
+        mergeInto(upcoming, lingering, list: todayTodoList),
         hidden,
         DataScope.todos,
         (t) => t.id,
@@ -273,9 +337,25 @@ class _TodayAgendaSectionState extends ConsumerState<TodayAgendaSection> {
         ? occurrencesIn(events, window, fallbackDay: day)
         : occurrencesIn(events, window);
     // `/home` lists at most four of today's events; it says how many.
-    final unlisted = listed == null
+    final unlistedEvents = listed == null
         ? (homeEventCount - occurrences.length).clamp(0, 999)
         : 0;
+    // The overdue todos no list here has: `/home`'s overdue count (open
+    // todos due before now) less those known — today's included, which are
+    // all known once today's list is read.
+    bool pastDue(Todo t) {
+      final due = t.dueDay;
+      final at = _timeOf(t, day);
+      return t.overdue ||
+          (due != null && due.isBefore(day)) ||
+          (at != null && !at.isAfter(now));
+    }
+
+    final unlistedOverdue = homeFull
+        ? (overdueCount - upcoming.where((t) => !t.isDone && pastDue(t)).length)
+              .clamp(0, 99999)
+        : 0;
+    final unlisted = unlistedEvents + unlistedOverdue;
 
     final overdue = <_Item>[];
     final allDay = <_Item>[];
@@ -346,9 +426,7 @@ class _TodayAgendaSectionState extends ConsumerState<TodayAgendaSection> {
     );
     final nothing = items.isEmpty && unlisted == 0;
     final allDone =
-        open.isEmpty &&
-        unlisted == 0 &&
-        (passed.isNotEmpty || lingering.finished > 0);
+        open.isEmpty && unlisted == 0 && (passed.isNotEmpty || finished > 0);
 
     final children = <Widget>[
       for (final item in shown) _row(context, item, lingering, day),
@@ -365,12 +443,12 @@ class _TodayAgendaSectionState extends ConsumerState<TodayAgendaSection> {
             child: EmptyState.allDone(),
           ),
         )
-      else if (nothing && lingering.finished == 0)
+      else if (nothing && finished == 0)
         _CalmLine(message: l.todayEmptyDay),
-      if (lingering.finished > 0)
+      if (finished > 0)
         FinishedSummaryRow(
           key: const ValueKey('todos-finished'),
-          count: lingering.finished,
+          count: finished,
           onTap: () => context.go('/agenda?view=done'),
         ),
       _InlineAdd(key: const ValueKey('todo-add'), day: day),
@@ -482,6 +560,30 @@ class _TodayAgendaSectionState extends ConsumerState<TodayAgendaSection> {
     }
   }
 }
+
+/// [bundle] without todo [id] (moved off today).
+TodosBundle _withoutTodo(TodosBundle bundle, int id) => TodosBundle(
+  todos: [
+    for (final t in bundle.todos)
+      if (t.id != id) t,
+  ],
+  openCount: bundle.openCount,
+  overdueCount: bundle.overdueCount,
+  totalCount: bundle.totalCount,
+  counts: bundle.counts,
+);
+
+/// [bundle] with [todo], just created, at its end (unless listed).
+TodosBundle _withTodoAdded(TodosBundle bundle, Todo todo) =>
+    bundle.todos.any((t) => t.id == todo.id)
+    ? bundle
+    : TodosBundle(
+        todos: [...bundle.todos, todo],
+        openCount: bundle.openCount + 1,
+        overdueCount: bundle.overdueCount,
+        totalCount: bundle.totalCount + 1,
+        counts: bundle.counts,
+      );
 
 /// Whether [todo] belongs on Today: overdue, or due today.
 bool _isTodays(Todo todo, DateTime day) {
@@ -683,6 +785,16 @@ class _InlineAddState extends ConsumerState<_InlineAdd> {
   final _text = TextEditingController();
   final _focus = FocusNode();
   bool _open = false;
+  Timer? _revealing;
+
+  /// What the field keeps clear around it when brought into view: the
+  /// capture bar lies over the bottom of the list, above the keyboard.
+  static const _clear = EdgeInsets.fromLTRB(
+    20,
+    20,
+    20,
+    20 + Insets.captureBarClearance,
+  );
 
   @override
   void initState() {
@@ -696,9 +808,27 @@ class _InlineAddState extends ConsumerState<_InlineAdd> {
 
   @override
   void dispose() {
+    _revealing?.cancel();
     _text.dispose();
     _focus.dispose();
     super.dispose();
+  }
+
+  /// Brings the field back into view above the capture bar once the todo
+  /// just added above it has grown in (it pushes the field down) — the
+  /// focus stays in the field (§7.2.5), so the next todo is typed in sight.
+  void _reveal() {
+    _revealing?.cancel();
+    _revealing = Timer(Motion.orInstant(context, Motion.standard), () {
+      if (!mounted) return;
+      final box = context.findRenderObject();
+      if (box is! RenderBox || !box.attached || !box.hasSize) return;
+      box.showOnScreen(
+        rect: _clear.inflateRect(Offset.zero & box.size),
+        duration: Motion.orInstant(context, Motion.quick),
+        curve: Motion.enter,
+      );
+    });
   }
 
   void _expand() {
@@ -712,6 +842,9 @@ class _InlineAddState extends ConsumerState<_InlineAdd> {
         duration: Motion.orInstant(context, Motion.collapse),
         curve: Motion.enter,
       );
+      // Where the middle of the list is under the bar (a keyboard already
+      // up), the field still ends above it.
+      _reveal();
     });
   }
 
@@ -737,6 +870,16 @@ class _InlineAddState extends ConsumerState<_InlineAdd> {
           openTodos: h.openTodos + 1,
         );
       }).confirm();
+      // `/home` lists only its soonest few: today's own list, when the
+      // card reads it, keeps the new todo past `/home`'s refetch.
+      const todays = TodayAgendaSection.todaysTodos;
+      if (ref.exists(todosProvider(todays))) {
+        ref
+            .read(todosProvider(todays).notifier)
+            .patch((b) => _withTodoAdded(b, todo))
+            .confirm();
+      }
+      _reveal();
     } catch (e) {
       if (!mounted) return;
       // Nothing typed is lost.
@@ -783,6 +926,8 @@ class _InlineAddState extends ConsumerState<_InlineAdd> {
                 autofocus: true,
                 textCapitalization: TextCapitalization.sentences,
                 textInputAction: TextInputAction.done,
+                // The caret is revealed above the capture bar, not under it.
+                scrollPadding: _clear,
                 style: text.bodyLarge,
                 decoration: InputDecoration(
                   hintText: l.todayAddForToday,

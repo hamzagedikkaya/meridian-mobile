@@ -15,8 +15,10 @@ import 'package:go_router/go_router.dart';
 import 'package:intl/date_symbol_data_local.dart';
 import 'package:meridian_mobile/data/providers.dart';
 import 'package:meridian_mobile/models/transaction.dart';
+import 'package:meridian_mobile/ui/screens/finance/account_detail_screen.dart';
 import 'package:meridian_mobile/ui/screens/finance/category_picker.dart';
 import 'package:meridian_mobile/ui/screens/finance/filter_chip_bar.dart';
+import 'package:meridian_mobile/ui/screens/finance/finance_screen.dart';
 import 'package:meridian_mobile/ui/screens/finance/transaction_form_screen.dart';
 import 'package:meridian_mobile/ui/screens/finance/transactions_screen.dart';
 import 'package:meridian_mobile/ui/screens/finance/tx_row.dart';
@@ -28,7 +30,9 @@ import 'package:meridian_mobile/ui/widgets/pressable_scale.dart';
 
 import '../support/app_fonts.dart';
 import '../support/fake_api.dart';
+import '../support/app_harness.dart' show fixtureNow;
 import '../support/finance_harness.dart';
+import '../support/semantics.dart';
 
 /// The phone the form is laid out for: 360×780.
 void _phone(WidgetTester tester) {
@@ -181,7 +185,7 @@ void main() {
       expect(find.text('Tür'), findsOneWidget);
     });
 
-    final now = DateTime.now();
+    final now = fixtureNow;
     final everyFilter = TxFilters(
       kind: 'expense',
       accountId: 1,
@@ -248,12 +252,28 @@ void main() {
       final api = FakeApi()
         ..on('GET /transactions', {
           'transactions': [
-            _row(1, date: '${DateTime.now().year - 1}-09-29',
+            _row(1, date: '${fixtureNow.year - 1}-09-29',
                 description: 'Eski'),
           ],
           'meta': const {'total_count': 1, 'page': 1, 'page_limit': 50},
         });
       await pumpFinance(tester, api, const TransactionsScreen());
+      expect(find.textContaining('29 Eylül ${fixtureNow.year - 1}'),
+          findsOneWidget);
+    });
+
+    testWidgets('an account\'s history says the year of another year\'s day '
+        'too', (tester) async {
+      tallPhone(tester);
+      final api = FakeApi()
+        ..on('GET /transactions', {
+          'transactions': [
+            _row(1, date: '${DateTime.now().year - 1}-09-29',
+                description: 'Eski'),
+          ],
+          'meta': const {'total_count': 1, 'page': 1, 'page_limit': 50},
+        });
+      await pumpFinance(tester, api, const AccountDetailScreen(accountId: 1));
       expect(find.textContaining('29 Eylül ${DateTime.now().year - 1}'),
           findsOneWidget);
     });
@@ -451,6 +471,67 @@ void main() {
       expect(find.text('Bugüne kopyalandı'), findsOneWidget);
       expect(find.text('Geri al'), findsOneWidget);
     });
+
+    testWidgets('a copy whose answer is lost may have been saved: it says '
+        'so, not "try again"', (tester) async {
+      tallPhone(tester);
+      final api = FakeApi()..timeOut('POST /transactions');
+      await pumpFinance(tester, api, const TransactionsScreen());
+      await tester.longPress(find.text('Kahve'));
+      await settleFrames(tester);
+      await tester.tap(find.text('Bugüne kopyala'));
+      await settleFrames(tester);
+      expect(find.textContaining('kaydedilmiş olabilir'), findsOneWidget);
+    });
+
+    // The same row grammar in every list (§6.4): an account's history and
+    // Finance's "Son işlemler" too.
+    for (final (place, home) in [
+      ('an account\'s history', const AccountDetailScreen(accountId: 1)),
+      ('Finance\'s recent rows', const FinanceScreen()),
+    ]) {
+      testWidgets('$place: a long press offers Düzenle · Bugüne kopyala · '
+          'Sil, a swipe deletes, and a screen reader gets all three',
+          (tester) async {
+        tallPhone(tester);
+        final handle = tester.ensureSemantics();
+        final api = FakeApi()
+          ..on('GET /finance/dashboard', {
+            ...financeDashboardJson(),
+            'recent_transactions': [transactionJson()],
+          })
+          ..on('POST /transactions', {
+            'transaction': {...transactionJson(id: 400)},
+          });
+        await pumpFinance(tester, api, home);
+        expect(find.text('Kahve'), findsOneWidget);
+        expect(
+          customActionLabels(tester.getSemantics(find.text('Kahve'))),
+          containsAll(['Düzenle', 'Bugüne kopyala', 'Sil']),
+        );
+
+        await tester.longPress(find.text('Kahve'));
+        await settleFrames(tester);
+        for (final action in ['Düzenle', 'Bugüne kopyala', 'Sil']) {
+          expect(
+            find.descendant(
+                of: find.byType(BottomSheet), matching: find.text(action)),
+            findsOneWidget,
+            reason: action,
+          );
+        }
+        await tester.tap(find.text('Bugüne kopyala'));
+        await settleFrames(tester);
+        expect(api.bodiesOf('POST /transactions'), hasLength(1));
+        expect(find.text('Bugüne kopyalandı'), findsOneWidget);
+        await letUndoRunOut(tester);
+
+        await tester.drag(find.text('Kahve'), const Offset(-600, 0));
+        await settleFrames(tester);
+        expect(find.text('İşlem silindi'), findsOneWidget);
+        handle.dispose();
+      });
+    }
   });
 
   group('the transaction form', () {

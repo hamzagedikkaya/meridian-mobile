@@ -539,8 +539,8 @@ void main() {
         'journal_draft_20': '{}',
       });
       final drafts = DraftStore(const FlutterSecureStorage());
-      await drafts.claimFor('9:demo@meridian.local');
-      expect(await _draft(), '{}', reason: 'drafts from before: kept');
+      await drafts.adopt('9:demo@meridian.local');
+      expect(await _draft(), '{}', reason: 'the restored session\'s own');
       await drafts.claimFor('9:demo@meridian.local');
       expect(await _draft(20), '{}', reason: 'the same account');
       await drafts.claimFor('12:baska@meridian.local');
@@ -655,6 +655,7 @@ void main() {
         FlutterSecureStorage.setMockInitialValues({
           'journal_draft': '{}',
           'journal_draft_20': '{}',
+          'journal_drafts_owner': '9:demo@meridian.local',
           'api_token': 't',
         });
         final container = ProviderContainer.test(

@@ -20,6 +20,7 @@ import '../../../models/subscription.dart';
 import '../../../models/transaction.dart';
 import '../../../theme/app_colors.dart';
 import '../../../theme/app_metrics.dart';
+import '../../../theme/app_motion.dart';
 import '../../../theme/app_typography.dart';
 import '../../../theme/entity_color.dart';
 import '../../flows/flows.dart' show markSubscriptionPaid, SubscriptionLite,
@@ -175,16 +176,15 @@ class _FinanceScreenState extends ConsumerState<FinanceScreen>
     }
   }
 
-  Future<void> _refresh() async {
+  /// Refetches the tab. [minimum] holds a pull's spinner long enough not
+  /// to flash (§5.5); a retry button passes none.
+  Future<void> _refresh({Duration minimum = Duration.zero}) async {
     refreshTab(ref, AppTab.finance);
-    // "Abonelikler · aylık ₺X" and the setup card read the subscriptions,
-    // which are not one of the tab's read models.
-    ref.read(dataSyncProvider).refresh([subscriptionsProvider]);
     await settleRefresh([
       ref.read(financeDashboardProvider.future),
       ref.read(accountsProvider.future),
       ref.read(subscriptionsProvider.future),
-    ]);
+    ], minimum: minimum);
   }
 
   @override
@@ -266,7 +266,7 @@ class _FinanceScreenState extends ConsumerState<FinanceScreen>
                     // The pull's own tick; retry calls [_refresh] silently.
                     onRefresh: () {
                       Haptics.armed();
-                      return _refresh();
+                      return _refresh(minimum: Motion.refreshMinimum);
                     },
                     child: LoadPhaseSwitcher(
                       phase: phase,
@@ -824,9 +824,21 @@ class _FinanceScreenState extends ConsumerState<FinanceScreen>
             children: [
               for (var i = 0; i < recent.length; i++) ...[
                 if (i > 0) NokturnRow.divider(),
-                TxRow(
+                // The same row grammar as every transaction list (§6.4):
+                // swipe ← Sil, long press Düzenle · Bugüne kopyala · Sil —
+                // and the same as screen-reader actions. The dashboard
+                // refetches after each write, so nothing is placed by hand.
+                TxSwipeToDelete(
+                  key: ValueKey('recent-tx-${recent[i].id}'),
                   tx: recent[i],
-                  onTap: () => showTransactionSheet(context, ref, recent[i]),
+                  child: TxRow(
+                    tx: recent[i],
+                    onTap: () => showTransactionSheet(context, ref, recent[i]),
+                    onLongPress: () =>
+                        showTransactionActions(context, ref, recent[i]),
+                    semanticActions:
+                        txRowSemanticActions(context, ref, recent[i]),
+                  ),
                 ),
               ],
             ],

@@ -8,6 +8,7 @@ import '../../../core/session.dart';
 import '../../../data/data_scope.dart';
 import '../../../data/deferred_deletes.dart';
 import '../../../data/providers.dart';
+import '../../../data/sync.dart';
 import '../../../l10n/app_l10n.dart';
 import '../../../models/budget.dart';
 import '../../../models/finance_dashboard.dart';
@@ -163,8 +164,9 @@ class _BudgetSheetState extends ConsumerState<_BudgetSheet> {
     final l = context.l10n;
     final budgetsAsync = ref.watch(budgetsProvider);
     final bundle = budgetsAsync.value?.data;
+    final categoriesAsync = ref.watch(categoriesProvider);
     final categories = withoutDeleted(
-      ref.watch(categoriesProvider).value?.data ?? const <TxCategory>[],
+      categoriesAsync.value?.data ?? const <TxCategory>[],
       ref.watch(deferredDeletesProvider),
       DataScope.categories,
       (cat) => cat.id,
@@ -181,18 +183,18 @@ class _BudgetSheetState extends ConsumerState<_BudgetSheet> {
         key: const ValueKey('category'),
         title: l.categoryFormNewTitle,
         onBack: () => setState(() => _creatingCategory = false),
-        body: [
-          CategoryForm(
-            kind: 'expense',
-            allowParent: false,
-            onSaved: (created) => setState(() {
-              _created = created;
-              _categoryId = created.id;
-              _categoryError = null;
-              _creatingCategory = false;
-            }),
-          ),
-        ],
+        body: const [],
+        // The form scrolls its own fields under a pinned "Ekle".
+        form: CategoryForm(
+          kind: 'expense',
+          allowParent: false,
+          onSaved: (created) => setState(() {
+            _created = created;
+            _categoryId = created.id;
+            _categoryError = null;
+            _creatingCategory = false;
+          }),
+        ),
       );
     }
 
@@ -211,7 +213,8 @@ class _BudgetSheetState extends ConsumerState<_BudgetSheet> {
       body: [
         if (existing == null) ...[
           FormLabel(l.budgetCategory),
-          _categoryChoices(context, bundle, budgetsAsync, categories),
+          _categoryChoices(
+              context, bundle, budgetsAsync, categoriesAsync, categories),
           if (_categoryError != null)
             Padding(
               padding: const EdgeInsets.only(top: Gap.xs),
@@ -297,20 +300,37 @@ class _BudgetSheetState extends ConsumerState<_BudgetSheet> {
   }
 
   /// The categories a budget can go on, as pills; a spinner while they
-  /// load; and when none is left, a way to make one.
+  /// load — the budgets and the category list both; the server
+  /// unreachable, with a retry, should either fail; and only when both are
+  /// here and none is left, a way to make one.
   Widget _categoryChoices(
     BuildContext context,
     BudgetsBundle? bundle,
     AsyncValue<Object?> budgetsAsync,
+    AsyncValue<Object?> categoriesAsync,
     List<TxCategory> categories,
   ) {
     final c = context.nok;
     final text = Theme.of(context).textTheme;
     final l = context.l10n;
-    if (bundle == null) {
-      if (budgetsAsync.hasFailed) {
-        return Text(l.errServerUnreachable,
-            style: text.bodySmall!.copyWith(color: c.error));
+    final categoriesMissing = !categoriesAsync.hasValue;
+    if (bundle == null || categoriesMissing) {
+      if ((bundle == null && budgetsAsync.hasFailed) ||
+          (categoriesMissing && categoriesAsync.hasFailed)) {
+        return Row(
+          children: [
+            Expanded(
+              child: Text(l.errServerUnreachable,
+                  style: text.bodySmall!.copyWith(color: c.error)),
+            ),
+            TextButton(
+              onPressed: () => ref
+                  .read(dataSyncProvider)
+                  .refresh([budgetsProvider, categoriesProvider]),
+              child: Text(l.actionRetry),
+            ),
+          ],
+        );
       }
       return const Padding(
         padding: EdgeInsets.all(12),
@@ -369,7 +389,8 @@ class _BudgetSheetState extends ConsumerState<_BudgetSheet> {
   }
 
   /// One step of the sheet: its header (with a back arrow on the category
-  /// step, the X on both), [body] scrolling, and [actions] pinned under it.
+  /// step, the X on both), [body] scrolling, and [actions] pinned under it
+  /// — or, instead of both, a [form] that scrolls and pins its own.
   /// A step change slides along the horizontal axis ([SheetStepSwitcher]).
   Widget _sheet(
     BuildContext context, {
@@ -378,6 +399,7 @@ class _BudgetSheetState extends ConsumerState<_BudgetSheet> {
     VoidCallback? onBack,
     required List<Widget> body,
     Widget? actions,
+    Widget? form,
   }) {
     final l = context.l10n;
     final refreshing = ref.watch(budgetsProvider).isRefetching;
@@ -409,21 +431,24 @@ class _BudgetSheetState extends ConsumerState<_BudgetSheet> {
                   ),
                 ],
               ),
-              Flexible(
-                child: SingleChildScrollView(
-                  padding: EdgeInsets.fromLTRB(Insets.sheetH, 0,
-                      Insets.sheetH, actions == null ? Gap.lg : 0),
-                  child: SafeArea(
-                    top: false,
-                    bottom: actions == null,
-                    child: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      crossAxisAlignment: CrossAxisAlignment.stretch,
-                      children: body,
+              if (form != null)
+                Flexible(child: form)
+              else
+                Flexible(
+                  child: SingleChildScrollView(
+                    padding: EdgeInsets.fromLTRB(Insets.sheetH, 0,
+                        Insets.sheetH, actions == null ? Gap.lg : 0),
+                    child: SafeArea(
+                      top: false,
+                      bottom: actions == null,
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: body,
+                      ),
                     ),
                   ),
                 ),
-              ),
               ?actions,
             ],
           ),

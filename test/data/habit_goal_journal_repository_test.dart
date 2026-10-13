@@ -54,7 +54,10 @@ void main() {
     test('the detail asks for a year of history, so any day of it can be '
         'logged', () async {
       api.onRequest('GET /habits/7', (request) {
-        expect(request.queryParameters['days'], habitHistoryDays);
+        // A year, as the test says — not the constant under test, which
+        // would pass for any value.
+        expect(int.parse('${request.queryParameters['days']}'),
+            greaterThanOrEqualTo(365));
         return {'habit': habitJson()};
       });
       container.listen(habitDetailProvider(7), (_, _) {});
@@ -176,6 +179,28 @@ void main() {
   });
 
   group('goals', () {
+    test('progress_computed refreshes the goals: the goal was linked '
+        'elsewhere', () async {
+      container.listen(goalsProvider, (_, _) {});
+      container.listen(goalDetailProvider(3), (_, _) {});
+      await settle(api);
+      api
+        ..clearLog()
+        ..on('PATCH /goals/3/update_progress', {
+          'errors': {
+            'base': ['x'],
+          },
+          'code': 'progress_computed',
+          'progress_source': 'account',
+        }, status: 422);
+      await expectLater(
+        repo.goalUpdateProgress(3, currentValue: 50),
+        throwsA(isA<ApiException>()),
+      );
+      await settle(api);
+      expect(api.gets, containsAll(['/goals', '/goals/3']));
+    });
+
     final linked = Goal.fromJson({
       ...goalJson(),
       'target_type': 'financial',

@@ -176,7 +176,7 @@ class EventInput {
   /// after the old end (contract §10, `PATCH`).
   Map<String, dynamic> changesFrom(Event before) {
     final out = <String, dynamic>{};
-    if (title.trim() != before.title) out['title'] = title.trim();
+    if (title.trim() != before.title.trim()) out['title'] = title.trim();
     final beforeStart = before.startAt;
     final beforeEnd = before.endAt;
     final beforeEndWire = beforeEnd == null ||
@@ -290,15 +290,21 @@ class Recurrence {
                     byMonth == null &&
                     (byDay == null || byDay == weekday) =>
               RecurrencePreset.weekly,
+            // An explicit day that some months lack (29–31) skips those
+            // months; the plain preset would fall on their last day
+            // instead (contract §10.3), so it is kept as written.
             'MONTHLY'
                 when byDay == null &&
                     byMonth == null &&
-                    (byMonthDay == null || byMonthDay == '${anchor?.day}') =>
+                    (byMonthDay == null ||
+                        (byMonthDay == '${anchor?.day}' && anchor!.day < 29)) =>
               RecurrencePreset.monthly,
             'YEARLY'
                 when byDay == null &&
                     (byMonth == null || byMonth == '${anchor?.month}') &&
-                    (byMonthDay == null || byMonthDay == '${anchor?.day}') =>
+                    (byMonthDay == null ||
+                        (byMonthDay == '${anchor?.day}' &&
+                            !(anchor!.month == 2 && anchor.day == 29))) =>
               RecurrencePreset.yearly,
             _ => RecurrencePreset.custom,
           };
@@ -383,6 +389,15 @@ class Recurrence {
     if (m.group(7) == null) return DateTime(g(1), g(2), g(3));
     final utc = DateTime.utc(g(1), g(2), g(3), g(4), g(5), g(6));
     final local = utcOffset == null ? utc.toLocal() : utc.add(utcOffset);
+    // [utcOffset] is the account's offset now, not on that day: across a
+    // daylight-saving change a bare date's 23:59:59 reads as 00:59:59 (or
+    // 00:29:59) the next day. It is still the day before.
+    if (utcOffset != null &&
+        local.hour == 0 &&
+        local.minute % 30 == 29 &&
+        local.second == 59) {
+      return DateTime(local.year, local.month, local.day - 1);
+    }
     return DateTime(local.year, local.month, local.day);
   }
 }

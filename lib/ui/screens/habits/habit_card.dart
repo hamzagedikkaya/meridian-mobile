@@ -94,84 +94,86 @@ class HabitCard extends StatelessWidget {
 
     final period = periodic ? _PeriodPill(habit: habit, tone: tone) : null;
 
-    // One node for a screen reader: the name and meta as its label, the
-    // card's tap and long press as its actions (as `NokturnCard` merges).
-    final info = MergeSemantics(
-      child: Semantics(
-        button: true,
-        onTap: onOpen,
-        onLongPress: onLongPress,
-        onLongPressHint: onLongPress == null ? null : l.habitLogHint,
-        // A screen reader's target is at least 48 dp tall (§8.2), also for
-        // a one-line name over a short meta line.
-        child: ConstrainedBox(
-          constraints: const BoxConstraints(minHeight: Hit.min),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            mainAxisAlignment: MainAxisAlignment.center,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                habit.name,
-                maxLines: 2,
-                overflow: TextOverflow.ellipsis,
-                style: text.titleMedium,
-              ),
-              const SizedBox(height: Gap.xxs),
-              meta,
-              // A weekly or monthly habit's period, under its streak: beside
-              // the check it would squeeze the name on a phone.
-              if (period != null) ...[const SizedBox(height: Gap.xs), period],
-            ],
+    // The name and meta, with a weekly or monthly habit's period under
+    // the streak (beside the check it would squeeze the name on a phone).
+    final info = ConstrainedBox(
+      constraints: const BoxConstraints(minHeight: Hit.min),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        mainAxisAlignment: MainAxisAlignment.center,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            habit.name,
+            maxLines: 2,
+            overflow: TextOverflow.ellipsis,
+            style: text.titleMedium,
           ),
-        ),
+          const SizedBox(height: Gap.xxs),
+          meta,
+          if (period != null) ...[const SizedBox(height: Gap.xs), period],
+        ],
       ),
     );
 
-    // The card presses under the finger (a screen reader reaches it through
-    // its info column, so the gesture stays out of the semantics tree); a
-    // touch on the control is the control's alone.
-    return PressableScale(
+    // One node for a screen reader, the size of the card (§8.2): the name
+    // and meta as its label, the card's tap and long press as its actions.
+    // The control is a node of its own inside it. The card presses under
+    // the finger (its gesture stays out of the semantics tree, which has
+    // the node); a touch on the control is the control's alone.
+    return Semantics(
+      container: true,
+      button: true,
       onTap: onOpen,
       onLongPress: onLongPress,
-      excludeFromSemantics: true,
-      child: NokturnCard(
-        padding: const EdgeInsets.symmetric(
-          horizontal: Insets.card,
-          vertical: Gap.lg,
-        ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            ConstrainedBox(
-              constraints: const BoxConstraints(minHeight: Hit.min),
-              child: Row(
-                children: [
-                  Container(
-                    width: 12,
-                    height: 12,
-                    decoration: BoxDecoration(
-                      color: tone.fill,
-                      shape: BoxShape.circle,
+      onLongPressHint: onLongPress == null ? null : l.habitLogLongPressHint,
+      child: PressableScale(
+        onTap: onOpen,
+        onLongPress: onLongPress,
+        excludeFromSemantics: true,
+        child: NokturnCard(
+          padding: const EdgeInsets.symmetric(
+            horizontal: Insets.card,
+            vertical: Gap.lg,
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              ConstrainedBox(
+                constraints: const BoxConstraints(minHeight: Hit.min),
+                child: Row(
+                  children: [
+                    Container(
+                      width: 12,
+                      height: 12,
+                      decoration: BoxDecoration(
+                        color: tone.fill,
+                        shape: BoxShape.circle,
+                      ),
                     ),
-                  ),
-                  const SizedBox(width: Gap.md),
-                  Expanded(child: info),
-                  const SizedBox(width: Gap.sm),
-                  PressableClaim(child: _control(context, tone)),
-                ],
+                    const SizedBox(width: Gap.md),
+                    Expanded(child: info),
+                    const SizedBox(width: Gap.sm),
+                    PressableClaim(
+                      child: Semantics(
+                        container: true,
+                        child: _control(context, tone),
+                      ),
+                    ),
+                  ],
+                ),
               ),
-            ),
-            const SizedBox(height: Gap.md),
-            Padding(
-              padding: const EdgeInsetsDirectional.only(start: 24),
-              child: ChainRow(
-                chain: habit.chain,
-                fill: tone.fill,
-                startDate: habit.startDate,
+              const SizedBox(height: Gap.md),
+              Padding(
+                padding: const EdgeInsetsDirectional.only(start: 24),
+                child: ChainRow(
+                  chain: habit.chain,
+                  fill: tone.fill,
+                  startDate: habit.startDate,
+                ),
               ),
-            ),
-          ],
+            ],
+          ),
         ),
       ),
     );

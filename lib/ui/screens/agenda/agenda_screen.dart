@@ -6,6 +6,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../../core/api.dart';
+import '../../../core/formats.dart';
 import '../../../core/haptics.dart';
 import '../../../data/current_day.dart';
 import '../../../data/data_scope.dart';
@@ -110,6 +111,11 @@ class _AgendaTabScreenState extends ConsumerState<AgendaTabScreen>
   static const _maxDays = 367;
 
   AgendaView _view = AgendaView.upcoming;
+
+  /// A context under the capture bar's scope (the body's): what a form or
+  /// sheet opened from here says on saving is shown above the bar from it
+  /// (`snackMarginFor`) — this State's own context sits above that scope.
+  BuildContext? _host;
   int? _listId;
   bool _unlisted = false;
 
@@ -155,11 +161,13 @@ class _AgendaTabScreenState extends ConsumerState<AgendaTabScreen>
   void didChangeDependencies() {
     super.didChangeDependencies();
     // The tab was left (hidden behind another): what lingered goes, without
-    // motion (§4.29).
+    // motion (§4.29); what was finished stays the day's.
     if (!TickerMode.valuesOf(context).enabled) {
       // Not while the tree builds.
       Future.microtask(() {
-        if (mounted) ref.read(lingeringTodosProvider.notifier).clear();
+        if (mounted) {
+          ref.read(lingeringTodosProvider.notifier).clear(keepFinished: true);
+        }
       });
     }
   }
@@ -279,7 +287,8 @@ class _AgendaTabScreenState extends ConsumerState<AgendaTabScreen>
       case 'none':
         _filterList(null, unlisted: true);
       case 'new':
-        final made = await openTodoListSheet(context);
+        // Its "oluşturuldu" lands above the capture bar.
+        final made = await openTodoListSheet(_host ?? context);
         if (made != null && mounted) _filterList(made.id);
       case 'manage':
         context.push('/agenda/lists');
@@ -466,7 +475,7 @@ class _AgendaTabScreenState extends ConsumerState<AgendaTabScreen>
           // the capture bar, even once the row itself is gone.
           body: Builder(
             builder: (host) => AgendaHost(
-              hostContext: host,
+              hostContext: _host = host,
               ref: ref,
               child: Column(
                 children: [
@@ -502,10 +511,13 @@ class _AgendaTabScreenState extends ConsumerState<AgendaTabScreen>
           ),
           bar: CaptureBar(
             label: l.agendaCaptureLabel,
-            onOpen: () => openQuickAdd(context, ctx: QuickAddContext.agenda),
+            onOpen: () =>
+                openQuickAdd(_host ?? context, ctx: QuickAddContext.agenda),
             secondaryIcon: Icons.event_outlined,
             secondaryTooltip: l.agendaAddEvent,
-            onSecondary: () => openEventForm(context, day: _today),
+            // The form's "eklendi" lands above the capture bar: it is told
+            // of a context under the bar's scope, not this screen's.
+            onSecondary: () => openEventForm(_host ?? context, day: _today),
           ),
         ),
       ),
@@ -525,18 +537,31 @@ class _AgendaTabScreenState extends ConsumerState<AgendaTabScreen>
     LingeringState lingering,
     DateTime today,
     Set<RecordKey> hidden,
+  ) => mergeInto(todos, _mine(query, lingering, today, hidden), list: query);
+
+  /// What of [lingering] belongs in [query] on [today]: the todos still
+  /// lingering and those folded into "n tamamlandı" — a view or list where
+  /// nothing was finished says nothing of the others'.
+  LingeringState _mine(
+    TodoQuery query,
+    LingeringState lingering,
+    DateTime today,
+    Set<RecordKey> hidden,
   ) {
-    final mine = LingeringState(
+    bool takes(Todo todo) =>
+        query.admitsOpen(todo, today) &&
+        !hidden.contains((scope: DataScope.todos, id: todo.id));
+    return LingeringState(
       todos: {
         for (final MapEntry(:key, :value) in lingering.todos.entries)
-          if (query.admitsOpen(value.todo, today) &&
-              !hidden.contains((scope: DataScope.todos, id: value.todo.id)))
-            key: value,
+          if (takes(value.todo)) key: value,
       },
       collapsing: lingering.collapsing,
-      finished: lingering.finished,
+      done: {
+        for (final MapEntry(:key, :value) in lingering.done.entries)
+          if (takes(value)) key: value,
+      },
     );
-    return mergeInto(todos, mine);
   }
 
   /// "Yaklaşan" — or, with [overdueOnly], "Gecikmiş" alone.
@@ -576,7 +601,16 @@ class _AgendaTabScreenState extends ConsumerState<AgendaTabScreen>
       ];
     }
     final index = {for (var i = 0; i < todos.length; i++) todos[i].id: i};
-    final finished = lingering.finished;
+    // Both views read every open todo ('open'), so the query alone admits
+    // any finished one: count only those this view would have listed — a
+    // dated todo in Yaklaşan (it skips the undated), an overdue one in
+    // Gecikmiş.
+    final day0 = dateOnly(today);
+    final finished = _mine(query, lingering, today, hidden).finishedWhere((t) {
+      final due = t.dueDay;
+      if (due == null) return false;
+      return !overdueOnly || t.overdue || due.isBefore(day0);
+    });
     final nothing = groups.every((g) => g.entries.isEmpty) && finished == 0;
 
     final slivers = <Widget>[];
@@ -671,7 +705,7 @@ class _AgendaTabScreenState extends ConsumerState<AgendaTabScreen>
       case AgendaGroupKind.today || AgendaGroupKind.day:
         header = _DayHeading(
           day: group.day!,
-          header: DayHeader.forDay(context, group.day!, today: today),
+          header: _dayHeader(context, group.day!, today),
         );
     }
 
@@ -824,7 +858,7 @@ class _AgendaTabScreenState extends ConsumerState<AgendaTabScreen>
   ) {
     final l = context.l10n;
     final todos = _withLingering(fetchedTodos, query, lingering, today, hidden);
-    final finished = lingering.finished;
+    final finished = _mine(query, lingering, today, hidden).finished;
     final showList = !_listFiltered;
     return CustomScrollView(
       primary: true,
@@ -898,7 +932,7 @@ class _AgendaTabScreenState extends ConsumerState<AgendaTabScreen>
                 PinnedHeaderSliver(
                   child: group.day == null
                       ? DayHeader(label: l.agendaViewDone)
-                      : DayHeader.forDay(context, group.day!, today: today),
+                      : _dayHeader(context, group.day!, today),
                 ),
                 SliverPadding(
                   padding: const EdgeInsets.fromLTRB(
@@ -1181,4 +1215,20 @@ class _AgendaSkeleton extends StatelessWidget {
       ],
     );
   }
+}
+
+/// A day's heading — "Pazartesi · 6 Ekim", with the year for a day in
+/// another year than [today] (the finished todos reach back past it, a
+/// daily series forward).
+DayHeader _dayHeader(BuildContext context, DateTime day, DateTime today) {
+  final l = context.l10n;
+  final delta = calendarDaysBetween(today, day);
+  final name = switch (delta) {
+    0 => l.dayToday,
+    1 => l.dayTomorrow,
+    -1 => l.dayYesterday,
+    _ => formatWeekday(day),
+  };
+  final date = formatDate(day, withYear: day.year != today.year);
+  return DayHeader(label: '$name · $date', isToday: delta == 0);
 }

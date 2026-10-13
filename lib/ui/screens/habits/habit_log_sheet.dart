@@ -21,6 +21,7 @@ import '../../widgets/nok_sheet.dart';
 import '../../widgets/primary_button.dart';
 import '../../widgets/segmented_pill.dart';
 import '../../widgets/sync_hint.dart';
+import 'widgets/habit_calendar.dart' show habitDayLogSemantics;
 
 /// One habit's log for one day, to set it exactly (design-analysis §7.10):
 /// what a long-press on a habit opens — on Today and on Habits — and
@@ -186,13 +187,23 @@ class _HabitLogSheetState extends ConsumerState<_HabitLogSheet> {
       final loading =
           (list.isLoading && !list.hasValue) ||
           (home == null && ref.watch(homeProvider).isLoading);
-      return (
-        null,
-        loading
-            ? const CircularProgressIndicator.adaptive()
-            // Archived or deleted meanwhile: nothing left to log.
-            : Text(l.errNotFound, style: text.bodyMedium),
-      );
+      if (loading) {
+        return (null, const CircularProgressIndicator.adaptive());
+      }
+      // The list could not be read: that says nothing about the habit, so
+      // the sheet says why, with a retry — not that the record is gone.
+      if (list.hasFailed) {
+        return (
+          null,
+          _unreadable(
+            context,
+            list.error!,
+            retry: () => ref.read(dataSyncProvider).refresh([habitsProvider]),
+          ),
+        );
+      }
+      // Archived or deleted meanwhile: nothing left to log.
+      return (null, Text(l.errNotFound, style: text.bodyMedium));
     }
 
     // The chain has every day from its first on (a day it leaves out has
@@ -209,31 +220,19 @@ class _HabitLogSheetState extends ConsumerState<_HabitLogSheet> {
         return (
           null,
           detail.hasFailed && !detail.isLoading
-              ? Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Text(
-                      detail.isGone
-                          ? l.errNotFound
-                          : failureMessage(
-                              detail.error!,
-                              l,
-                              fallback: l.errServerUnreachable,
-                            ),
-                      style: text.bodyMedium,
-                      textAlign: TextAlign.center,
-                    ),
-                    if (!detail.isGone) ...[
-                      const SizedBox(height: Gap.sm),
-                      TextButton(
-                        onPressed: () => ref.read(dataSyncProvider).refresh([
+              ? detail.isGone
+                    ? Text(
+                        l.errNotFound,
+                        style: text.bodyMedium,
+                        textAlign: TextAlign.center,
+                      )
+                    : _unreadable(
+                        context,
+                        detail.error!,
+                        retry: () => ref.read(dataSyncProvider).refresh([
                           habitDetailProvider(widget.habitId),
                         ]),
-                        child: Text(l.actionRetry),
-                      ),
-                    ],
-                  ],
-                )
+                      )
               : const CircularProgressIndicator.adaptive(),
         );
       }
@@ -259,6 +258,27 @@ class _HabitLogSheetState extends ConsumerState<_HabitLogSheet> {
             : null,
       ),
       null,
+    );
+  }
+
+  /// Why the habit could not be read, and a retry.
+  Widget _unreadable(
+    BuildContext context,
+    Object error, {
+    required VoidCallback retry,
+  }) {
+    final l = context.l10n;
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Text(
+          failureMessage(error, l, fallback: l.errServerUnreachable),
+          style: Theme.of(context).textTheme.bodyMedium,
+          textAlign: TextAlign.center,
+        ),
+        const SizedBox(height: Gap.sm),
+        TextButton(onPressed: retry, child: Text(l.actionRetry)),
+      ],
     );
   }
 
@@ -410,15 +430,26 @@ class _HabitLogSheetState extends ConsumerState<_HabitLogSheet> {
       ),
       const SizedBox(height: Gap.lg),
       if (log.counts)
-        ..._counter(context, log, count: count, tone: tone, enabled: enabled)
+        ..._counter(
+          context,
+          log,
+          count: count,
+          tone: tone,
+          enabled: enabled,
+          day: day,
+          today: today,
+        )
       else
         Row(
           children: [
             CheckPop(
               checked: done,
               tone: tone,
-              semanticLabel: l.habitLogSemantics(
-                log.name,
+              semanticLabel: habitDayLogSemantics(
+                l,
+                name: log.name,
+                day: day,
+                today: today,
                 count: count,
                 target: 1,
                 done: done,
@@ -532,6 +563,8 @@ class _HabitLogSheetState extends ConsumerState<_HabitLogSheet> {
     required int count,
     required EntityTone tone,
     required bool enabled,
+    required DateTime day,
+    required DateTime today,
   }) {
     final c = context.nok;
     final text = Theme.of(context).textTheme;
@@ -564,8 +597,11 @@ class _HabitLogSheetState extends ConsumerState<_HabitLogSheet> {
       RejectShake(
         trigger: _rejected,
         child: Semantics(
-          label: l.habitLogSemantics(
-            log.name,
+          label: habitDayLogSemantics(
+            l,
+            name: log.name,
+            day: day,
+            today: today,
             count: count,
             target: target,
             done: done,

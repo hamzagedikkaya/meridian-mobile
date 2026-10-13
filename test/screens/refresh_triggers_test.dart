@@ -154,6 +154,17 @@ void main() {
   setUpAll(initializeDateFormatting);
 
   group('re-tapping the selected tab (§5.2)', () {
+    test('Finance refetches all it shows: the subscriptions too', () {
+      expect(
+        AppTab.finance.readModels,
+        containsAll(<Object>[
+          financeDashboardProvider,
+          accountsProvider,
+          subscriptionsProvider,
+        ]),
+      );
+    });
+
     testWidgets('Today, scrolled: back to the top, and nothing refetches',
         (tester) async {
       final h = _Harness();

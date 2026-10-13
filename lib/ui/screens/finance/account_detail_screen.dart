@@ -27,6 +27,7 @@ import '../../widgets/skeletons.dart';
 import '../../widgets/sync_hint.dart';
 import 'account_card.dart';
 import 'account_form.dart';
+import 'finance_utils.dart';
 import 'reconcile_sheet.dart';
 import 'transaction_form_screen.dart';
 import 'tx_detail_sheet.dart';
@@ -123,6 +124,17 @@ class _AccountDetailScreenState extends ConsumerState<AccountDetailScreen> {
   /// it — isolated from İşlemler's feed by the family key.
   TxFilters get _filters => TxFilters.account(widget.accountId);
 
+  /// This month's own income and expense on the account (transfers are
+  /// left out of the server's totals): the header's "Bu ay" line.
+  TxFilters _monthFilters(DateTime today) {
+    final month = monthOf(today);
+    return TxFilters(
+      accountId: widget.accountId,
+      from: month.from,
+      to: month.to,
+    );
+  }
+
   @override
   void initState() {
     super.initState();
@@ -145,10 +157,14 @@ class _AccountDetailScreenState extends ConsumerState<AccountDetailScreen> {
     if (past != _pastHeader) setState(() => _pastHeader = past);
   }
 
+  /// Pull-to-refresh and the retries: the account, its history and the
+  /// header's "Bu ay" totals, which come from their own month query.
   Future<void> _refresh() async {
     ref.read(dataSyncProvider).refresh([accountsProvider]);
+    final month = _monthFilters(ref.read(currentDayProvider));
     await Future.wait([
       ref.read(transactionsProvider(_filters).notifier).refresh(),
+      ref.read(transactionsProvider(month).notifier).refresh(),
       settleRefresh([ref.read(accountsProvider.future)]),
     ]);
   }
@@ -337,6 +353,17 @@ class _AccountDetailScreenState extends ConsumerState<AccountDetailScreen> {
       );
     }
 
+    // No account list at all — it never loaded, and its fetch failed (opened
+    // from a goal with the Finance tab never visited, offline): the server
+    // is unreachable and there is nothing cached to show (§7.15), never an
+    // endless skeleton. "Tekrar dene" reloads the list and the history.
+    if (account == null && accountsAsync.hasFailed) {
+      return Scaffold(
+        appBar: AppBar(title: Text(l.titleAccount)),
+        body: EmptyState.error(onRetry: _refresh),
+      );
+    }
+
     return CollapsingFabScope(
       child: Scaffold(
       appBar: AppBar(
@@ -448,13 +475,40 @@ class _AccountDetailScreenState extends ConsumerState<AccountDetailScreen> {
     final text = Theme.of(context).textTheme;
     final l = context.l10n;
     final today = ref.watch(currentDayProvider);
+    final hidden = ref.watch(deferredDeletesProvider);
+    bool inMonth(Transaction tx) =>
+        tx.account.id == account.id &&
+        tx.date.year == today.year &&
+        tx.date.month == today.month;
+    // The month's totals are the server's, across every page — not what
+    // the history has loaded so far, which falls short on a busy account
+    // and grows as it scrolls. Until they come (or should they fail) the
+    // loaded rows stand in.
+    final month = ref.watch(transactionsProvider(_monthFilters(today))).value;
     var income = 0;
     var expense = 0;
-    for (final tx in feed?.items ?? const <Transaction>[]) {
-      if (tx.account.id != account.id) continue;
-      if (tx.date.year != today.year || tx.date.month != today.month) continue;
-      if (tx.kind == 'income') income += tx.amountCents;
-      if (tx.kind == 'expense') expense += tx.amountCents;
+    if (month != null) {
+      income = month.meta.filteredIncomeCents;
+      expense = month.meta.filteredExpenseCents;
+    } else {
+      for (final tx in feed?.items ?? const <Transaction>[]) {
+        if (!inMonth(tx)) continue;
+        if (tx.kind == 'income') income += tx.amountCents;
+        if (tx.kind == 'expense') expense += tx.amountCents;
+      }
+    }
+    // A row deleted a moment ago leaves the totals at once, as it leaves
+    // the list — before the refetch says so (as İşlemler's summary does).
+    if (hidden.isNotEmpty) {
+      final seen = <int>{};
+      for (final tx in [...?month?.items, ...?feed?.items]) {
+        if (!seen.add(tx.id) || !inMonth(tx)) continue;
+        if (!hidden.contains((scope: DataScope.transactions, id: tx.id))) {
+          continue;
+        }
+        if (tx.kind == 'income') income -= tx.amountCents;
+        if (tx.kind == 'expense') expense -= tx.amountCents;
+      }
     }
     String money(int cents, MoneySign sign) => formatMoney(
           cents,
@@ -664,7 +718,9 @@ class _AccountDetailScreenState extends ConsumerState<AccountDetailScreen> {
       for (final g in groups)
         DayHeader.group(
           key: ValueKey('day-${g.key}'),
-          header: DayHeader.forDay(
+          // The history pages back through years: another year's day
+          // says which, as on İşlemler.
+          header: historyDayHeader(
             context,
             g.key,
             today: today,
@@ -688,6 +744,11 @@ class _AccountDetailScreenState extends ConsumerState<AccountDetailScreen> {
                   perspectiveAccountId: widget.accountId,
                   onSaved: onSaved,
                 ),
+                // The row grammar of every transaction list (§6.4).
+                onLongPress: () =>
+                    showTransactionActions(context, ref, tx, onSaved: onSaved),
+                semanticActions:
+                    txRowSemanticActions(context, ref, tx, onSaved: onSaved),
               ),
             );
           },

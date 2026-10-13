@@ -196,6 +196,9 @@ class TodoRow extends StatelessWidget {
         due: dueLabel,
         overdue: overdue,
         done: done,
+        priority: todo.priority,
+        list: list?.name,
+        notes: hasNotes,
       ),
       onTap: tap,
       onTapHint: onTap == null ? null : l.actionEdit,
@@ -506,19 +509,26 @@ class EventRow extends StatelessWidget {
     final time = timeLabel(l, event, day);
     final allDay = event.allDay || event.startAt == null || on == null;
 
+    // List payloads (`GET /events`, `/home`) carry only `recurring`, not
+    // the rule: such a row, like one with a rule set up on the web, says
+    // only that it repeats.
     final repeat = event.recurring
-        ? Recurrence.parse(event.recurrenceRule).preset
+        ? Recurrence.parse(event.recurrenceRule, anchor: event.startDay).preset
         : RecurrencePreset.none;
     final repeatLabel = switch (repeat) {
-      RecurrencePreset.none => null,
-      RecurrencePreset.custom => null,
+      RecurrencePreset.none => event.recurring ? l.eventRepeats : null,
+      RecurrencePreset.custom => l.eventRepeats,
       _ => l.recurrence(repeat),
     };
     final metaStyle = text.bodySmall!.copyWith(color: c.inkMid);
-    final meta = [
-      ?repeatLabel,
-      if (location != null && location.isNotEmpty) location,
-    ].join(' · ');
+    final where = location == null || location.isEmpty ? null : location;
+    // The place first (§4.6: "Konum; tekrarlıysa ⟳ + Her hafta"), so a
+    // long label never pushes it out of the one line at large text. The
+    // bare "Tekrarlıyor" adds nothing to the ⟳ before a place: it shows
+    // only when there is no place to show.
+    final shownRepeat =
+        where != null && repeatLabel == l.eventRepeats ? null : repeatLabel;
+    final meta = [?where, ?shownRepeat].join(' · ');
 
     final Widget clock = allDay
         ? Text(
@@ -561,6 +571,8 @@ class EventRow extends StatelessWidget {
         event.title,
         when: dated ? '${formatWeekday(on)}, ${formatDate(on)}, $time' : time,
         where: location == null || location.isEmpty ? null : location,
+        repeat: repeatLabel,
+        ended: finished,
       ),
       onTap: onTap,
       child: InkWell(

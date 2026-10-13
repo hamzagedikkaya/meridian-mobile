@@ -31,6 +31,13 @@ const categoryNameMaxLength = 60;
 /// "+ Yeni kategori" of the category picker and the budget sheet all show
 /// it, so a category is made the same way everywhere.
 ///
+/// The fields scroll; the button (and [footer]) stay pinned under them, in
+/// the sheet's action area (§4.15) — above the keyboard, which the sheet
+/// makes room for (§0.3 #9). So the form needs a bounded height: a sheet's
+/// body, never inside another scroll view. The keyboard's ✓ only puts the
+/// keyboard away, showing the type, parent and colour still to choose; it
+/// never saves.
+///
 /// The server's rules hold here before it is asked: a parent is a
 /// top-level category of the same type (so a category with subcategories
 /// cannot get one), and the type of a category in use cannot change. A
@@ -73,7 +80,7 @@ class CategoryForm extends ConsumerStatefulWidget {
   /// nothing, [existing] itself, the same instance (nothing was sent).
   final ValueChanged<TxCategory> onSaved;
 
-  /// Under the save button: the edit sheet's delete.
+  /// 24 dp under the save button (§4.15): the edit sheet's delete.
   final Widget? footer;
 
   const CategoryForm({
@@ -99,6 +106,10 @@ class _CategoryFormState extends ConsumerState<CategoryForm> {
   late int? _parentId = widget.existing?.parentId ?? widget.initialParentId;
   String? _color;
   bool _saving = false;
+
+  /// [CategoryForm.onSaved] has been called: the form is on its way out,
+  /// and nothing more is sent or handed back.
+  bool _done = false;
   String? _nameError;
   String? _kindError;
   String? _parentError;
@@ -116,6 +127,9 @@ class _CategoryFormState extends ConsumerState<CategoryForm> {
   }
 
   Future<void> _save(String color) async {
+    // One save at a time, and none after it landed: a second answer would
+    // pop the route under the sheet as well.
+    if (_saving || _done) return;
     final l = context.l10n;
     final name = _name.text.trim();
     if (name.isEmpty) {
@@ -131,6 +145,7 @@ class _CategoryFormState extends ConsumerState<CategoryForm> {
     );
     final existing = widget.existing;
     if (existing != null && input.changesFrom(existing).isEmpty) {
+      _done = true;
       widget.onSaved(existing);
       return;
     }
@@ -146,6 +161,7 @@ class _CategoryFormState extends ConsumerState<CategoryForm> {
       if (!mounted) return;
       Haptics.confirm();
       setState(() => _saving = false);
+      _done = true;
       widget.onSaved(saved);
     } catch (e) {
       if (!mounted) return;
@@ -207,7 +223,7 @@ class _CategoryFormState extends ConsumerState<CategoryForm> {
     final kindLocked = widget.kindInUse || _kindRefused;
     final kindEditable = widget.kindEditable && !kindLocked;
 
-    return Column(
+    final fields = Column(
       mainAxisSize: MainAxisSize.min,
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
@@ -216,11 +232,12 @@ class _CategoryFormState extends ConsumerState<CategoryForm> {
           autofocus: existing == null,
           maxLength: categoryNameMaxLength,
           textCapitalization: TextCapitalization.sentences,
+          // ✓ puts the keyboard away: the type, parent and colour are
+          // still to see (and "Ekle" is in reach above the keyboard anyway).
           textInputAction: TextInputAction.done,
           onChanged: (_) {
             if (_nameError != null) setState(() => _nameError = null);
           },
-          onSubmitted: (_) => _save(color),
           decoration: InputDecoration(
             labelText: l.categoryFormName,
             errorText: _nameError,
@@ -294,13 +311,27 @@ class _CategoryFormState extends ConsumerState<CategoryForm> {
             liveRegion: true,
             child: _error(text, c, _formError!),
           ),
-        const SizedBox(height: 16),
-        PrimaryButton(
-          label: existing == null ? l.actionAdd : l.actionSave,
-          loading: _saving,
-          onPressed: () => _save(color),
+      ],
+    );
+
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Flexible(
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.symmetric(horizontal: Insets.sheetH),
+            child: fields,
+          ),
         ),
-        ?widget.footer,
+        SheetActions(
+          primary: PrimaryButton(
+            label: existing == null ? l.actionAdd : l.actionSave,
+            loading: _saving,
+            onPressed: () => _save(color),
+          ),
+          destructive: widget.footer,
+        ),
       ],
     );
   }
@@ -400,66 +431,57 @@ class _CategorySheetState extends ConsumerState<_CategorySheet> {
 
     return Padding(
       padding: EdgeInsets.only(bottom: MediaQuery.viewInsetsOf(context).bottom),
-      child: SingleChildScrollView(
-        padding: const EdgeInsets.fromLTRB(
-            Insets.sheetH, 0, Insets.sheetH, Gap.lg),
-        child: SafeArea(
-          top: false,
-          child: CategoryForm(
-            existing: existing,
-            kind: widget.kind,
-            // A new one may still be either; an existing one only while
-            // nothing is filed under it.
-            kindEditable: existing == null || (usage?.kindEditable ?? false),
-            kindInUse: usage != null && !usage.kindEditable,
-            hasChildren: hasChildren,
-            onSaved: (saved) {
-              Navigator.of(context).pop(saved);
-              // Nothing changed (the form hands the category back as it
-              // was): nothing was saved, so nothing is said.
-              if (identical(saved, existing)) return;
-              final host = widget.host;
-              if (!host.mounted) return;
-              showAppSnack(
-                host,
-                existing == null
-                    ? l.categoryCreated(saved.name)
-                    : l.categoryUpdated,
-                tone: SnackTone.success,
-              );
-            },
-            footer: existing == null
-                ? null
-                : Padding(
-                    // Never level with "Kaydet": 24 dp below it (§4.15).
-                    padding: const EdgeInsets.only(top: Gap.xxl),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.stretch,
-                      children: [
-                        TextButton.icon(
-                          onPressed: _deleting ? null : () => _delete(existing),
-                          style: TextButton.styleFrom(
-                            foregroundColor: c.error,
-                            minimumSize: const Size.fromHeight(Hit.min),
-                          ),
-                          icon: const Icon(Icons.delete_outline_rounded,
-                              size: 18),
-                          label: Text(l.actionDelete),
-                        ),
-                        if (_deleteError != null)
-                          Semantics(
-                            liveRegion: true,
-                            child: Text(
-                              _deleteError!,
-                              textAlign: TextAlign.center,
-                              style: text.bodySmall!.copyWith(color: c.error),
-                            ),
-                          ),
-                      ],
+      child: CategoryForm(
+        existing: existing,
+        kind: widget.kind,
+        // A new one may still be either; an existing one only while
+        // nothing is filed under it.
+        kindEditable: existing == null || (usage?.kindEditable ?? false),
+        kindInUse: usage != null && !usage.kindEditable,
+        hasChildren: hasChildren,
+        onSaved: (saved) {
+          Navigator.of(context).pop(saved);
+          // Nothing changed (the form hands the category back as it
+          // was): nothing was saved, so nothing is said.
+          if (identical(saved, existing)) return;
+          final host = widget.host;
+          if (!host.mounted) return;
+          showAppSnack(
+            host,
+            existing == null
+                ? l.categoryCreated(saved.name)
+                : l.categoryUpdated,
+            tone: SnackTone.success,
+          );
+        },
+        // Never level with "Kaydet": the action area puts it 24 dp
+        // below (§4.15).
+        footer: existing == null
+            ? null
+            : Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  TextButton.icon(
+                    onPressed: _deleting ? null : () => _delete(existing),
+                    style: TextButton.styleFrom(
+                      foregroundColor: c.error,
+                      minimumSize: const Size.fromHeight(Hit.min),
                     ),
+                    icon: const Icon(Icons.delete_outline_rounded,
+                        size: 18),
+                    label: Text(l.actionDelete),
                   ),
-          ),
-        ),
+                  if (_deleteError != null)
+                    Semantics(
+                      liveRegion: true,
+                      child: Text(
+                        _deleteError!,
+                        textAlign: TextAlign.center,
+                        style: text.bodySmall!.copyWith(color: c.error),
+                      ),
+                    ),
+                ],
+              ),
       ),
     );
   }

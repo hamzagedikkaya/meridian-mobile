@@ -71,8 +71,27 @@ class MemoryDraftStore extends DraftStore {
   @override
   Future<void> claimFor(String owner) async {
     if (this.owner == owner) return;
-    if (this.owner != null) drafts.clear();
+    drafts.clear();
     this.owner = owner;
+  }
+
+  @override
+  Future<void> adopt(String owner) async {
+    final previous = this.owner;
+    if (previous == owner) return;
+    if (previous != null && previous.split(':').first != owner.split(':').first) {
+      drafts.clear();
+    }
+    this.owner = owner;
+  }
+
+  @override
+  Future<bool> hasOwner() async => owner != null;
+
+  @override
+  Future<void> forget() async {
+    drafts.clear();
+    owner = null;
   }
 }
 

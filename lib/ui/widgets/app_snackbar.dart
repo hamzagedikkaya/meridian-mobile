@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/scheduler.dart';
 
 import '../../core/api.dart';
 import '../../core/haptics.dart';
@@ -7,7 +8,6 @@ import '../../data/deferred_deletes.dart';
 import '../../l10n/app_l10n.dart';
 import '../../theme/app_colors.dart';
 import '../../theme/app_metrics.dart';
-import 'capture_bar.dart';
 
 /// How long a snackbar that offers an action ("Geri al") stays: long enough
 /// to reach the action, short enough not to linger over the next screen
@@ -33,29 +33,228 @@ enum SnackTone {
   error,
 }
 
-/// Where a snackbar shown from [context] floats (design-analysis §4.17).
+/// How far a snackbar floats over a tab's FAB (16 + 56 + 8).
+const _overFab = 80.0;
+
+/// How far a snackbar floats over the capture bar.
+const _overCaptureBar = 76.0;
+
+/// How far a snackbar floats with nothing under it.
+const _overNothing = 12.0;
+
+/// Where a snackbar shown from [context] floats now (design-analysis
+/// §4.17).
 ///
 /// Snackbars are drawn by the outermost scaffold (the shell's, under the
 /// navigation bar) — not by a tab's own scaffold, so they cannot see its
-/// FAB or capture bar and are lifted above them here: 80 dp over a tab's
-/// FAB (16 + 56 + 8), 76 dp over the capture bar, 12 dp otherwise. A
-/// page's own outermost scaffold lifts it over its FAB by itself.
+/// FAB or capture bar and are lifted above them: 80 dp over a tab's FAB
+/// (16 + 56 + 8), 76 dp over the capture bar, 12 dp otherwise. A page's
+/// own outermost scaffold lifts it over its FAB by itself.
 ///
-/// [context] must be the screen's: a sheet (`showNokSheet`) sits on the
-/// root navigator, outside the tab, and a sheet's context sees neither
-/// the FAB nor the capture bar — keep the screen's context and use it
-/// after the sheet closes.
+/// The FAB and the bar on screen say where they are themselves
+/// ([SnackClearance], put in place by `CollapsingFab` and
+/// `CaptureBarLayout`), so any [context] under the app's messenger will do:
+/// a screen's own (above its scaffold), a row's, a sheet's or a form's.
+///
+/// The app's snackbars do not keep this margin: they follow what is on
+/// view while they show. A form that says "Kaydedildi" as it closes, or a
+/// screen that says it the moment the form has gone, shows it while the
+/// form still hides the tab; it floats over the tab's FAB or capture bar
+/// once the tab is back on view.
 EdgeInsets snackMarginFor(BuildContext context) {
-  final scaffold = Scaffold.maybeOf(context);
-  if (scaffold != null &&
-      scaffold.hasFloatingActionButton &&
-      scaffold.context.findAncestorStateOfType<ScaffoldState>() != null) {
-    return const EdgeInsets.fromLTRB(16, 0, 16, 80);
+  final messenger = ScaffoldMessenger.maybeOf(context);
+  return messenger == null
+      ? _marginOver(null)
+      : snackMarginOn(messenger);
+}
+
+/// Where a snackbar shown on [messenger] floats now: above the FAB or the
+/// capture bar of the screen on view ([SnackClearance]), else 12 dp up.
+EdgeInsets snackMarginOn(ScaffoldMessengerState messenger) =>
+    _marginOver(_clearances[messenger]?.lift);
+
+EdgeInsets _marginOver(double? lift) =>
+    EdgeInsets.fromLTRB(16, 0, 16, lift ?? _overNothing);
+
+/// What the screens on view under each messenger hold above its snackbars.
+final _clearances = Expando<_Clearances>('snack clearances');
+
+_Clearances _clearancesOn(ScaffoldMessengerState messenger) =>
+    _clearances[messenger] ??= _Clearances();
+
+/// The FABs and capture bars on view under one messenger. Tells the
+/// snackbars on screen when the highest of them changes.
+class _Clearances extends ChangeNotifier {
+  final _holders = <_SnackClearanceState>{};
+
+  /// What the snackbars were last told.
+  double? _told;
+
+  /// The highest lift on view, or null when nothing is.
+  double? get lift {
+    double? most;
+    for (final h in _holders) {
+      final lift = h.widget.lift;
+      if (most == null || lift > most) most = lift;
+    }
+    return most;
   }
-  if (CaptureBarScope.maybeOf(context) != null) {
-    return const EdgeInsets.fromLTRB(16, 0, 16, 76);
+
+  void add(_SnackClearanceState holder) {
+    if (_holders.add(holder)) _changed();
   }
-  return const EdgeInsets.fromLTRB(16, 0, 16, 12);
+
+  void remove(_SnackClearanceState holder) {
+    if (_holders.remove(holder)) _changed();
+  }
+
+  /// A holder's lift changed.
+  void touch() => _changed();
+
+  void _changed() {
+    final now = lift;
+    if (now == _told) return;
+    _told = now;
+    // Holders come and go while the tree builds (a page popped turns the
+    // tab's tickers back on): the snackbars rebuild in the next frame.
+    if (SchedulerBinding.instance.schedulerPhase ==
+        SchedulerPhase.persistentCallbacks) {
+      SchedulerBinding.instance.addPostFrameCallback((_) => notifyListeners());
+    } else {
+      notifyListeners();
+    }
+  }
+}
+
+/// Says that [child] — a tab's FAB or capture bar — sits at the bottom of
+/// the screen, so the app's snackbars float [lift] dp up to clear it
+/// ([snackMarginFor]) wherever they are shown from.
+///
+/// It counts only while it is on view: not on a tab in the background, not
+/// under a page pushed over it (both turn its tickers off), and not while
+/// [active] is false (a hidden FAB).
+class SnackClearance extends StatefulWidget {
+  const SnackClearance({
+    super.key,
+    required this.lift,
+    this.active = true,
+    required this.child,
+  });
+
+  /// Over a tab's FAB.
+  static const overFab = _overFab;
+
+  /// Over the capture bar.
+  static const overCaptureBar = _overCaptureBar;
+
+  final double lift;
+  final bool active;
+  final Widget child;
+
+  @override
+  State<SnackClearance> createState() => _SnackClearanceState();
+}
+
+class _SnackClearanceState extends State<SnackClearance> {
+  _Clearances? _on;
+  bool _visible = false;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    _visible = TickerMode.valuesOf(context).enabled;
+    final messenger = ScaffoldMessenger.maybeOf(context);
+    final on = messenger == null ? null : _clearancesOn(messenger);
+    if (!identical(on, _on)) _on?.remove(this);
+    _on = on;
+    _sync();
+  }
+
+  @override
+  void didUpdateWidget(SnackClearance old) {
+    super.didUpdateWidget(old);
+    _sync();
+    if (old.lift != widget.lift) _on?.touch();
+  }
+
+  void _sync() {
+    final on = _on;
+    if (on == null) return;
+    if (_visible && widget.active) {
+      on.add(this);
+    } else {
+      on.remove(this);
+    }
+  }
+
+  @override
+  void dispose() {
+    _on?.remove(this);
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => widget.child;
+}
+
+/// A floating [SnackBar] whose margin follows the FAB or capture bar on
+/// view under its messenger ([_clearances]) for as long as it shows,
+/// rather than what was on view when it was shown.
+class _LiftedSnackBar extends SnackBar {
+  const _LiftedSnackBar({
+    super.key,
+    required this.clearances,
+    this.pinned,
+    required super.content,
+    super.duration,
+    super.persist,
+    super.action,
+    super.animation,
+  });
+
+  final _Clearances clearances;
+
+  /// A margin given by the caller ([showAppSnack]'s `margin`): kept as is.
+  final EdgeInsets? pinned;
+
+  @override
+  EdgeInsetsGeometry get margin => pinned ?? _marginOver(clearances.lift);
+
+  // The messenger hands every snackbar its animation through this copy.
+  @override
+  SnackBar withAnimation(Animation<double> newAnimation, {Key? fallbackKey}) =>
+      _LiftedSnackBar(
+        key: key ?? fallbackKey,
+        clearances: clearances,
+        pinned: pinned,
+        content: content,
+        duration: duration,
+        persist: persist,
+        action: action,
+        animation: newAnimation,
+      );
+
+  @override
+  State<SnackBar> createState() => _LiftedSnackBarState();
+}
+
+class _LiftedSnackBarState extends State<SnackBar> {
+  @override
+  Widget build(BuildContext context) {
+    final bar = widget as _LiftedSnackBar;
+    return ListenableBuilder(
+      listenable: bar.clearances,
+      builder: (context, _) => SnackBar(
+        content: bar.content,
+        margin: bar.margin,
+        duration: bar.duration,
+        persist: bar.persist,
+        action: bar.action,
+        animation: bar.animation,
+        onVisible: bar.onVisible,
+      ),
+    );
+  }
 }
 
 /// The app's snackbar: surface3 with the overlay border, 12 dp corners,
@@ -63,7 +262,8 @@ EdgeInsets snackMarginFor(BuildContext context) {
 /// action(s) — the theme draws the rest.
 SnackBar _appSnackBar({
   required String message,
-  required EdgeInsets margin,
+  required ScaffoldMessengerState messenger,
+  EdgeInsets? margin,
   required Duration duration,
   bool persist = false,
   SnackTone tone = SnackTone.plain,
@@ -81,8 +281,9 @@ SnackBar _appSnackBar({
   // Two actions do not fit SnackBarAction (it takes one): both are drawn
   // under the message, the primary last.
   final twoActions = secondaryLabel != null && actionLabel != null;
-  return SnackBar(
-    margin: margin,
+  return _LiftedSnackBar(
+    clearances: _clearancesOn(messenger),
+    pinned: margin,
     duration: duration,
     persist: persist,
     content: Builder(
@@ -146,8 +347,8 @@ SnackBar _appSnackBar({
 /// * One action ([actionLabel], [onAction]) — "Geri al" — or two, with
 ///   [secondaryLabel] and [onSecondary] ("Düzenle" + "Geri al", quick add
 ///   only), drawn under the message, both gold and 48 dp.
-/// * It floats above the screen's FAB or capture bar ([snackMarginFor]) —
-///   pass the screen's [context], never a sheet's, or it cannot see them.
+/// * It floats above the FAB or capture bar on view ([snackMarginFor]),
+///   whichever [context] it is shown from.
 ///
 /// With an action it stays [actionSnackDuration] and then goes, like any
 /// other — Flutter would otherwise keep a snackbar with an action up until
@@ -156,6 +357,10 @@ SnackBar _appSnackBar({
 /// (`MediaQuery.accessibleNavigationOf`), where reaching the action can
 /// take longer than any timeout. [duration] and [persist] override either
 /// rule.
+///
+/// [margin] pins where it floats instead of following what is on view —
+/// for a screen with a bar of its own at the bottom that no
+/// [SnackClearance] reports (the journal editor's accessory bar).
 ///
 /// Returns the snackbar's controller: its `closed` future says how it went
 /// (`action` when the primary action was used).
@@ -170,6 +375,7 @@ ScaffoldFeatureController<SnackBar, SnackBarClosedReason> showAppSnack(
   bool isError = false,
   Duration? duration,
   bool? persist,
+  EdgeInsets? margin,
 }) {
   final effectiveTone = tone ?? (isError ? SnackTone.error : SnackTone.plain);
   if (effectiveTone == SnackTone.error) Haptics.reject();
@@ -178,7 +384,8 @@ ScaffoldFeatureController<SnackBar, SnackBarClosedReason> showAppSnack(
   return messenger.showSnackBar(
     _appSnackBar(
       message: message,
-      margin: snackMarginFor(context),
+      messenger: messenger,
+      margin: margin,
       tone: effectiveTone,
       duration:
           duration ?? (hasAction ? actionSnackDuration : _plainSnackDuration),
@@ -190,6 +397,30 @@ ScaffoldFeatureController<SnackBar, SnackBarClosedReason> showAppSnack(
       onSecondary: onSecondary,
     ),
   );
+}
+
+/// [showAppSnack] on [messenger] itself — for a message that comes after
+/// the screen that started it may be gone, such as an undo that failed:
+/// keep `ScaffoldMessenger.of(context)` from when it started and say it
+/// here. Floats as [snackMarginOn] says; does nothing once [messenger] is
+/// gone (an error still plays its haptic).
+void showAppSnackOn(
+  ScaffoldMessengerState messenger,
+  String message, {
+  SnackTone? tone,
+  bool isError = false,
+}) {
+  final effectiveTone = tone ?? (isError ? SnackTone.error : SnackTone.plain);
+  if (effectiveTone == SnackTone.error) Haptics.reject();
+  if (!messenger.mounted) return;
+  messenger
+    ..hideCurrentSnackBar()
+    ..showSnackBar(_appSnackBar(
+      message: message,
+      messenger: messenger,
+      tone: effectiveTone,
+      duration: _plainSnackDuration,
+    ));
 }
 
 /// What a refused delete can offer instead, by the refusal: an account
@@ -211,7 +442,6 @@ void _sayRefused(
   AppL10n l,
   Object error, {
   required String fallback,
-  required EdgeInsets margin,
   DeleteRecovery? recover,
   DeleteRefusal? explain,
 }) {
@@ -223,7 +453,7 @@ void _sayRefused(
     ..showSnackBar(_appSnackBar(
       message:
           explain?.call(error) ?? failureMessage(error, l, fallback: fallback),
-      margin: margin,
+      messenger: messenger,
       tone: SnackTone.error,
       duration: action == null ? _plainSnackDuration : actionSnackDuration,
       actionLabel: action?.label,
@@ -269,7 +499,6 @@ void deleteWithUndo(
 }) {
   final l = context.l10n;
   final messenger = ScaffoldMessenger.of(context);
-  final margin = snackMarginFor(context);
   deletes.stage(
     record,
     send: send,
@@ -278,7 +507,6 @@ void deleteWithUndo(
       l,
       error,
       fallback: failedMessage ?? l.errDeleteFailed,
-      margin: margin,
       recover: recover,
       explain: explain,
     ),
@@ -329,7 +557,6 @@ void deleteNow(
 }) {
   final l = context.l10n;
   final messenger = ScaffoldMessenger.of(context);
-  final margin = snackMarginFor(context);
   deletes.stage(
     record,
     send: send,
@@ -339,7 +566,6 @@ void deleteNow(
       l,
       error,
       fallback: failedMessage ?? l.errDeleteFailed,
-      margin: margin,
       recover: recover,
       explain: explain,
     ),
@@ -351,7 +577,7 @@ void deleteNow(
         ..hideCurrentSnackBar()
         ..showSnackBar(_appSnackBar(
           message: message,
-          margin: margin,
+          messenger: messenger,
           duration: _plainSnackDuration,
         ));
     }
