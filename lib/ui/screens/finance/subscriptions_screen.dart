@@ -708,7 +708,11 @@ class SubscriptionsScreen extends ConsumerWidget {
                 active: async.isRefetching,
                 child: RefreshIndicator.adaptive(
                   color: c.gold,
-                  onRefresh: refresh,
+                  // Armed (§5.8): the pull let go past its threshold.
+                  onRefresh: () {
+                    Haptics.armed();
+                    return refresh();
+                  },
                   child: LoadPhaseSwitcher(
                     phase: phase,
                     skeleton: (_) => const _SubscriptionsSkeleton(),

@@ -15,10 +15,8 @@ class NokSkeleton extends StatelessWidget {
 
   const NokSkeleton({super.key, required this.enabled, required this.child});
 
-  /// One pulse, bone → bone at 55 % and back. A local alias of
-  /// [Motion.highlight] (the same 1200 ms breath as the wash) until
-  /// WP-1/WP-17 add a token named for it (`Motion.pulse`).
-  static const pulse = Motion.highlight;
+  /// One pulse, bone → bone at 55 % and back.
+  static const pulse = Motion.pulse;
 
   @override
   Widget build(BuildContext context) {

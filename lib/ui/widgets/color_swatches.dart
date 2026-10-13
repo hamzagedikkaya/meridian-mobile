@@ -6,9 +6,6 @@ import '../../theme/app_colors.dart';
 import '../../theme/app_metrics.dart';
 import '../../theme/entity_color.dart';
 
-// The swatches live with the other record-colour tokens.
-export '../../theme/entity_color.dart' show recordSwatches;
-
 /// The swatch a new record starts with when [existing] records already
 /// exist: the colours rotate, so consecutive records differ.
 String rotatingSwatch(int existing) =>

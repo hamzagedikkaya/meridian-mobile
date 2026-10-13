@@ -195,7 +195,9 @@ class _DayCell extends StatelessWidget {
 
     final Color ink = switch (state) {
       HabitDayState.done => tone.text,
-      HabitDayState.none => c.inkFaint,
+      // A day out of range is still tappable (the editor says why it
+      // cannot be logged): readable text, not inkFaint (§3.1, §8.1).
+      HabitDayState.none => c.inkLow,
       _ => c.inkHi,
     };
 

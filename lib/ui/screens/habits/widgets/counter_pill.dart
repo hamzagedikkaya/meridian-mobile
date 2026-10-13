@@ -59,9 +59,8 @@ class CounterPill extends StatefulWidget {
   /// The peak of the swell when the target is reached.
   static const swell = 1.04;
 
-  /// 220 ms (§4.22) — the strike's beat; no literal here (WP-17 note: a
-  /// `Motion.swell` token would name it).
-  static const swellDuration = Motion.strike;
+  /// 220 ms (§4.22).
+  static const swellDuration = Motion.swell;
 
   @override
   State<CounterPill> createState() => _CounterPillState();
@@ -85,7 +84,7 @@ class _CounterPillState extends State<CounterPill>
       tween: Tween(
         begin: CounterPill.swell,
         end: 1.0,
-      ).chain(CurveTween(curve: Curves.easeInOutCubic)),
+      ).chain(CurveTween(curve: Motion.settle)),
       weight: 50,
     ),
   ]).animate(_swell);

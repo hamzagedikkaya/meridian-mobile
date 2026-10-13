@@ -69,7 +69,11 @@ class TodoListsScreen extends ConsumerWidget {
           Expanded(
             child: RefreshIndicator.adaptive(
               color: c.gold,
-              onRefresh: () => _refresh(ref),
+              // Armed (§5.8): the pull let go past its threshold.
+              onRefresh: () {
+                Haptics.armed();
+                return _refresh(ref);
+              },
               child: CustomScrollView(
                 physics: const AlwaysScrollableScrollPhysics(),
                 slivers: [

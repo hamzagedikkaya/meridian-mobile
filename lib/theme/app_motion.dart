@@ -1,7 +1,7 @@
 /// The one source of motion (design-analysis §5.1): durations, curves and
-/// springs. No `Duration(milliseconds: …)` literal belongs anywhere else in
-/// `lib/` — `test/theme/motion_tokens_test.dart` lists the ones still left
-/// (report mode until WP-17 makes it fail).
+/// springs. No `Duration(…)` or `Curves.…` literal belongs anywhere else in
+/// `lib/ui`, `lib/router` or `lib/theme` — `test/theme/motion_tokens_test.dart`
+/// fails on one, except the few non-motion timers it lists by name.
 ///
 /// Rules:
 ///
@@ -84,9 +84,30 @@ abstract final class Motion {
   static const syncHintDelay = Duration(seconds: 1);
   static const spinnerDelay = Duration(milliseconds: 150);
 
+  /// A small hint fading in or out: the sync line, a chart's scrub cursor.
+  static const hintIn = Duration(milliseconds: 150);
+
+  /// A skeleton bone's one breath, bone → 55 % → bone.
+  static const pulse = Duration(milliseconds: 1200);
+
+  /// A busy button stays busy at least this long, so a fast answer does not
+  /// flash it disabled and back.
+  static const busyMinimum = Duration(milliseconds: 300);
+
+  /// A stepper sends its value this long after the last tap: ten quick
+  /// "+1"s are one write (§5.5).
+  static const stepSendDelay = Duration(milliseconds: 400);
+
   /// The "what changed" wash, and how long a checked-off row lingers.
   static const highlight = Duration(milliseconds: 1200);
   static const linger = Duration(seconds: 4);
+
+  /// A habit checked on Today stays among the open ones this long before it
+  /// folds into the done group (§5.4).
+  static const holdChecked = Duration(milliseconds: 1200);
+
+  /// A finished checklist shows "Hepsi tamam" this long, then folds (§7.15).
+  static const doneHold = Duration(seconds: 2);
 
   /// Pull-to-refresh stays at least this long, so it never flashes.
   static const refreshMinimum = Duration(milliseconds: 500);
@@ -97,8 +118,10 @@ abstract final class Motion {
   static const milestoneHold = Duration(milliseconds: 2500);
   static const milestoneOut = Duration(milliseconds: 250);
 
-  /// The "Hepsi tamam" pill shows this long after the burst.
+  /// The "Hepsi tamam" pill shows [pillDelay] after the burst and comes in
+  /// over [pillIn].
   static const pillDelay = Duration(milliseconds: 120);
+  static const pillIn = Duration(milliseconds: 250);
 
   /// The light ↔ dark theme change (`MaterialApp.themeAnimationDuration`).
   static const themeChange = Duration(milliseconds: 250);
@@ -109,8 +132,17 @@ abstract final class Motion {
   static const popUp = Duration(milliseconds: 170);
   static const popSettle = Duration(milliseconds: 130);
 
+  /// A check's fill (and its tick) when it turns on.
+  static const fillIn = Duration(milliseconds: 250);
+
   /// A done task's strike-through, drawn after the fill.
   static const strike = Duration(milliseconds: 220);
+
+  /// A counter reaching its target swells 1.0 → 1.04 → 1.0 over this.
+  static const swell = Duration(milliseconds: 220);
+
+  /// Chart bars growing, or retargeting to new values.
+  static const barGrow = Duration(milliseconds: 350);
 
   /// A rejected keypad digit: two ±4 dp shakes.
   static const shake = Duration(milliseconds: 240);
@@ -130,6 +162,16 @@ abstract final class Motion {
 
   static const Curve enter = Curves.easeOutCubic;
   static const Curve exit = Curves.easeInCubic;
+
+  /// A finger landing: the press scale goes down on this.
+  static const Curve press = Curves.easeOut;
+
+  /// Back to rest after a peak (the check pop's and the counter's settle).
+  static const Curve settle = Curves.easeInOutCubic;
+
+  /// Cross-fades: what leaves fades on [fadeOut], what arrives on [fadeIn].
+  static const Curve fadeOut = Curves.easeIn;
+  static const Curve fadeIn = Curves.easeOut;
 
   /// Cubic(0.05, 0.7, 0.1, 1.0): sheets, forms and the milestone card only.
   static const Curve surfaceIn = Easing.emphasizedDecelerate;

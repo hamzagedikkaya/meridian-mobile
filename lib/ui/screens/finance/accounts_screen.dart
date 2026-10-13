@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../../core/haptics.dart';
 import '../../../core/session.dart';
 import '../../../data/data_scope.dart';
 import '../../../data/deferred_deletes.dart';
@@ -28,7 +29,7 @@ import 'finance_utils.dart';
 /// The Hesaplar page (`/finance/accounts`, design-analysis §7.6).
 ///
 /// * A totals card: the balances per currency, never added across them
-///   ("TRY ₺36.250,00", "GAU 412 gr").
+///   ("TRY ₺36.250,00", "Altın 412 gr").
 /// * The active accounts grouped by type — Nakit, Banka, Kredi kartı,
 ///   Birikim, Kripto — in 64 dp rows (the type's icon in the account's
 ///   tone, the name, the balance). A tap opens the account.
@@ -110,7 +111,7 @@ class AccountsScreen extends ConsumerWidget {
                 child: Row(
                   children: [
                     Text(
-                      s.currency,
+                      l.accountsCurrencyLabel(s.currency),
                       style: text.bodyMedium!.copyWith(color: c.inkMid),
                     ),
                     const SizedBox(width: Gap.md),
@@ -250,7 +251,11 @@ class AccountsScreen extends ConsumerWidget {
                 active: async.isRefetching,
                 child: RefreshIndicator.adaptive(
                   color: c.gold,
-                  onRefresh: refresh,
+                  // Armed (§5.8): the pull let go past its threshold.
+                  onRefresh: () {
+                    Haptics.armed();
+                    return refresh();
+                  },
                   child: body,
                 ),
               ),

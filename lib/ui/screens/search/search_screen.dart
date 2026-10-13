@@ -24,7 +24,7 @@ import '../../widgets/load_phase_switcher.dart';
 import '../../widgets/nokturn_card.dart';
 import '../../widgets/skeletons.dart';
 import '../../widgets/sync_hint.dart';
-import '../events/event_sheet.dart';
+import '../agenda/event_sheet.dart';
 import '../finance/subscriptions_screen.dart';
 import '../finance/tx_detail_sheet.dart';
 import '../habits/habit_detail_sheet.dart';

@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../../core/formats.dart';
+import '../../../core/haptics.dart';
 import '../../../core/locale_mode.dart';
 import '../../../core/reduce_motion.dart';
 import '../../../core/session.dart';
@@ -77,7 +78,11 @@ class ProfileScreen extends ConsumerWidget {
     return Scaffold(
       appBar: AppBar(title: Text(l.titleProfile)),
       body: RefreshIndicator(
-        onRefresh: () => _refresh(ref),
+        // Armed (§5.8): the pull let go past its threshold.
+        onRefresh: () {
+          Haptics.armed();
+          return _refresh(ref);
+        },
         child: ListView(
           physics: const AlwaysScrollableScrollPhysics(),
           padding: const EdgeInsets.fromLTRB(

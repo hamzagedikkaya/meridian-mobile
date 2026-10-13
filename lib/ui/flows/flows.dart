@@ -30,13 +30,13 @@ import '../../models/quick_capture.dart';
 import '../../models/subscription.dart';
 import '../../models/todo.dart';
 import '../../models/transaction.dart';
-import '../screens/events/event_form.dart' as event_form;
+import '../screens/agenda/event_form.dart' as event_form;
 import '../screens/finance/transaction_form_screen.dart' as tx_form;
 import '../screens/goals/goal_form.dart' as goal_form;
 import '../screens/habits/habit_detail_sheet.dart' as habit_detail;
 import '../screens/habits/habit_log_sheet.dart' as habit_log;
 import '../screens/today/widgets/quick_capture_sheet.dart' as quick_capture;
-import '../screens/todos/todo_sheet.dart' as todo_sheet;
+import '../screens/agenda/todo_sheet.dart' as todo_sheet;
 import '../widgets/app_snackbar.dart';
 
 // --- Quick add ----------------------------------------------------------------
@@ -153,8 +153,8 @@ Future<SubscriptionCharge?> markSubscriptionPaid(
   final repo = ref.read(repositoryProvider);
   try {
     final charge = await repo.chargeSubscription(s.id);
-    // "Ödendi" confirms (§5.8): WP-3 maps celebrate() to confirm().
-    Haptics.celebrate();
+    // "Ödendi" confirms (§5.8).
+    Haptics.confirm();
     if (context.mounted) {
       final tx = charge.transaction;
       final messenger = ScaffoldMessenger.of(context);
@@ -184,7 +184,7 @@ Future<SubscriptionCharge?> markSubscriptionPaid(
         isError: true,
       );
     } else {
-      Haptics.danger();
+      Haptics.reject();
     }
     return null;
   } finally {

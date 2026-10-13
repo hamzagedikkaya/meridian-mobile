@@ -101,10 +101,8 @@ class CheckPop extends StatefulWidget {
   /// The pop's peak.
   static const popScale = 1.05;
 
-  /// How long the check's fill takes. A local alias of [Motion.collapse]
-  /// (the same 250 ms, not the same meaning) until WP-1/WP-17 add a token named for it
-  /// (`Motion.fillIn`); see the WP-17 note in §9.
-  static const fillIn = Motion.collapse;
+  /// How long the check's fill takes.
+  static const fillIn = Motion.fillIn;
 
   @override
   State<CheckPop> createState() => _CheckPopState();
@@ -192,7 +190,7 @@ class _CheckPopState extends State<CheckPop> with TickerProviderStateMixin {
           .then((_) {
         if (run != _popRun || !mounted) return;
         _scale.animateTo(1,
-            duration: Motion.popSettle, curve: Curves.easeInOutCubic);
+            duration: Motion.popSettle, curve: Motion.settle);
       });
     } else {
       if (reduced) {
@@ -209,7 +207,7 @@ class _CheckPopState extends State<CheckPop> with TickerProviderStateMixin {
     if (_reduced) return;
     _popRun++;
     _scale.animateTo(CheckPop.pressedScale,
-        duration: Motion.pressIn, curve: Curves.easeOut);
+        duration: Motion.pressIn, curve: Motion.press);
   }
 
   void _release() {

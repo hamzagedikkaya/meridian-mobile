@@ -63,7 +63,7 @@ class FormScaffold extends StatefulWidget {
   /// [fieldKey] scrolls into view (250 ms, 15 % from the top; a jump under
   /// reduced motion) and — when it holds a text field — takes the focus.
   static Future<void> revealInvalid(GlobalKey fieldKey) async {
-    Haptics.danger();
+    Haptics.reject();
     final context = fieldKey.currentContext;
     if (context == null) return;
     await Scrollable.ensureVisible(

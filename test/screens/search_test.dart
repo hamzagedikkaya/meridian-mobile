@@ -25,7 +25,7 @@ import 'package:meridian_mobile/ui/screens/goals/goal_detail_screen.dart';
 import 'package:meridian_mobile/ui/screens/journal/journal_detail_screen.dart';
 import 'package:meridian_mobile/ui/screens/search/search_entry_button.dart';
 import 'package:meridian_mobile/ui/screens/search/search_screen.dart';
-import 'package:meridian_mobile/ui/screens/todos/todo_sheet.dart';
+import 'package:meridian_mobile/ui/screens/agenda/todo_sheet.dart';
 import 'package:meridian_mobile/ui/widgets/day_header.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 

@@ -10,6 +10,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:meridian_mobile/theme/app_colors.dart';
+import 'package:meridian_mobile/theme/entity_color.dart';
 import 'package:meridian_mobile/ui/widgets/amount_keypad.dart';
 import 'package:meridian_mobile/ui/widgets/capture_bar.dart';
 import 'package:meridian_mobile/ui/widgets/choice_wrap.dart';

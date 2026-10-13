@@ -12,6 +12,7 @@ import '../../../../l10n/app_l10n.dart';
 import '../../../../models/account.dart';
 import '../../../../theme/app_colors.dart';
 import '../../../../theme/app_metrics.dart';
+import '../../../../theme/app_motion.dart';
 import '../../../../theme/entity_color.dart';
 import '../../../widgets/app_snackbar.dart';
 import '../../../widgets/empty_state.dart';
@@ -242,7 +243,7 @@ class StartCard extends ConsumerStatefulWidget {
   final TodayStartProgress progress;
 
   /// How long "Hepsi tamam" stays before the card folds away.
-  static const doneHold = Duration(seconds: 2);
+  static const doneHold = Motion.doneHold;
 
   @override
   ConsumerState<StartCard> createState() => _StartCardState();

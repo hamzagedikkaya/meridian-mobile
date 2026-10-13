@@ -20,12 +20,12 @@ import 'package:meridian_mobile/models/date_utils.dart';
 import 'package:meridian_mobile/models/habit.dart';
 import 'package:meridian_mobile/models/quick_capture.dart';
 import 'package:meridian_mobile/theme/app_theme.dart';
+import 'package:meridian_mobile/theme/entity_color.dart';
 import 'package:meridian_mobile/ui/flows/create_flows.dart';
 import 'package:meridian_mobile/ui/flows/flows.dart';
 import 'package:meridian_mobile/ui/screens/finance/transaction_form_screen.dart';
 import 'package:meridian_mobile/ui/screens/today/today_screen.dart';
 import 'package:meridian_mobile/ui/screens/today/widgets/quick_capture_sheet.dart';
-import 'package:meridian_mobile/ui/widgets/color_swatches.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../support/app_harness.dart';

@@ -25,6 +25,7 @@ import '../../../theme/entity_color.dart';
 import '../../flows/flows.dart' show markSubscriptionPaid, SubscriptionLite,
     subscriptionChargesInFlightProvider;
 import '../../widgets/app_snackbar.dart';
+import '../../widgets/category_bars.dart';
 import '../../widgets/charts.dart';
 import '../../widgets/collapsing_fab.dart';
 import '../../widgets/empty_state.dart';
@@ -47,7 +48,6 @@ import 'account_card.dart';
 import 'account_detail_screen.dart';
 import 'account_form.dart';
 import 'budget_sheet.dart';
-import 'finance_category_bars.dart';
 import 'finance_utils.dart';
 import 'subscription_form.dart';
 import 'subscriptions_screen.dart';
@@ -176,7 +176,6 @@ class _FinanceScreenState extends ConsumerState<FinanceScreen>
   }
 
   Future<void> _refresh() async {
-    Haptics.celebrate();
     refreshTab(ref, AppTab.finance);
     // "Abonelikler · aylık ₺X" and the setup card read the subscriptions,
     // which are not one of the tab's read models.
@@ -264,7 +263,11 @@ class _FinanceScreenState extends ConsumerState<FinanceScreen>
                   active: refetching,
                   child: RefreshIndicator.adaptive(
                     color: c.gold,
-                    onRefresh: _refresh,
+                    // The pull's own tick; retry calls [_refresh] silently.
+                    onRefresh: () {
+                      Haptics.armed();
+                      return _refresh();
+                    },
                     child: LoadPhaseSwitcher(
                       phase: phase,
                       skeleton: (_) => const _FinanceSkeleton(),
@@ -341,7 +344,7 @@ class _FinanceScreenState extends ConsumerState<FinanceScreen>
             ),
           );
       if (!mounted) return;
-      Haptics.success();
+      Haptics.confirm();
       showAppSnack(context, l.accountCreated(account.name));
     } catch (e) {
       if (mounted) {
@@ -898,7 +901,7 @@ class _FinanceScreenState extends ConsumerState<FinanceScreen>
                   ),
                 ),
               ),
-              FinanceCategoryBars(
+              CategoryBars(
                 currency: dash.currency,
                 subunitToUnit: dash.subunitToUnit,
                 semanticsLabel: insight,

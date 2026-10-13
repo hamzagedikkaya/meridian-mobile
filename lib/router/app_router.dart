@@ -11,7 +11,7 @@ import '../ui/screens/agenda/agenda_screen.dart';
 import '../ui/screens/habits/archived_habits_screen.dart';
 import '../ui/screens/habits/habits_screen.dart';
 import '../ui/screens/today/today_screen.dart';
-import '../ui/screens/todos/todo_lists_screen.dart';
+import '../ui/screens/agenda/todo_lists_screen.dart';
 import '../ui/screens/journal/journal_detail_screen.dart';
 import '../ui/screens/journal/journal_editor.dart';
 import '../ui/screens/journal/journal_screen.dart';

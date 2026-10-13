@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/api.dart';
+import '../../../core/haptics.dart';
 import '../../../data/data_scope.dart';
 import '../../../data/deferred_deletes.dart';
 import '../../../data/providers.dart';
@@ -98,7 +99,11 @@ class _ArchivedHabitsScreenState extends ConsumerState<ArchivedHabitsScreen> {
     } else {
       body = RefreshIndicator.adaptive(
         color: context.nok.gold,
-        onRefresh: _refresh,
+        // Armed (§5.8): the pull let go past its threshold.
+        onRefresh: () {
+          Haptics.armed();
+          return _refresh();
+        },
         child: CustomScrollView(
           physics: const AlwaysScrollableScrollPhysics(),
           slivers: [

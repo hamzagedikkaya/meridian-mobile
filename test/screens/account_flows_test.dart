@@ -633,7 +633,7 @@ void main() {
             accountJson(balance: 325000),
             accountJson(id: 2, name: 'Banka', type: 'bank', balance: 3300000),
             accountJson(
-                id: 3, name: 'Altın', type: 'savings', currency: 'GAU',
+                id: 3, name: 'Gram altın', type: 'savings', currency: 'GAU',
                 subunit: 1, balance: 412),
           ],
         });
@@ -643,7 +643,9 @@ void main() {
       expect(find.text('Hesaplar'), findsOneWidget);
       expect(find.text('TRY'), findsOneWidget);
       expect(find.text('₺36.250,00'), findsOneWidget);
-      expect(find.text('GAU'), findsOneWidget);
+      // Gram gold reads as a word, not its code.
+      expect(find.text('Altın'), findsOneWidget);
+      expect(find.text('GAU'), findsNothing);
       expect(find.text('412\u00A0gr'), findsWidgets);
       // Groups in their order: Nakit, Banka, Birikim.
       final cash = tester.getTopLeft(find.text('Nakit').first).dy;

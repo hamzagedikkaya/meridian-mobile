@@ -14,6 +14,7 @@ import '../../../../models/habit.dart';
 import '../../../../models/home.dart';
 import '../../../../theme/app_colors.dart';
 import '../../../../theme/app_metrics.dart';
+import '../../../../theme/app_motion.dart';
 import '../../../widgets/app_snackbar.dart';
 import '../../../widgets/celebration_layer.dart';
 import '../../../widgets/empty_state.dart';
@@ -41,7 +42,7 @@ class TodayHabitsSection extends ConsumerStatefulWidget {
   const TodayHabitsSection({super.key});
 
   /// How long a habit just checked stays among the open ones.
-  static const holdChecked = Duration(milliseconds: 1200);
+  static const holdChecked = Motion.holdChecked;
 
   /// The most open habits shown.
   static const maxOpen = 6;
@@ -116,12 +117,16 @@ class _TodayHabitsSectionState extends ConsumerState<TodayHabitsSection> {
         .setToday(habit.id, count, day: home?.today);
     // The optimistic patch has landed by the time setToday returns: the
     // day's last habit, by the user's own tap, is celebrated (tier 2).
-    if (!wasAllDone && allDone()) {
-      CelebrationLayer.maybeOf(context)?.allDone(origin: origin, day: day);
-    }
+    final celebrations =
+        !wasAllDone && allDone() ? CelebrationLayer.maybeOf(context) : null;
+    // Only a day this tap claimed is given back below.
+    final claimedDay =
+        celebrations?.allDone(origin: origin, day: day) ?? false;
     try {
-      await request;
+      // Refused or taken back: the day's celebration is not used up.
+      if (!await request && claimedDay) celebrations?.forget(day);
     } catch (e) {
+      if (claimedDay) celebrations?.forget(day);
       if (!mounted) return;
       setState(() => _release(habit.id));
       final l = context.l10n;

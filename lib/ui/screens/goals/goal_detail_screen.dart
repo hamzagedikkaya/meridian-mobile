@@ -42,7 +42,7 @@ import 'goal_value_sheet.dart';
 
 /// How long the stepper waits after the last tap before it sends the value
 /// (design-analysis §7.11): ten quick "+1"s are one PATCH.
-const goalStepSendDelay = Duration(milliseconds: 400);
+const goalStepSendDelay = Motion.stepSendDelay;
 
 class GoalDetailScreen extends ConsumerStatefulWidget {
   final int goalId;
@@ -362,7 +362,7 @@ class _GoalDetailScreenState extends ConsumerState<GoalDetailScreen> {
       // flash the button disabled and back.
       await Future.wait([
         _repo.goalRecalculate(widget.goalId),
-        Future<void>.delayed(const Duration(milliseconds: 300)),
+        Future<void>.delayed(Motion.busyMinimum),
       ]);
     } catch (e) {
       // The last good value stays on screen; say the refresh did not happen.
@@ -607,6 +607,7 @@ class _GoalDetailScreenState extends ConsumerState<GoalDetailScreen> {
             child: RefreshIndicator.adaptive(
               color: context.nok.gold,
               onRefresh: () async {
+                Haptics.armed();
                 retry();
                 await settleRefresh([
                   ref.read(goalDetailProvider(widget.goalId).future),
@@ -746,7 +747,7 @@ class _GoalDetailScreenState extends ConsumerState<GoalDetailScreen> {
           ),
         ],
         const SizedBox(height: Gap.xxl),
-        _EvenStatTileRow(
+        StatTileRow(
           tiles: [
             StatTile(
               label: l.goalsDetailStatus,
@@ -1163,47 +1164,6 @@ class _GoalDetailScreenState extends ConsumerState<GoalDetailScreen> {
             )
           : const Icon(Icons.refresh_rounded, size: 18),
       label: Text(l.goalsRefresh),
-    );
-  }
-}
-
-/// [StatTileRow]'s layout — 8 dp apart, equally wide, three across, two
-/// above 1.3× text — with the tiles of a line equally tall too: a date
-/// ("26 Kasım") beside a two-line caption no longer leaves its tile short
-/// (§9.0.3's local workaround). WP-17: give [StatTileRow] equal heights in
-/// the widget library and drop this.
-class _EvenStatTileRow extends StatelessWidget {
-  final List<Widget> tiles;
-
-  const _EvenStatTileRow({required this.tiles});
-
-  @override
-  Widget build(BuildContext context) {
-    if (tiles.isEmpty) return const SizedBox.shrink();
-    final most = MediaQuery.textScalerOf(context).scale(1) > 1.3 ? 2 : 3;
-    final columns = math.min(tiles.length, most);
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        for (var i = 0; i < tiles.length; i += columns) ...[
-          if (i > 0) const SizedBox(height: Gap.sm),
-          IntrinsicHeight(
-            child: Row(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                for (var j = 0; j < columns; j++) ...[
-                  if (j > 0) const SizedBox(width: Gap.sm),
-                  Expanded(
-                    child: i + j < tiles.length
-                        ? tiles[i + j]
-                        : const SizedBox.shrink(),
-                  ),
-                ],
-              ],
-            ),
-          ),
-        ],
-      ],
     );
   }
 }

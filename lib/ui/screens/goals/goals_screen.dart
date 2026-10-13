@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../../core/haptics.dart';
 import '../../../data/data_scope.dart';
 import '../../../data/deferred_deletes.dart';
 import '../../../l10n/app_l10n.dart';
@@ -96,7 +97,11 @@ class _GoalsScreenState extends ConsumerState<GoalsScreen> {
         active: async.isRefetching,
         child: RefreshIndicator.adaptive(
           color: c.gold,
-          onRefresh: _refresh,
+          // Armed (§5.8): the pull let go past its threshold.
+          onRefresh: () {
+            Haptics.armed();
+            return _refresh();
+          },
           child: LoadPhaseSwitcher(
             phase: phase,
             skeleton: (_) => const _GoalsSkeleton(),

@@ -85,22 +85,6 @@ void main() {
       await settle();
       expect(played, [null], reason: 'vibrate() below API 30');
     });
-
-    test('the older names map to the new meanings', () async {
-      Haptics.success();
-      await settle();
-      clock += const Duration(seconds: 1);
-      Haptics.celebrate();
-      await settle();
-      clock += const Duration(seconds: 1);
-      Haptics.danger();
-      await settle();
-      expect(played, [
-        'HapticFeedbackType.lightImpact',
-        'HapticFeedbackType.successNotification',
-        'HapticFeedbackType.errorNotification',
-      ]);
-    });
   });
 
   group('the coalescer', () {

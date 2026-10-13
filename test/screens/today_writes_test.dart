@@ -18,7 +18,7 @@ import 'package:meridian_mobile/l10n/app_l10n.dart';
 import 'package:meridian_mobile/models/user.dart';
 import 'package:meridian_mobile/theme/app_theme.dart';
 import 'package:meridian_mobile/ui/screens/today/today_screen.dart';
-import 'package:meridian_mobile/ui/screens/today/widgets/todo_row.dart';
+import 'package:meridian_mobile/ui/widgets/agenda_rows.dart';
 import 'package:meridian_mobile/ui/widgets/check_pop.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 

@@ -1,351 +1,740 @@
-# Meridian Mobile — Design Direction Decision
+# Meridian Mobile — Design System: **Noktürn v2**
 
-## Part 1 — Scorecard
+Android-first, dark by default, Turkish and English, talking to a self-hosted
+Rails API over the LAN. This document describes the design system as it is
+built: every value below is read from the code, and the code is the source of
+truth when the two disagree (`lib/theme/**`, `lib/core/formats.dart`,
+`lib/core/haptics.dart`, `lib/ui/widgets/**`). It replaces "Noktürn v1.1";
+the identity is the same, how it feels in the hand is new.
 
-Brand ground truth (verified in `/Users/user-hg/Documents/Personal/meridian/app/assets/tailwind/application.css`): warm near-black `#0A0908`, cream `#F5F1E8`, gold ramp seeded at `#B8860B`, desaturated income/expense `#6B8E5A`/`#B85450`, white-alpha hairline borders, **Fraunces display font** + DM Sans body. Team ground truth (memory): solo dev with zero mobile experience; dev preview is **Flutter Web in Chrome**, not an emulator; login → accounts slice already works.
-
-| Criterion | C1 Noktürn (Sakin lüks) | C2 Kehribar (M3E) | C3 Akış (Akışkan minimal) |
-|---|---|---|---|
-| (a) Beauty / currency | **9** — quiet-luxury warm dark + serif display numerals is exactly where premium personal-finance design sits in 2026; disciplined gold keeps it from feeling themed | **8** — M3 Expressive is current but reads "stock Google 2025"; the springs are fresh, the tonal surfaces less distinctive | **8.5** — content-first monochrome with iOS physics is timeless and elegant, but slightly austere for a life-OS that includes journaling and streak celebration |
-| (b) Usability | **8** — 5 tabs map 1:1 to the app's domains; amount-first keypad; quick capture in app bar; one weak spot: no error-state offline fallback | **7** — demoting Hedefler off the tab bar hurts a core domain's discoverability; the FAB menu adds a tap to every create action; otherwise solid | **8.5** — 5 tabs, edge-to-edge lists, offline cached-data banner, swipe-to-delete; long-press stepper sheet for multi-count habits is slightly hidden |
-| (c) Feasibility (Flutter stable, small team) | **8** — standard curves/widgets only, springs deliberately rejected, custom bits (keypad, chain strips, one confetti) are small CustomPainters; no unvetted packages | **6** — six items flagged [MANUAL], three "vet first" packages (`material_new_shapes`, `m3e_collection`, `expressive_loading_indicator`), spring-driven bottom sheets and shape morphs — a lot of physics engineering for a first-time mobile dev | **8** — springs are used but scoped; `OpenContainer` is off-the-shelf; painters small. Spring-driven sheet settle is the one fiddly bit |
-| (d) Brand fit (gold-on-warm-dark) | **10** — Fraunces is *literally* the web's display font; espresso surfaces sit in the same warm family as `#0A0908`; gold `#D4A853` ≈ web accent-300/400 (correct dark-mode lift of the `#B8860B` seed); hairline-not-shadow matches web borders | **7** — warm charcoal + gold, yes, but Manrope + tonal M3 geometry abandons the serif signature that makes Meridian look like Meridian; brightest gold of the three drifts toward generic amber | **8** — white-alpha hairlines are an exact match to the web's border system and terracotta expense `#E07B6B` is close kin to web `#B85450`, but Inter-only drops the Fraunces signature |
-| (e) Coherence / completeness | **9** — every value resolved, full API contract with error shapes, motion + haptics tables, GAU handled everywhere | **8** — thorough, but "vet first" and "or custom grid" leave open choices, which is exactly what this brief penalizes | **8.5** — complete and internally consistent; a couple of "or" choices (heatmap widget, HTML renderer) |
-| **Total** | **44** | **36** | **41.5** |
-
-## Part 2 — Verdict and grafts
-
-**Winner: Concept 1 "Noktürn".** It is the only concept that keeps the product looking like Meridian (Fraunces + warm espresso + disciplined gold), it is the most buildable by this specific team, and it is the most fully resolved.
-
-**Grafted from Concept 2 (Kehribar):** (1) the 6-month grouped income/expense bar chart on the Para screen — Noktürn shipped the `SixMonthBars` widget and API field but forgot to place it; (2) the budget projection note "Ay sonu tahmini: ₺X" when over-pace; (3) tappable deep-linking stat chips on Bugün; (4) the collapsed server row after successful ping on login ("✓ 192.168.1.20:3000", tap to re-edit); (5) mood-strip tap-to-filter on Günlük; (6) error presented as an inline retry card (never a full-screen takeover) when any cached data exists.
-
-**Grafted from Concept 3 (Akış):** (1) the offline banner "Çevrimdışı · son güncelleme HH:mm" over cached last-good data; (2) swipe-left-to-delete on transaction rows (with confirm); (3) latency readout on the server connection test ("Bağlandı · 38 ms"); (4) todo priority as a quiet 3dp left edge bar instead of pills; (5) `PressableScale` press feedback on tappable cards (re-tempered to a curve, no spring); (6) the concrete Android config details (minSdk 26, target API 36, `enableOnBackInvokedCallback`); (7) `kIsWeb`-aware default server URL (web → `localhost:3000`); (8) "no counting animation on refresh — data honesty" rule made explicit.
-
-**Deliberately rejected:** Kehribar's FAB menu, spring physics system, shape morphs, and unvetted M3E packages (feasibility); Akış's Inter-only typography (brand); Kehribar's 4-tab structure (usability). One resolved deviation from the web brand: body font is **Inter, not DM Sans**, because Inter has guaranteed `tnum` tabular figures and this app is numeral-dense; Fraunces carries the brand signature.
+Contents: [1 Language](#1-language-and-principles) ·
+[2 Colour](#2-colour) · [3 Type and numbers](#3-type-and-numbers) ·
+[4 Space, shape, surfaces](#4-space-shape-surfaces-icons) ·
+[5 Motion](#5-motion) · [6 Haptics](#6-haptics) ·
+[7 Components](#7-component-inventory) ·
+[8 Navigation and interaction](#8-navigation-and-interaction) ·
+[9 Screen patterns](#9-screen-patterns) ·
+[10 Empty states and the zero rules](#10-first-run-empty-states-and-the-zero-rules) ·
+[11 Accessibility and performance](#11-accessibility-and-performance-gates) ·
+[12 Tests and goldens](#12-tests-goldens-and-qa)
 
 ---
 
-# Addendum — v1.2, bilingual (2026-08-27)
+## 1. Language and principles
 
-The document below is unchanged apart from this note. Three things about it are now out of date:
+**"Calm luxury, instant answer."** Warm espresso surfaces (never `#000`), one
+disciplined gold that means *yours*, Fraunces numerals as the signature, and
+hairlines instead of shadows. What v2 changes is the feel:
 
-1. **The app ships in two languages.** Turkish and English, switchable in Profil → Dil and
-   stored both on the device and on the account (`PATCH /api/v1/me`). Copy lives in typed
-   classes under `lib/l10n/` (`AppL10n` is abstract, so a string missing from either language
-   fails the build); `core/formats.dart` keeps only value shaping and follows
-   `Intl.defaultLocale`, which the localization delegate sets. Numbers and dates follow the
-   language: `%82` / `82%`, `1.234,56 ₺` / `1,234.56 ₺`, `75B` / `75K`, `27 Ağustos` /
-   `August 27`. Server-side validation messages are shown as-is — Rails localizes them per
-   user — so the API layer raises a typed `ApiErrorKind` instead of a sentence.
-2. **"Para" is now "Finans" / "Finance"**, matching the web app's own vocabulary
-   (`config/locales/*.yml`: Finans, Alışkanlıklar, Hedefler, Günlük). The tab bar label for
-   habits is shortened to "Alışkanlık" so it fits at 360dp; the screen title stays
-   "Alışkanlıklar".
-3. **Routes, folders and class names are English**, so the code reads in one language while
-   the UI speaks two: `/today`, `/finance`, `/finance/transactions`, `/finance/account/:id`,
-   `/habits`, `/goals/:id`, `/journal/:id`, `/profile`, `/profile/server`, `/login`.
-   Read `§3`'s Turkish route table and `§4`'s screen names with that mapping in mind.
+- every touch answers in the same frame — the network catches up later;
+- numbers roll instead of blinking;
+- finished things fold away;
+- mistakes are undone, not prevented with dialogs;
+- the most important thing on each screen is the biggest thing.
 
-Everything else — palette, typography, spacing, motion, haptics, component inventory, API
-shapes — still holds as written.
+Motion is quick, physical and settled: no visible bounce, and every animation
+explains a change. Taken from 2025–26: Android 16 edge-to-edge and predictive
+back, labelled primary actions in the thumb zone, semantic haptics, damped
+springs, rolling digits, charts that come with a sentence, stadium buttons.
+Deliberately not taken: Liquid Glass and blur, wallpaper colour, M3 Expressive
+shape morphs, FAB menus, bento grids, donut charts, confirm dialogs for
+routine work.
+
+**Principles** (each comes with a test a reviewer can run):
+
+1. **Same-frame answer.** A tap changes the screen before the server answers.
+   With the server slowed by 1 s every check, counter, delete and archive still
+   updates in one frame; with a forced 500 the change rolls back with a message
+   and the REJECT haptic.
+2. **Never empty what is known.** Backgrounding, a tab re-tap or a save never
+   swaps visible content for a skeleton, spinner or gap, and never replays an
+   entrance or a count-up.
+3. **One hero per screen.** Squint at a screenshot: the first thing read is the
+   hero §9 names for that screen.
+4. **Thumb first, always a word.** At 360×780 dp, one hand: the create action
+   and every form's Save sit in the bottom 45 % or right above the keyboard,
+   are ≥ 48 dp and are labelled with a verb.
+5. **Undo instead of asking.** A dialog in front of an undoable action is a bug.
+   The few dialogs left name the object and the outcome with numbers, and the
+   button is a verb ("Sil ve taşı", never "Onayla").
+6. **Calm, exact, forward-looking words.** Red only for a real overrun,
+   overdue, error or destructive button; every negative state has a number and
+   a next step; no exclamation marks, no "aşıldı", never a flame beside a 0.
+7. **Motion explains a change.** For each animation one can say what changed
+   or where it went; with "Remove animations" on every screen shows its end
+   state in one frame.
+8. **Every gesture has a tap.** Every swipe, long press and drag can be done
+   with plain taps and with TalkBack; every icon-only control has a label.
 
 ---
 
-# FINAL DESIGN DOCUMENT — Meridian Mobile: **"Noktürn" v1.1**
+## 2. Colour
 
-Android-first, dark-primary, Turkish UI, self-hosted Rails API over LAN. Dev preview runs as Flutter Web in Chrome; release target is a sideloaded Android APK. Every value below is final.
+Tokens live in `NokturnColors` (`lib/theme/app_colors.dart`), a
+`ThemeExtension` read through `context.nok`. `NokturnColors.lerp` really
+interpolates, so the 250 ms light ↔ dark change fades every token.
 
-## 1. Design Language: Noktürn
+### 2.1 Palettes
 
-Warm-dark private banking crossed with Day One: deep espresso blacks (never pure `#000`), a single disciplined gold reserved for emphasis and primary actions, serif display type (Fraunces — the same display face as the Meridian web app) for hero numbers and headings over a quiet Inter body. Nothing shouts — motion is slow and settled (300–400ms, easeOutCubic, no springs, no overshoot except one check-off pop), charts are understated and desaturated, and green/red are used strictly semantically so the gold stays precious. Elevation is expressed by surface steps and 1dp hairlines, never shadows (dark theme). Gold never means "good/bad"; it means "yours".
-
-## 2. Design Tokens
-
-### 2.1 Dark palette (primary theme)
-
-| Token | Hex | Use |
-|---|---|---|
-| `bg` | `#171310` | Scaffold canvas |
-| `surface1` | `#1E1915` | Cards, list containers |
-| `surface2` | `#262019` | Elevated cards, bottom nav, chips, input fill |
-| `surface3` | `#2D2620` | Bottom sheets, dialogs, snackbars |
-| `hairline` | `#322A22` | 1dp card/list borders (replaces shadow) |
-| `divider` | `#2A231C` | In-list separators |
-| `inkHi` | `#EFE9DF` | Primary text, default amounts |
-| `inkMid` | `#B3A895` | Secondary text, metadata |
-| `inkLow` | `#7A7060` | Tertiary, placeholders, disabled labels |
-| `inkFaint` | `#4E463B` | Disabled icons, skeleton bones base |
-| `gold` (primary) | `#D4A853` | Primary CTA fill, active tab, FAB, progress fills |
-| `goldBright` | `#E7C883` | Pressed-state text on dark, streak flame, focus ring |
-| `goldDim` | `#8C6D2C` | Inactive gold accents, rest-state track fills |
-| `onGold` | `#221805` | Text/icon on gold fills |
-| `goldContainer` | `#3B2F14` | Selected chip bg, gold icon circles |
-| `onGoldContainer` | `#EBD9A9` | Text on goldContainer |
-| `income` | `#6FC08D` | Income amounts (+ prefix), positive deltas |
-| `incomeContainer` | `#17301F` | Income icon circles, positive pills |
-| `error` | `#E07862` | Over-budget, overdue, destructive, validation |
-| `errorContainer` | `#351E19` | Error pill bg |
-| `warning` | `#E39A4E` | Budget :warning state, deadline ≤7d badges |
-| `warningContainer` | `#33240F` | Warning pill bg |
-
-**Rules:** expense amounts render in `inkHi` with explicit `−` prefix (a wall of red is alarming); `error` red only for over-budget, overdue, destructive. Income always `income` green with explicit `+`. Sign prefixes are mandatory — never color-only (color-blind safety).
-
-**Chart palette (dark)** — 6 desaturated series, contrast-checked on `surface1`: `#C9A45C` (gold-1, always series #1), `#7FA3C0` (dusty blue), `#8FBF9F` (sage), `#B08FB3` (mauve), `#C98F7A` (clay), `#A8A86B` (olive). Six-month bar chart: income bars `#8FBF9F`, expense bars `#C9A45C`. Gridlines `#2A231C`, axis labels `inkLow` 11sp.
-
-### 2.2 Light palette (secondary, `theme_preference` respected)
-
-`bg #F6F1E8` (warm paper) · `surface1 #FCFAF5` · `surface2 #FFFFFF` · `surface3 #FFFFFF` (+shadow `BoxShadow(0,8,24, #26201908)`) · `hairline #E5DDCE` · `inkHi #262019` · `inkMid #5F574A` · `inkLow #8A8172` · `gold #96731D` (darkened for AA on paper) · `onGold #FFFFFF` · `goldContainer #F0E3C2` · `onGoldContainer #4A3A10` · `income #2C7A4F` · `error #B5432E` · `warning #A9631F`.
-
-### 2.3 Surface hierarchy
-`bg` → `surface1` (cards, 1dp hairline border, **no shadow**) → `surface2` (nav bar, inputs, nested chips) → `surface3` (sheets/dialogs; dark: no shadow; light: shadow above). No M3 surface-tint overlays — explicit hex per level.
-
-### 2.4 Typography — Fraunces (display) + Inter (body), both bundled as .ttf assets via `google_fonts` (no runtime fetch)
-
-| Role | Font | Size/Line | Weight | Tracking |
-|---|---|---|---|---|
-| displayLarge (hero money) | Fraunces | 40/46 | 600 | −0.5 |
-| displayMedium | Fraunces | 32/38 | 600 | −0.25 |
-| headlineLarge (screen titles) | Fraunces | 26/32 | 600 | 0 |
-| headlineMedium (section heroes) | Fraunces | 22/28 | 600 | 0 |
-| titleLarge | Inter | 18/24 | 600 | 0 |
-| titleMedium (card/row titles) | Inter | 16/22 | 600 | 0 |
-| titleSmall | Inter | 14/20 | 600 | +0.1 |
-| bodyLarge | Inter | 15/22 | 400 | 0 |
-| bodyMedium | Inter | 14/20 | 400 | 0 |
-| bodySmall (row metadata) | Inter | 13/18 | 400 | +0.1 |
-| labelLarge (buttons) | Inter | 14/20 | 500 | +0.1 |
-| labelMedium (overlines, UPPERCASE) | Inter | 12/16 | 500 | +0.8 |
-| labelSmall (badges) | Inter | 11/14 | 500 | +0.4 |
-
-**Money rule:** all amounts Inter w600 with `FontFeature.tabularFigures()`. Hero money (dashboard net, account balance) uses Fraunces w600, tabular. All money formatted client-side from `*_cents / subunit_to_unit` per currency — **GAU has `subunit_to_unit: 1`** ("412 gr", never /100). TRY renders `1.234,56 ₺` (trailing symbol, Turkish convention); decimals at 0.7em/`inkMid` in hero contexts. `MoneyText` is the only place money math lives.
-
-### 2.5 Spacing, radii, borders
-- **Spacing (dp):** 4, 8, 12, 16, 20, 24, 32, 40. Screen horizontal padding **20dp**. Between cards 12dp; between sections 32dp; section header → content 12dp.
-- **Radii:** cards 16; bottom sheets 24 top; dialogs 24; inputs 12; chips/badges 999; primary buttons 14; FAB 16; icon circles full. Plain circular radii only — no superellipse (web-renderer fallback risk).
-- **Borders:** every `surface1` card gets `Border.all(hairline, 1)`. Focused input: 1.5dp `gold`.
-- **Touch targets:** ≥48dp everywhere; list rows 64dp; habit check target 48dp.
-- **Press feedback (grafted from Akış):** every tappable card/chip wraps in `PressableScale` — scale to 0.98 over 100ms easeOut on press, back over 150ms on release. Ripples (`gold` at 8%) only on list rows, not cards.
-
-## 3. Navigation Architecture
-
-**Bottom navigation — 5 tabs**, 64dp M3 `NavigationBar` on `surface2` with top hairline, `go_router 17.3.0` `StatefulShellRoute.indexedStack`:
-
-| # | Turkish label | Icon (outlined → filled active) | Route |
+| Token | Dark (default) | Light (warm paper) | Role |
 |---|---|---|---|
-| 1 | **Bugün** | `wb_sunny_outlined` → `wb_sunny` | `/bugun` |
-| 2 | **Para** | `account_balance_wallet_outlined` → filled | `/para` |
-| 3 | **Alışkanlıklar** | `check_circle_outline` → `check_circle` | `/aliskanliklar` |
-| 4 | **Hedefler** | `flag_outlined` → `flag` | `/hedefler` |
-| 5 | **Günlük** | `auto_stories_outlined` → filled | `/gunluk` |
+| `bg` | `#171310` | `#F6F1E8` | Page |
+| `surface1` | `#1E1915` | `#FCFAF5` | Cards |
+| `surface2` | `#262019` | `#FFFFFF` | Nav bar, inputs, chip rail |
+| `surface3` | `#2D2620` | `#FFFFFF` | Sheets, dialogs, snackbars, menus |
+| `hairline` | `#322A22` | `#E5DDCE` | Card, list and nav edge (decorative) |
+| `divider` | `#2A231C` | `#EAE2D3` | Separators inside a list (decorative) |
+| `inkHi` | `#EFE9DF` | `#262019` | Primary text |
+| `inkMid` | `#B3A895` | `#5F574A` | Secondary text, meta, default icons |
+| `inkLow` | `#9A907F` | `#736B5E` | Hints, axis labels, inactive nav, placeholders |
+| `inkDisabled` | `#7A7060` | `#8A8172` | Component borders, disabled text, "missing" marks (≥ 3:1, not running text) |
+| `inkFaint` | `#4E463B` | `#B5AC9C` | Dashed ghost borders, rules — never text or a state |
+| `gold` | `#D4A853` | `#86661A` | The accent: primary actions, selection, "yours" |
+| `goldBright` | `#E7C883` | `#7A5D14` | The streak flame, emphasis on gold containers |
+| `goldDim` | `#8C6D2C` | `#A48842` | Gold borders and state marks (≥ 3:1) |
+| `onGold` | `#221805` | `#FFFFFF` | Text on gold |
+| `goldContainer` / `onGoldContainer` | `#3B2F14` / `#EBD9A9` | `#F0E3C2` / `#4A3A10` | Selected chip, milestone card, notices |
+| `income` / `incomeContainer` / `onIncome` | `#6FC08D` / `#17301F` / `#171310` | `#287148` / `#DDEEE2` / `#FFFFFF` | Income and real positives |
+| `error` / `errorContainer` / `onError` | `#E07862` / `#351E19` / `#171310` | `#A83E2A` / `#F6DFD9` / `#FFFFFF` | Overrun, overdue, error, destructive |
+| `warning` / `warningContainer` / `onWarning` | `#E39A4E` / `#33240F` / `#171310` | `#8F5216` / `#F3E4C8` / `#FFFFFF` | Due soon, attention |
+| `track` | `#3A3229` | `#E6DDCC` | The groove under a ring or bar (the value is always also text) |
+| `skeletonBone` | `#2D2620` | `#EDE6D8` | Skeleton bones |
+| `overlayBorder` | `#3D342A` | `#E5DDCE` | 1 dp edge of snackbar, menu, tooltip |
+| `scrim` | `#8F000000` (black 56 %) | `#52171310` | Modal barrier — never written at a call site |
+| `chart` | `#C9A45C #7FA3C0 #8FBF9F #B08FB3 #C98F7A #A8A86B` | `#A98436 #5F84A3 #5F9871 #906E93 #A96E58 #83833F` | Category series |
+| `chartIncome` / `chartExpense` | `#8FBF9F` / `#C9A45C` | `#5F9871` / `#A98436` | Six-month bars (also told apart by shape) |
 
-Active tab: icon+label `gold`, 32×20dp `goldContainer` pill behind icon. Inactive: `inkLow`. Only badge: Bugün gets an `error`-colored numeric dot-pill for overdue todos when > 0.
+`buildTheme(brightness)` (`lib/theme/app_theme.dart`) maps these onto a
+Material 3 `ColorScheme` and themes every Material component (buttons, chips,
+inputs, sheets, dialogs, snackbars, nav bar, switches, progress, tooltips,
+menus, page transitions). `surfaceTint` is transparent; ripple highlight is
+gold at 4 %.
 
-- **Profile/settings:** 32dp initials avatar (`goldContainer` bg, gold initials) top-right of Bugün app bar → pushes `/profil`. Logout at the bottom of Profil, plain-styled, red only inside its confirm dialog.
-- **No center FAB menu.** Each tab has its own gold FAB (specs in §4). Quick capture is a bolt icon in the Bugün app bar.
-- **Sub-pages:** detail pages are pushed `GoRoute`s under the shell; create/edit forms are **full-screen modal routes** (`fullscreenDialog: true`, slide-up) above the shell (`parentNavigatorKey: root`); quick pickers (category, account, mood) are **modal bottom sheets** on `surface3`, 24dp top radius, 32×4dp `inkFaint` drag handle. Max 2 levels below a tab; everything else is a sheet.
-- Tab switches: `NoTransitionPage` branches wrapped in 300ms `FadeThroughTransition`. Pushes: `PredictiveBackPageTransitionsBuilder` (Android 14+, `android:enableOnBackInvokedCallback="true"`, `PopScope` only — never `WillPopScope`).
+### 2.2 Contrast promises (enforced by `test/theme/contrast_test.dart`)
 
-## 4. Screen-by-Screen Spec
+- **Text and icons that carry information** — `inkHi`, `inkMid`, `inkLow`,
+  `gold`, `income`, `error`, `warning` on `bg`/`s1`/`s2`/`s3`, every `on*`
+  token on its colour, every state colour on its container, `inkLow` and
+  `inkMid` on `goldContainer`: **≥ 4.5:1**.
+- **Borders and state marks** — `inkDisabled` on every surface, `goldDim` on
+  `s1`/`s2`, an entity tone's `fill`: **≥ 3:1**.
+- **Decorative only** — `hairline`, `divider`, `inkFaint`, `track`: no promise,
+  never information.
 
-### 4.0 Shared list-item anatomy ("Noktürn row")
-64dp height, 20dp horizontal padding, transparent bg inside a `surface1` card group, 1dp `divider` between rows (inset 72dp left):
-- **Leading:** 40dp circle, entity color at 18% opacity bg, entity-colored 20dp icon.
-- **Center:** `titleMedium` `inkHi` title (1 line, ellipsis); `bodySmall` `inkMid` metadata below: `Kategori · 12 Tem` pattern, `·` separators.
-- **Trailing:** right-aligned tabular amount (`+` in `income` / `−` in `inkHi`), or 20dp `inkLow` chevron, or `🔥 n` streak.
+### 2.3 Usage rules
 
-### 4.1 Splash / auto-login gate
-- **Native splash** (`flutter_native_splash`, Android 12 API): `bg #171310`, centered 96dp gold Meridian monogram "M", fade-out disabled. First Flutter frame reproduces the identical layout (zero-flicker handoff). No shimmer effect (dropped for web-renderer parity — static monogram only).
-- Logic: read token from `flutter_secure_storage` (≤50ms). **No token →** fade-through to Giriş, 350ms. **Token →** route optimistically to Bugün immediately; fire `GET /me` (2.5s timeout) in background — a 401 anywhere (dio interceptor) wipes token and ejects to Giriş with SnackBar "Oturum süresi doldu, tekrar giriş yap". First-run: if `SharedPreferences` install flag missing, wipe secure storage (Keychain uninstall survival; skip this logic when `kIsWeb`).
-- Total gate target <1s, no artificial delay.
+1. Text on `goldContainer` is always `onGoldContainer`.
+2. Red only for a real overrun, overdue item, error or destructive action. A
+   negative month net is not red and never carries an exclamation mark.
+3. Green only for income and real positives — zero is not green.
+4. Opacity never describes a state ("loading" at 50 %, "inactive" at 50 %):
+   disabled is `inkDisabled`, selection is shape and edge. The one exception
+   is the documented filter wait (old results dim to 0.5 only after a 150 ms
+   timer, §5.4 of the analysis).
+5. A state is never told by colour alone — a shape, an icon or a word goes
+   with it.
 
-### 4.2 Giriş (Login) — single screen, two-step
-Column, 24dp padding, keyboard-safe scroll:
-1. 64dp gold monogram; "Meridian" displayMedium Fraunces; "Kişisel yaşam merkezin" bodyMedium `inkMid`. 40dp gap.
-2. **Step 1 — Sunucu:** `ServerUrlField` "Sunucu adresi". Prefill: `kIsWeb` → `http://localhost:3000`; Android debug/emulator → `http://10.0.2.2:3000`; else last-used from `SharedPreferences` (grafted from Akış). Trailing 24dp status slot: idle `inkLow` globe → 16dp spinner during `GET /api/v1/health` (1.5s debounce after typing stops) → `check_circle` `income` green, or `error_outline` red + inline errorText "Sunucuya ulaşılamadı — adresi ve Wi-Fi'yi kontrol et". **On success (grafted from Kehribar/Akış): the field collapses to a compact hairline row "✓ 192.168.1.20:3000 · Değiştir"** (tap re-expands), and the credentials section animates from 40% opacity/`IgnorePointer` to full + slides up 8dp, 350ms easeOutCubic.
-3. **Step 2 — Kimlik:** `AutofillGroup`: "E-posta" (`emailAddress`, `AutofillHints.email`, `next`) and "Şifre" (`obscureText`, 48dp eye toggle, `autocorrect:false`, `enableSuggestions:false`, `AutofillHints.password`, `done` → submit). Inputs: `surface2` fill, 12dp radius, 16dp content padding, label `inkMid`, focus 1.5dp gold.
-4. 401 error line "E-posta veya şifre hatalı" bodySmall `error` above the button; clears on next keystroke; values preserved.
-5. **"Giriş Yap"** — full-width 52dp gold filled button, `onGold` labelLarge. Loading: `onPressed: null`, label swaps to 20dp `CircularProgressIndicator(strokeWidth: 2, color: onGold)`, button size fixed. Success: `TextInput.finishAutofillContext()`, persist token, fade-through to Bugün 400ms. No full-screen spinners, no dialogs, ever.
+### 2.4 Record colours: `EntityTone`
 
-### 4.3 Bugün (Home) — `GET /home`
-`CustomScrollView`, `RefreshIndicator.adaptive` (gold, `mediumImpact` on arm, `onRefresh` ≥500ms):
-1. **App bar** (transparent, 20dp): greeting bodyMedium `inkMid` by hour (05–12 İyi sabahlar / 12–18 İyi günler / 18–23 İyi akşamlar / else İyi geceler) over `display_name` headlineLarge Fraunces. Right: bolt icon (quick capture) + 32dp avatar.
-2. **Hero card** (`surface1`, 20dp pad): overline "BU AY NET" labelMedium; `month_net_cents` displayLarge Fraunces tabular (sign prefix; `income` green if ≥0 else `inkHi`); 7-day spending sparkline beneath (fl_chart LineChart, 48dp, `goldDim` 2dp line, no dots/axes, gold→transparent 12% gradient fill).
-3. **Stat strip** — 3 equal `StatChip`s (`surface1`, 12dp radius/pad): "🔥 `active_streaks` seri" · "`open_todos` açık görev" · "%`habit_completion_pct` hafta". Numbers titleLarge tabular, labels labelSmall `inkMid`. **Each chip deep-links (grafted from Kehribar):** seri → Alışkanlıklar tab, görev → Görevler page, hafta → Alışkanlıklar tab.
-4. **"Bugün" section** — `SectionHeader` (trailing "Tümü →" gold text button → Ajanda/Görevler page). One `surface1` card mixing:
-   - Events (`today_events`, max 4): 3dp color bar + `HH:mm` labelMedium tabular `inkMid` + title titleSmall. All-day events first with "Tüm gün" pill.
-   - Todos due today: 24dp rounded-square checkbox rows; **priority = 3dp left edge bar (grafted from Akış): urgent `error` / high `warning` / medium `goldDim` / low transparent**; overdue rows show due text in `error`. Check = todo toggle micro-interaction (§5), `PATCH /todos/:id/toggle`, optimistic.
-   - Empty: "Bugün plan yok — sakin bir gün ☁" bodyMedium `inkLow`, centered, no CTA.
-5. **"Alışkanlıklar" section** (max 6 from `today_habits`): 56dp compact rows — name + `🔥 streak` meta, trailing 48dp `HabitCheck` ring (or `CounterPill` when `target_count > 1`, showing `count/target`). All-done: header gains a gold "✦ Hepsi tamam" pill.
-6. **"Hedefler" section** (top 3 active): name titleSmall + 6dp `PacedProgressBar` (goal color on `surface2` track) + `progress_percent%` labelSmall. Row → goal detail.
-7. 96dp bottom padding.
-- **No FAB on Bugün.** Bolt icon opens `QuickCaptureSheet`: one text field "Ne oldu? (−250 kahve, habit: koşu, süt al…)" → `POST /quick_captures` → SnackBar "Harcama eklendi ✓" with "Gör" action.
-- **Loading:** `skeletonizer 2.1.3` mirroring exact layout (hero bone 160×40, 3 stat bones, 4 row bones), bones `#241E18`, 1200ms pulse (no shimmer sweep), `enableSwitchAnimation: true`.
-- **Error policy (grafted from Kehribar + Akış), applies to every screen:** if cached last-good data exists → show it under a hairline banner "Çevrimdışı · son güncelleme 12:40" with a "Tekrar dene" text action; a full-screen `EmptyState` (48dp `cloud_off`, "Sunucuya ulaşılamıyor", "Aynı Wi-Fi ağında olduğundan emin ol", outlined "Tekrar dene" + "Sunucu ayarları" text button) appears only when there is nothing cached to show. Cache = in-memory per session (Riverpod `AsyncValue` previous data), no disk persistence in v1.
+People colour their own records (habits, goals, accounts, categories, lists,
+events). A raw hex is never painted as-is: `entityTone(hex, context.nok)`
+(`lib/theme/entity_color.dart`, memoised per colour and brightness) derives
 
-### 4.4 Para (Finance) — `GET /finance/dashboard` + `GET /accounts`
-1. App bar: "Para" headlineLarge; trailing `SegmentedPill` (Ay / Yıl) scoping the hero + pie.
-2. **Hero:** "BU AY NET" + net displayLarge; beneath: "+ Gelir X" `income` / "− Gider Y" `inkHi`, titleSmall tabular.
-3. **Hesaplar** — horizontal snap `PageView` (viewportFraction .88) of 140dp `AccountCard`s: `surface1`, left 4dp account-color bar, name titleMedium, Turkish type label labelSmall `inkMid` (Nakit/Banka/Kredi Kartı/Birikim/Kripto), balance displayMedium Fraunces tabular per that account's `subunit_to_unit` (**GAU → "412 gr"**). Tap → Hesap Detay (Hero flight on color bar + name; detail = full-width header + that account's transaction list + "Arşivle" in overflow). 6dp page dots, active gold. Last card: dashed-hairline "＋ Hesap ekle" ghost.
-4. **Son 6 ay (grafted from Kehribar):** `surface1` card with fl_chart grouped `BarChart` from `six_month_series` — income `#8FBF9F` / expense `#C9A45C` bars, radius-4 tops, month labels labelSmall `inkLow`, 350ms animate-in on first build, no gridline clutter (y-axis 3 labels max).
-5. **Kategoriler (bu ay)** — `surface1` card: fl_chart donut 160dp (centerSpaceRadius 56, sectionsSpace 2, series = `pie[]` roots using API colors), center = total expense titleLarge tabular; top-5 legend rows below (10dp dot, name bodyMedium, amount + % trailing). Slice tap → breakdown bottom sheet (subcategory list, cents-formatted).
-6. **Bütçeler** — one row per budget: category name + `PacedProgressBar`: `surface2` track, fill color by `state` (:under `income` / :warning `warning` / :over `error`), 2dp vertical `inkLow` **pace tick** at `pace_percent`; trailing "kalan `remaining`" bodySmall. Over rows: amount `error` + "aşıldı" labelSmall `errorContainer` pill. **When `projected_cents > limit_cents` (grafted from Kehribar): second meta line "Ay sonu tahmini: X" bodySmall `warning`.**
-7. **Yaklaşan abonelikler** (5): rows with relative `next_charge_on` ("3 gün sonra") + amount.
-8. **Son işlemler** (8) + "Tümü →" → İşlemler page.
-- **FAB:** gold 56dp `＋` → **İşlem Ekle** full-screen modal: kind `SegmentedPill` (Gider/Gelir/Transfer, default Gider) → amount-first: giant Fraunces amount + custom `AmountKeypad` (4×3, 64dp keys, `selectionClick` per key, decimal key hidden for GAU accounts) → account picker sheet → category picker sheet (2-level roots/children) → date (default bugün) + description. Transfer swaps category for related-account picker. Submit: 52dp gold button, `POST /transactions`, `lightImpact`, pop + SnackBar. Client sends `amount_cents` already multiplied by the account's subunit.
-- **İşlemler (pushed):** sticky filter chip bar (Tümü/Gelir/Gider/Transfer + Hesap + Kategori + tarih aralığı; active chips `goldContainer`; each opens a sheet picker); slim summary "`filtered_income` gelir · `filtered_expense` gider" bodySmall. Infinite scroll (`page`, PAGE_LIMIT 50), day-grouped sticky headers labelMedium `inkMid` ("Bugün", "Dün", "12 Temmuz"). Rows: Noktürn row — category-color leading circle (transfer: `swap_horiz` on `inkLow`), title = description ?? category name, meta = `Kategori · Hesap`, trailing signed amount. Row tap → detail sheet (`surface3`) with Düzenle/Sil. **Swipe-left on a row = delete (grafted from Akış): `error` bg reveal, then confirm dialog; `heavyImpact` on confirm.**
-- Empty accounts: EmptyState "İlk hesabını ekle" + gold CTA. Empty filtered transactions: "Bu filtreyle işlem yok" + "Filtreleri temizle". Loading: hero bone, 1 account card bone + peeking second, 6 row bones.
-
-### 4.5 Alışkanlıklar — `GET /habits`
-1. App bar "Alışkanlıklar" + trailing history icon → 84-day view.
-2. **Bugün kartı:** `X / Y tamamlandı` titleLarge + 8dp gold progress bar; on transition to X==Y: one-time confetti burst (12 gold/sage particles, 800ms, hand-rolled CustomPainter — the only confetti in the app) + `mediumImpact`.
-3. **Mükemmel gün zinciri:** 30 dots in a wrap (10dp circles, 6dp gap): `:perfect` gold filled / `:partial` gold 40% / `:missed` `surface2`+hairline / `:no_habits` transparent; caption "Mükemmel seri: 🔥 n · Rekor: m" bodySmall `inkMid`.
-4. **Habit cards** — one `surface1` card per habit, 72dp core row:
-   - Leading 12dp habit-color dot; title titleMedium; meta `🔥 current_streak · %completion_rate_30d (30g)`.
-   - Trailing: `target_count == 1` → 48dp `HabitCheck` ring (2dp `inkLow` circle; tap fills habit color with the §5 pop, white check draws in). `target_count > 1` → `CounterPill` 96×40dp `− n/target ＋` (`PATCH toggle_today` with `delta`); fills habit color when complete.
-   - Beneath (8dp gap): 14-day `ChainRow` — 8dp squares, 3dp gap, 2dp radius: completed = habit color / partial = 40% / today-pending = gold hairline outline / missed = `surface2`. Weekly/monthly habits show a period pill instead: "Bu hafta 2/3" labelSmall, check icon when complete.
-5. Habit tap → detail sheet (90% height): 30-day chain + legend, stats grid (Seri / Rekor / 30g oranı), 84-day 12-week mini-heatmap (custom widget), archive action.
-- **FAB** `＋` → habit form modal (name, frequency segmented Günlük/Haftalık/Aylık, target stepper, 8-swatch color row with gold default, optional goal link). Toggles are optimistic with rollback SnackBar on failure.
-- Empty: "İlk alışkanlığını oluştur — küçük başla" + CTA. Loading: 4 habit-card bones with chain bones.
-
-### 4.6 Hedefler — `GET /goals`
-1. App bar "Hedefler".
-2. **Aktif** grid (2-col, 12dp gutter): `GoalCard` — top: 10dp color dot + type overline labelMedium (`FİNANSAL`/`ALIŞKANLIK`/`ÖZEL`) + `DeadlineBadge` (overdue `errorContainer` "3g gecikti" / today `warningContainer` "bugün" / ≤7d `warningContainer` "5g kaldı" / far `surface2` `inkMid` date); name titleMedium 2-line; bottom: 72dp `ProgressRing` (6dp stroke, goal color on `surface2` track, 600ms easeOutCubic sweep on first build) with `%` centered; `current / target unit` bodySmall tabular beneath (financial goals format with the linked account's currency — GAU "gr").
-3. **Başarılanlar** — collapsed expansion section: flat rows, name + green check + `target unit` in `income`.
-4. **Goal detail** (push, Hero on ProgressRing): 160dp ring, displayMedium % inside; stats grid (Durum/Bitiş/Kalan gün); type-specific action card — **custom:** `[−10][−1][＋1][＋10]` 44dp `surface2` stepper (`selectionClick` each) + direct value field → `PATCH update_progress`; **habit:** linked streak + "X / target gün" + gold "Bugünü işaretle"; **financial:** linked account balance (subunit-correct) + "Yenile" (`PATCH recalculate`, inline button spinner ≥300ms). Footer: "Bırakıldı olarak işaretle" plain `inkLow` text button + confirm dialog.
-- **FAB** `＋` → goal form modal. Empty: "İlk hedefini koy" + CTA. Loading: 4 GoalCard bones.
-
-### 4.7 Günlük — `GET /journal_entries?range=30d`
-1. App bar "Günlük"; trailing range pill (7g/30g/6ay/1y/Tümü, default 30g). Meta line: "`entries_count` kayıt · 🔥 `journal_streak`" (`goldContainer` flame pill, hidden at 0).
-2. **Mood dağılımı** slim card: 5 emoji + counts. **Tap an emoji to filter the list to that mood (grafted from Kehribar); tap again to clear; active emoji full opacity, others 50%.** (Client-side filter over the loaded range.)
-3. **Entry cards** — full-width `surface1`, 16dp pad (single column, Day One-calm):
-   - Top row: date block (weekday labelSmall `inkMid` over day number headlineMedium Fraunces) · 24sp mood emoji right · `energy_level` as 5 tiny dots (filled gold = level).
-   - Title titleMedium (fallback "Adsız" `inkLow` italic); `body_plain` bodyMedium `inkMid`, maxLines 4 (200-char server truncation).
-   - Footer: first 3 tags as `surface2` pills labelSmall + `favorite` 14dp `goldDim` icon when `has_gratitude`.
-4. Entry tap → **Detail** push: full date Fraunces headline, mood+energy, rendered `body_html` via `flutter_widget_from_html_core`, gratitude in a `goldContainer`-tinted bordered box labeled "MİNNET", all tags, weather line; overflow: Düzenle / Sil.
-- **FAB** `＋` → **Editor**, full-screen: step 1 = mood check-in overlay (5 emoji 56dp, `selectionClick`, "Geç" skip); then chrome-minimal editor — date row, title field (titleLarge, "Başlık" hint), body multiline plain text with autofocus (keyboard up immediately), bottom accessory bar: gratitude field toggle, weather, tags, energy 5-dot picker. Autosave draft to SharedPreferences every 5s; "Kaydet" text button top-right.
-- Empty: "Bugün nasıldı? İlk kaydını yaz" + CTA. Loading: 3 entry-card bones.
-
-### 4.8 Profil & Ayarlar (push from avatar)
-Grouped `surface1` cards of 56dp rows (icon `inkMid` + title + trailing value/chevron):
-1. **Header:** 64dp initials avatar, `display_name` headlineMedium, email bodySmall `inkMid`.
-2. **Uygulama:** Tema (Koyu/Açık/Sistem segmented → `theme_preference`), Dil (tr/en), Para birimi (read-only).
-3. **Sunucu:** current URL row → **Sunucu ayarı page:** same `ServerUrlField` as login + "Bağlantıyı test et" outlined button → inline result row — **success: "✓ Bağlandı · Meridian vX · 38 ms" green (latency grafted from Akış)** / failure red. Saving a URL that fails ping requires "Yine de kaydet" confirm. Save updates SharedPreferences and rebuilds the dio base URL.
-4. **Hakkında:** sürüm, API durumu.
-5. **Çıkış Yap** — bottom, plain `inkHi` row + `logout` icon; confirm dialog ("Çıkış yapılsın mı?", "Vazgeç" text + "Çıkış Yap" filled `error`); confirm → `signOutAndWipeLocal()` (secure-storage token delete + Riverpod user-scope invalidation + prefs wipe except server URL) → router redirect to Giriş. No haptic (not data-destructive).
-
-## 5. Motion Language — slow, settled, never bouncy
-
-Global: **350ms default, `Curves.easeOutCubic`**; nothing under 200ms except ripples, nothing over 600ms except hero rings. No springs/overshoot — one exception below.
-
-| Navigation pair | Transition | Duration |
+| Field | Promise | Use |
 |---|---|---|
-| Tab ↔ tab | FadeThrough (`animations 2.2.0` via `CustomTransitionPage`) | 300ms easeOutCubic in / easeInCubic out |
-| List → detail | Predictive back builder (falls back FadeForwards) | system default |
-| Any → create/edit form | Slide-up full-screen modal | 400ms easeOutCubic in / 300ms easeInCubic out |
-| Any → picker/detail sheet | Modal bottom sheet, scrim `#171310` @ 60% | 350ms easeOutCubic |
-| Splash → Giriş/Bugün | FadeThrough | 350ms |
-| Login → Bugün | FadeThrough | 400ms |
+| `fill` | ≥ 3:1 against `track` and the tone surface (s3 dark, bg light) | Ring, check fill, chain cell, bar, dot, the inline event/account bar |
+| `text` | ≥ 4.5:1 against the surface and its own tint | Any text or icon in the record's colour |
+| `tint` | `fill` at 16 % | `LeadingCircle`, pill backgrounds |
+| `onFill` | white or `#171310`, whichever contrasts more | Marks only: the check tick, the swatch tick |
 
-- **Hero flights — exactly two:** AccountCard color bar+name → Hesap Detay header; GoalCard ProgressRing → detail ring (wrap in `Material`, `flightShuttleBuilder` for size change). Nowhere else.
-- **List entrance stagger:** first load only (never pagination/refresh): `flutter_animate` `.fadeIn(300.ms).slideY(begin: 0.06)` with `delay: (50 * index).ms`, capped at first 6 items.
-- **Check-off (habit ring / todo checkbox):** press 0→80ms scale to 0.9 → 250ms entity-color fill sweep + check path draw (easeOutCubic) + scale 0.9→1.05→1.0 over 300ms easeOutBack (**the single allowed overshoot**). Uncheck = plain 200ms fade, no celebration. Streak/amount counters animate with 300ms `AnimatedSwitcher` slide-up-fade.
-- **Hero numbers:** count-up `TweenAnimationBuilder` 500ms easeOutCubic **on first load only; refreshes cross-fade with no counting — data honesty (rule from Akış).**
-- **Progress bars/rings:** animate from 0 on first build (600ms easeOutCubic); subsequent changes animate previous→new (350ms), never re-zero.
-- **Skeleton → content:** 300ms skeletonizer switch fade.
+Never text on a solid fill: a completed counter is tint + `text` digits + a
+1.5 dp `fill` border. New records pick from `RecordSwatch` — gold `#D4A853`,
+sage `#6B8E5A`, dusty blue `#6B8FA0`, clay `#B85450`, tan `#C98F6B`, mauve
+`#7A5C9E`, teal `#5A9E8B`, amber `#8B5A00` — rotating so consecutive records
+differ (`nextSwatch`). The retired tan `#D4A574` (1.01:1 from gold) is still
+read for old records. `test/theme/entity_tone_test.dart` checks all eight in
+both themes.
 
-**Haptics map** (`HapticFeedback`, unconditional — no-op on web):
+---
 
-| Action | Call |
+## 3. Type and numbers
+
+### 3.1 Type scale (`lib/theme/app_typography.dart`)
+
+Fraunces SemiBold (600) for headlines and big numbers; Inter 400/500/600 for
+the interface. w700 is never asked for (it is not bundled). Fraunces is never
+used under 20 sp, in running text, chips, buttons or overlines.
+
+| Role | Face, size/line | Use |
+|---|---|---|
+| `displayLarge` | Fraunces 40/46, −0.5 | Finance hero net, amount entry |
+| `displayMedium` | Fraunces 32/38, −0.25 | Account balance, goal %, 160 dp ring centre |
+| `displaySmall` | Fraunces 28/34 | Keypad digits, journal day number |
+| `headlineLarge` | Fraunces 26/32 | Tab-root titles, Today greeting |
+| `headlineMedium` | Fraunces 22/28 | Dialog titles, entity sheet titles |
+| `headlineSmall` | Fraunces 20/26 | Pushed page and form app bars, EmptyState |
+| `titleLarge` | Inter 18/24 w600 | Sheet titles |
+| `titleMedium` | Inter 16/22 w600 | Row, section and card titles |
+| `titleSmall` | Inter 14/20 w600 | Day headers (mixed case, inkMid) |
+| `bodyLarge` | Inter 15/22 | Input text |
+| `bodyMedium` | Inter 14/20 | Body copy, empty states |
+| `bodySmall` | Inter 13/18, inkMid | Row meta |
+| `labelLarge` | Inter 14/20 w500 | Chip and text-button labels |
+| `labelMedium` | Inter 12/16 w500, +0.8, inkMid | UPPERCASE overlines only (upper-cased in l10n, never with `toUpperCase()`) |
+| `labelSmall` | Inter 11/14 w500, inkMid | Badges, axes, nav labels |
+
+`context.nokText` (`NokturnText`) adds the styles Material does not have, all
+Inter: `numRow` 15/20 w600 tabular (row amounts), `numStat` 20/24 w600
+tabular (StatTile values), `numMeta` 13/18 w500 tabular (meta numbers,
+counters, "x / y"), `time` 13/18 w500 tabular (agenda times), `button` 15/20
+w600 (filled buttons, FAB), `reading` 17/28 (journal body).
+
+### 3.2 Numbers and money (`lib/core/formats.dart`)
+
+| Case | TR | EN |
+|---|---|---|
+| Amount | `₺1.234,56` | `₺1,234.56` |
+| Signed income | `+₺1.500,00` | `+₺1,500.00` |
+| Expense | `−₺250,00` (true minus U+2212) | `−₺250.00` |
+| Exact zero, any variant | `₺0` — never signed | `₺0` |
+| Compact (≥ 10 000, narrow slots) | `₺47,5B`, `₺1,2Mn`, `₺3,4Mr` | `₺47.5K`, `₺1.2M`, `₺3.4B` |
+| `MoneyDecimals.auto` (chips, tiles, totals) | `₺42.750`, `₺42.750,50` | same rule |
+| Gram gold (GAU) | `412 gr` — labelled "Altın" in totals | `412 g` — "Gold" |
+| Currency without a symbol | `CHF 1.234,56` | `CHF 1,234.56` |
+
+Symbols (₺ $ € £) sit before the number with no space, the sign before the
+symbol. Codes and units are joined with U+00A0, never a plain space (a lone
+"₺" or "gr" cannot fall onto its own line). API: `formatMoney(cents,
+currency, subunit, {sign, decimals})`, `formatMoneyCompact`,
+`formatPercent` (TR `%62`, EN `62%`), `decimalMark()`, `formatTypedAmount`.
+Money is never parsed with `double.tryParse(text.replaceAll(',', '.'))` and
+never typed on the system keyboard — `AmountKeypad` + `AmountDraft` own it.
+
+**Digit slots.** Fraunces has no tabular figures, so a Fraunces number that
+changes is drawn by `RollingNumber` in `DigitSlots`: each digit centred in the
+widest digit's advance (measured once per style and text scale), separators
+at their natural width, the fraction at 0.6 em on the same baseline, the
+whole thing in `FittedBox(scaleDown)` on one line — an amount is shrunk,
+never cut with "…" and never wrapped.
+
+---
+
+## 4. Space, shape, surfaces, icons
+
+### 4.1 Spacing and hit targets (`lib/theme/app_metrics.dart`)
+
+`Gap`: 2 · 4 · 8 · 12 · 16 · 20 · 24 · 32 · 40 · 48 (`xxs` … `x5`).
+`Insets`: `gutter` 20 (screen edge), `card` 20 (16 in the goal grid,
+`cardGrid`), `rowH` 20 / `rowV` 10, `sheetH` / `formH` 20, `fabClearance` 96,
+`captureBarClearance` 84. `Hit.min` 48 dp for anything tappable (the visual
+may be smaller), adjacent targets ≥ 8 dp apart.
+
+Rhythm: 12 dp between stacked cards · 24 dp before a 48 dp `SectionHeader` ·
+4 dp between a header and its card · 32 dp between sections without a header
+· list cards pad 4 dp vertically and let rows bring their own 20 dp.
+
+Rows, cards and headers use `minHeight`, never a fixed height: text grows to
+200 % without overflow.
+
+### 4.2 Radii
+
+| Token | dp | Where |
+|---|---|---|
+| `Radii.xs` | 4 | Bars, skeleton text bones |
+| `Radii.sm` | 8 | Tooltip, keypad ripple mask, chart tooltip |
+| `Radii.md` | 12 | Input, picker row, StatTile, notice card, snackbar, popup menu |
+| `Radii.lg` | 16 | Card, FAB, account tile |
+| `Radii.xl` | 24 | Sheet top corners, dialog |
+| `StadiumBorder` | — | Chip, pill, segment, badge, Filled and Outlined buttons |
+
+Plain circular corners; no superellipse, no shape morphs.
+
+### 4.3 Surfaces and elevation
+
+| Layer | Dark | Light |
+|---|---|---|
+| Card | s1 + 1 dp hairline, no shadow | same |
+| Nav bar, input, chip rail | s2 (+ top hairline on the nav) | white |
+| Sheet | s3, 24 dp top radius, no shadow; scrim | white, modal elevation 8, shadow `#33171310` |
+| Dialog | s3, 24 dp, no shadow | white, elevation 6 |
+| Snackbar, menu, tooltip | s3 + 1 dp `overlayBorder` | white + border, elevation 6 |
+| FAB | gold, elevation 0 | gold, elevation 3 |
+| App bar | bg; s1 while content scrolls under it | same |
+| Status bar | Today and Finance scroll under a 24 dp bg → transparent fade (`StatusBarScrim`) | same |
+
+**Edge-to-edge.** `main()` sets `SystemUiMode.edgeToEdge`; both system bars
+are transparent (`AppBarTheme.systemOverlayStyle`, or an
+`AnnotatedRegion` on routes without an app bar). Insets come from
+`MediaQuery.paddingOf` / `viewInsetsOf` — the nav bar, every FAB, the
+CaptureBar, the keypad's last row and Save, sheets over the keyboard.
+
+No blur, no `BackdropFilter`, no translucency, no wallpaper colour.
+
+### 4.4 Icons
+
+Flutter's built-in `Icons`. Line glyphs are `*_rounded`; shape glyphs are
+`*_outlined` at rest and filled `*_rounded` when active. Sizes: 24 app bar,
+nav, `IconButton` · 22 settings row lead · 20 row, status, snackbar, filled
+button · 18 outlined/text button · 16 chip tick, chevron-down, pill · 14
+inline meta (flame) · 28 inside the EmptyState circle. Colour: inkMid by
+default, gold when active, error for destructive, inkDisabled when disabled,
+`tone.text` for a record. Emoji are never icons (the streak is
+`local_fire_department_rounded` in goldBright, "Hepsi tamam" is
+`auto_awesome_rounded`); mood emoji are content and stay.
+
+Navigation: Bugün `wb_sunny`, Ajanda `event_note`, Finans
+`account_balance_wallet`, Alışkanlık `check_circle(_outline)`, Günlük
+`auto_stories`.
+
+---
+
+## 5. Motion
+
+One source: `Motion` in `lib/theme/app_motion.dart`. No `Duration(…)` or
+`Curves.…` literal belongs anywhere else in `lib/ui`, `lib/router`,
+`lib/theme` or `lib/main.dart` — `test/theme/motion_tokens_test.dart` fails on
+one. The documented exceptions are not motion: snackbar reading times
+(`app_snackbar.dart`), the server-address ping debounce
+(`server_url_field.dart`), the journal draft interval, the milestone answer
+window, the Today clock's minute wake-up, the resume-refresh threshold
+(`freshness_gate.dart`) and the retired-scroll-controller timer. Overshooting
+curves (`easeOutBack`, `elasticOut`, `bounceOut`) are banned everywhere.
+
+### 5.1 Durations
+
+| Token | ms | For |
+|---|---|---|
+| `pressIn` / `pressOut` | 80 / 150 | Press scale down / back |
+| `quick` | 200 | Colour, chip, counter, cross-fade, filter |
+| `roll` / `rollOut` | 250 / 180 | Incoming / outgoing rolling digit |
+| `typeIn` / `typeDelete` / `typeClear` | 120 / 90 / 150 | The amount being typed |
+| `standard` | 300 | Tab fade-through, entrance item, row insert, shared-axis step |
+| `collapse` | 250 | Row exit, linger collapse, sheet content resize |
+| `sheetIn` / `sheetOut` | 350 / 250 | Bottom sheets |
+| `formIn` / `formOut` | 400 / 300 | Full-screen forms |
+| `countUp` / `sweep` | 500 / 600 | Hero count-up, first ring/bar sweep |
+| `staggerStep` × `staggerCap` | 50 × 6 | Entrance stagger (rise `entranceRise` 12 dp) |
+| `barStagger` / `barGrow` | 40 / 350 | Category bars one after another; chart bars growing |
+| `skeletonDelay` / `skeletonMinVisible` / `skeletonCrossFade` | 400 / 400 / 250 | First load only |
+| `pulse` | 1200 | One skeleton breath (bone → 55 % → bone), no shimmer |
+| `syncHintDelay` / `spinnerDelay` / `hintIn` | 1000 / 150 / 150 | Background-sync line, button spinner, small hint fade |
+| `busyMinimum` | 300 | A busy button stays busy at least this long |
+| `stepSendDelay` | 400 | A stepper sends its value after the last tap |
+| `highlight` / `linger` | 1200 / 4000 | "What changed" wash; a checked task lingers |
+| `holdChecked` / `doneHold` | 1200 / 2000 | A habit checked on Today stays among the open ones; "Hepsi tamam" before a checklist folds |
+| `refreshMinimum` | 500 | Pull-to-refresh never flashes |
+| `popUp` / `popSettle` / `fillIn` | 170 / 130 / 250 | Check pop up and settle; check fill |
+| `strike` / `swell` / `shake` | 220 / 220 / 240 | Task strike-through; counter swell at target; rejected keypad digit |
+| `confetti`, `milestoneIn` / `Hold` / `Out`, `pillDelay` / `pillIn` | 800, 350 / 2500 / 250, 120 / 250 | Celebrations |
+| `filterOut` / `filterIn` | 90 / 160 | Journal mood filter |
+| `themeChange` | 250 | Light ↔ dark |
+| `tooltipWait` | 500 | Tooltip delay |
+
+Press scale: cards 0.98 (`pressScale`), chips and small controls 0.95.
+
+### 5.2 Curves and springs
+
+Curves: `enter` easeOutCubic · `exit` easeInCubic · `press` easeOut ·
+`settle` easeInOutCubic · `fadeOut` easeIn / `fadeIn` easeOut · `surfaceIn`
+`Easing.emphasizedDecelerate` (sheets, forms, milestone card only) ·
+`themeCurve` easeInOutCubic.
+
+Springs (mass 1; ratio 1.0 never overshoots): `fastSpatial` 1400/0.9
+(≈ 140 ms), `defaultSpatial` 700/0.9 (≈ 195 ms), `fastEffects` 3800/1.0,
+`defaultEffects` 1600/1.0 (≈ 165 ms), `slowEffects` 800/1.0 (≈ 235 ms).
+
+### 5.3 Rules
+
+1. **Springs only** when motion starts from a finger or the target moves
+   mid-flight (fling release, quick ± taps, progress after typing, scrub
+   release, segment drag). Everything else uses a curve. Drive them with
+   `AnimationController.unbounded(animationBehavior: AnimationBehavior.normal)`
+   — the default `preserve` is not shortened under reduced motion.
+2. **One overshoot:** the check pop, 0.9 → 1.05 → 1.0.
+3. **Ceilings:** nothing the user waits on runs past 600 ms; a full stagger is
+   ≤ 550 ms; exits are ~25 % shorter than entrances.
+4. **Animation stays in the leaf:** `FadeTransition` / `SlideTransition` /
+   `ScaleTransition` / `SizeTransition`; painters take `repaint:`; a
+   `RepaintBoundary` around the check painter, rings and bars, every chart,
+   the celebration layer, the sync hint and the amount display.
+5. **Tune on the phone** in a profile build, never in a desktop preview.
+
+### 5.4 Transitions
+
+| From → to | Transition |
 |---|---|
-| Habit check complete, todo done, transaction saved, login success | `lightImpact` |
-| Counter ±, keypad key, segmented/mood/tab select, picker tick, account card snap | `selectionClick` |
-| Pull-to-refresh armed, all-habits-done, goal reaches 100% | `mediumImpact` |
-| Delete confirm, over-budget crossing, error SnackBar | `heavyImpact` |
-| Scroll, page load, uncheck, logout | none |
+| Tab ↔ tab | `FadeThroughBranches`, 300 ms (out 90 ms, in 210 ms with 0.92 → 1.0) |
+| List → detail (push) | Theme `PredictiveBackPageTransitionsBuilder` on `MaterialPage` |
+| Anywhere → create/edit form | `SlideUpPageRoute`, 400 in / 300 out, follows the back gesture |
+| Anywhere → sheet | `showNokSheet`, 350 / 250; content resizes over 250 ms |
+| Step inside one surface | `SheetStepSwitcher` (shared axis, 300 ms) |
+| Splash / login → Today | Shell `FadeThroughTransition` 350 / 250 |
+| Goal ring, account balance | `Hero` with gesture-aware flights |
+| Tab re-tap | Scroll to top (jump to 1.5 viewports first if far), refresh only when already at the top |
 
-## 6. Component Inventory (`lib/ui/widgets/`)
+### 5.5 Loading, lists, values
 
-`AppScaffold` (nav shell) · `NokturnCard` (surface1 + hairline + 16r) · `PressableScale` (0.98 press wrapper, curve-based) · `SectionHeader` (title + optional "Tümü →") · `MoneyText` (cents + currency + subunitToUnit → formatted, sign, tabular; hero/row variants — the only money math in the app) · `HeroStat` (overline + Fraunces number + sparkline slot) · `StatChip` (tappable, deep-link) · `NokturnRow` (64dp list item) · `LeadingCircle` · `AmountKeypad` · `SegmentedPill` · `FilterChipBar` · `AccountCard` · `PacedProgressBar` (fill + pace tick + projection note slot) · `ProgressRing` · `HabitCheck` (48dp ring toggle) · `CounterPill` · `ChainRow` · `PerfectDayDots` · `StreakFlame` · `DeadlineBadge` · `GoalCard` · `MoodPicker` / `MoodEmoji` · `EnergyDots` · `TagPill` · `JournalCard` · `EventRow` / `TodoRow` (priority edge bar) · `QuickCaptureSheet` · `PickerSheet<T>` · `ServerUrlField` (debounced ping + status slot + collapsed-row state) · `PrimaryButton` (52dp gold, inline-spinner loading) · `ConfirmDialog` (destructive variant) · `EmptyState` · `OfflineBanner` ("Çevrimdışı · son güncelleme HH:mm" + retry) · `SkeletonScreen` per tab · `AppSnackBar` (surface3, gold action) · `DonutChart` / `Sparkline` / `SixMonthBars` (fl_chart wrappers, Noktürn theming baked in) · `ConfettiBurst` (hand-rolled, single use).
+- **First load:** `LoadPhaseSwitcher` shows nothing for 400 ms, then a
+  skeleton that mirrors the real layout and stays ≥ 400 ms; content enters
+  once (`EntranceGate`: only on the tab's first visible frame of data, max 6
+  staggered items). A refresh never shows a skeleton, a spinner or an
+  entrance again — `SyncHint` draws a 2 dp line after 1 s instead.
+- **Lists:** `RowEnter` / `RowExit`, `RemovalAwareList`, `HighlightWash` for
+  what changed; a checked task lingers 4 s (`LingeringTodos`), then
+  collapses.
+- **Values:** a value the user changed rolls (`RollingNumber`); a value a
+  refresh changed cross-fades in 200 ms; rings and bars retarget with a
+  spring (`AnimatedFraction`).
 
-## 7. Packages (pubspec)
+### 5.6 Reduced motion
 
-| Package | Version | Note |
-|---|---|---|
-| `go_router` | ^17.3.0 | StatefulShellRoute.indexedStack |
-| `flutter_riverpod` | ^3.3.2 | state; no codegen initially |
-| `dio` | ^5.10.0 | 401 InterceptorsWrapper → signOut |
-| `flutter_secure_storage` | ^10.3.1 | token (web fallback accepted for dev preview) |
-| `shared_preferences` | ^2.x | server URL, install flag, drafts, theme |
-| `google_fonts` | ^8.1.0 | **Fraunces + Inter bundled in assets** (original filenames, no runtime fetch) |
-| `fl_chart` | ^1.2.0 | donut, sparkline, 6-month bars |
-| `animations` | ^2.2.0 | FadeThrough |
-| `flutter_animate` | ^4.5.2 | staggers only (no shimmer/blur effects) |
-| `skeletonizer` | ^2.1.3 | loading states |
-| `flutter_native_splash` | ^2.x | Android 12 splash |
-| `flutter_widget_from_html_core` | latest stable | journal body_html |
-| `intl` | ^0.20.x | tr_TR money/date formatting |
-
-Custom, no package: heatmap/chain widgets, AmountKeypad, ConfettiBurst (~40 lines). **Android config (from Akış):** `minSdk 26`, target API 36, `android:enableOnBackInvokedCallback="true"`, `network_security_config.xml` allowing cleartext to LAN ranges (10.0.0.0/8, 192.168.0.0/16, 10.0.2.2) — required for `http://` on Android 9+. No superellipse shapes anywhere. No M3E packages.
-
-## 8. API Endpoints (all `/api/v1`, Bearer `api_token`; all money integer `*_cents` + `subunit_to_unit` per currency — **GAU: 1, symbol "gr"**)
-
-**Existing — reuse as-is:** `POST /session` (`{email, password}` → `{token, user:{id, name, email, currency}}` | 401 `{error:"invalid_credentials"}`) · `GET /accounts` (`{accounts:[{id, name, account_type, currency, subunit_to_unit, color, initial_balance_cents, balance_cents, archived}]}`).
-
-**New:**
-- `GET /health` (auth skipped) → `{ok: true, app: "meridian", version}` — login ping + settings test (client measures latency itself).
-- `GET /me` → `{id, name, display_name, initials, email, currency, subunit_to_unit, locale, timezone, theme_preference}` — also the token-validity probe.
-- `GET /home` → `{currency, subunit_to_unit, month_net_cents, active_streaks, open_todos, overdue_count, today_events_count, habit_completion_pct, spending_7d:[{date, cents}], today_habits:[{id, name, color, target_count, completed_today, today_count, current_streak}], upcoming_todos:[{id, title, due_at, overdue, priority}], today_events:[{id, title, start_at, end_at, all_day, color}], active_goals:[{id, name, color, progress_percent}], perfect_day:{chain:[{date, status}], current_streak}}`
-- `GET /finance/dashboard?range=m1|y1` → `{currency, subunit_to_unit, month:{income_cents, expense_cents, net_cents}, year:{income_cents, expense_cents}, six_month_series:{labels:[], income_cents:[], expense_cents:[]}, pie:[{id, name, color, amount_cents, breakdown:[{id, name, amount_cents, is_root}]}], budgets:[{category:{id, name}, color, limit_cents, spent_cents, remaining_cents, percent_used, pace_percent, projected_cents, state}], upcoming_subscriptions:[{id, name, amount_cents, frequency, next_charge_on, account:{id, name, currency, subunit_to_unit}}], recent_transactions:[Transaction×8]}` — **serialize six_month_series as cents arrays, not the web's /100.0 floats (GAU bug avoidance).**
-- `GET /transactions?kind&account_id&category_id&from&to&page` → `{transactions:[Transaction], meta:{total_count, page, page_limit:50, filtered_income_cents, filtered_expense_cents}}`; **Transaction** = `{id, kind, amount_cents, date, description, note, account:{id, name, color, currency, subunit_to_unit}, category:{id, name, color, parent_id}|null, related_account:{id, name}|null}`
-- `POST /transactions` / `PATCH /transactions/:id` / `DELETE` — body `{kind, amount_cents, date, description, note, account_id, finance_category_id, related_account_id}` (client sends cents already multiplied by the account's subunit) → Transaction | 422 `{errors:{field:[msg]}}`
-- `GET /finance_categories` → `{categories:[{id, name, kind, color, parent_id, position}]}`
-- `GET /habits` → `{habits:[{id, name, description, frequency, target_count, color, goal_id, current_streak, longest_streak, completion_rate_30d, today:{date, completed, count}, period:{range_start, range_end, completed_count, complete}|null, chain:[{date, status, completed, possible}]×≤14, from start_date (or an earlier logged day) on}], meta:{completed_today, total_active, perfect_day:{chain:[…×30], current_streak, longest_streak}}}` (use batched `streaks_for`/`chain_windows_for`); `GET /habits/:id?days=84` for detail.
-- `PATCH /habits/:id/toggle_today` (optional `{delta}`) → updated habit + `meta` (same shape — one round trip refreshes the header). `POST /habits` / `PATCH /habits/:id` / `PATCH /habits/:id/archive`.
-- `GET /goals` → `{active:[Goal], achieved:[Goal], abandoned:[Goal]}` (server recalculates active on index; **fix the web's `/100.0` → `subunit_to_unit` in CalculateProgress for GAU-linked accounts**); **Goal** = `{id, name, description, target_type, status, color, unit, deadline, days_remaining, deadline_badge:{state:"overdue|today|soon|far", days}|null, target_value, current_value, progress_percent, related:{type, id, name, current_streak?, completed_days?, balance_cents?, currency?, subunit_to_unit?}|null}`
-- `PATCH /goals/:id/update_progress` `{current_value | delta}` → Goal · `PATCH /goals/:id/recalculate` → Goal · CRUD with composite `related: "Account-12"|"Habit-7"|"none"`.
-- `GET /journal_entries?range=7d|30d|6mo|1y|all&page` → `{entries:[{id, date, title, body_plain, mood, mood_emoji, energy_level, weather, tags:[], has_gratitude, created_at}], meta:{entries_count, journal_streak, mood_counts:{great:n,…}, range}}`; `GET /journal_entries/:id` adds `body_html, gratitude`; `POST/PATCH/DELETE` accept `{date, title, body, mood, weather, energy_level, gratitude, tags}` (tags comma-joined string).
-- `GET /todos?filter=today|week|overdue|done&list_id&priority&page` → `{todos:[{id, title, body, status, priority, due_at, overdue, position, todo_list:{id, name, color}|null, subtask_count}], meta:{open_count, overdue_count}}`; `PATCH /todos/:id/toggle` → `{id, status, completed_at}`; CRUD.
-- `GET /events?from=&to=` → `{events:[{id, title, start_at, end_at, all_day, color, event_type, location, duration_minutes, occurrences:[dates]}]}` (expand via `occurrences_between`).
-- `POST /quick_captures` `{text}` → `{captured_type:"transaction"|"habit_log"|"todo"|"event_suggestion", record_id, summary}`.
-
-Error contract: 401 `{error:"unauthorized"}` (dio interceptor → signOut) · 404 `{error:"not_found"}` · 422 `{errors:{…}}` → inline field errors. Dates ISO-8601 in user timezone (Istanbul).
+One signal: `MeridianApp` folds the system's "Remove animations" and the
+app's own Profil › Uygulama › "Hareketi azalt" (`reduceMotionProvider`) into
+`MediaQuery.disableAnimations`; `Motion.reduced(context)` is the only check.
+Then tab switches, pushes, sheets and forms are instant; no entrance, count-up
+or digit roll; rings and bars show their value; the check fills at once
+(haptic kept); no particles (the pill and the milestone card appear still);
+skeletons and the sync line are still; `scrollToTop` / `ensureVisible` jump;
+no press scale, no Hero. Delays (skeleton 400 ms, sync hint 1 s, spinner
+150 ms) are timers, not animation, and stay — indicators never flicker.
 
 ---
 
-# Build-Order Plan
+## 6. Haptics
 
-Existing state: Rails API branch `feat/mobile-api` has session + accounts; Flutter app already does login → accounts end-to-end. Build order (each step ships runnable):
+The one way the app touches the vibrator: `Haptics` (`lib/core/haptics.dart`).
+Call it by meaning; the Android constant and its fallback are chosen there.
 
-1. **Design system foundation** — `lib/theme/app_colors.dart` (both palettes as `ThemeExtension`), `lib/theme/app_typography.dart` (Fraunces/Inter TextTheme, bundle .ttf under `assets/fonts/`), `lib/theme/app_theme.dart` (ThemeData light/dark, input/button/sheet themes). Then the atoms in dependency order: `MoneyText` (+ unit tests: TRY, USD, **GAU**), `NokturnCard`, `PressableScale`, `SectionHeader`, `PrimaryButton`, `AppSnackBar`, `EmptyState`, `ConfirmDialog`.
-2. **Shell + routing** — `lib/router/app_router.dart` (StatefulShellRoute, 5 branches, fade-through `CustomTransitionPage`, auth redirect), `AppScaffold` + nav bar, placeholder screens per tab. Restyle the existing login screen to §4.2 (`ServerUrlField` with debounced `/health` ping + collapsed row) and the splash gate to §4.1. Backend: add `GET /health`, `GET /me`.
-3. **Bugün read-only** — backend `GET /home`; widgets `HeroStat`, `Sparkline`, `StatChip`, `TodoRow`, `EventRow`, `PacedProgressBar`; `SkeletonScreen` + `OfflineBanner` + error policy plumbing (this generic Riverpod `AsyncValue`-with-last-good pattern gets reused by every later screen).
-4. **Para read** — restyle existing accounts into `AccountCard` PageView; backend `GET /finance/dashboard`; `DonutChart`, `SixMonthBars`, budget rows with pace tick.
-5. **İşlemler read** — backend `GET /transactions` + `GET /finance_categories`; `NokturnRow`/`TxRow`, `FilterChipBar`, `PickerSheet<T>`, infinite scroll, day headers.
-6. **First write: transaction create** — `AmountKeypad`, İşlem Ekle modal, `POST /transactions`, 422 → inline errors; then edit/delete + swipe-delete.
-7. **Habits** — backend `GET /habits` + `toggle_today`; `HabitCheck` (the §5 check-off animation), `CounterPill`, `ChainRow`, `PerfectDayDots`, `ConfettiBurst`; optimistic toggle with rollback.
-8. **Hedefler** — backend `GET /goals` + progress endpoints (including the GAU CalculateProgress fix); `GoalCard`, `ProgressRing`, `DeadlineBadge`, detail with Hero.
-9. **Günlük** — read (cards, mood strip + filter, detail with `flutter_widget_from_html_core`), then editor with draft autosave.
-10. **Todos/events full pages** + toggle from Bugün (may land earlier with step 3 if `/home` needs it wired anyway; toggle endpoint is trivial).
-11. **Profil/Ayarlar** — theme switch, server page with test+latency, `signOutAndWipeLocal()`.
-12. **Quick capture** — backend `POST /quick_captures` + `QuickCaptureSheet`.
-13. **Polish pass** — entrance staggers, haptics audit, light theme QA, native splash config, release APK sideload (Faz 4).
+| Call | Plays | Below API 30 | Where |
+|---|---|---|---|
+| `tick()` | `selectionClick` (CLOCK_TICK) | same | Keypad key, counter step, segment, picker, mood, energy, swatch and chip choice, swipe threshold, chart scrub, goal stepper step |
+| `check()` | `lightImpact` (VIRTUAL_KEY) | same | One habit or task checked by the user's own tap: a `CheckPop` or `CounterPill`, a habit logged from quick capture, "Bugünü işaretle" on a goal |
+| `armed()` | `mediumImpact` (KEYBOARD_TAP) | same | A pull-to-refresh let go past its threshold |
+| `confirm()` | `successNotification` (CONFIRM) | `lightImpact` | Every form save, a subscription paid, sign-in, the day done, a goal at 100 %, a milestone |
+| `reject()` | `errorNotification` (REJECT) | `vibrate()` | A write taken back, a 422 or validation error, an error snackbar, a quick-capture failure, a refused delete or keypad digit, a wrong password |
+| — | `Feedback.forLongPress(context)` | platform | Every long press |
 
-Rationale: 1–3 give a styled, navigable app against mostly-existing endpoints; the error/skeleton/offline plumbing is built once in step 3 and inherited everywhere; writes start only at step 6, after the read patterns are stable.
+The API level is read once at start-up over `MethodChannel('meridian/device')`
+(`MainActivity.kt`, `sdkInt`); web is silent.
 
-# Risk List — what might not work on Flutter web debug preview (Chrome)
+**One per gesture.** Requests made while one event is handled are queued and
+the highest one plays once in a microtask — the tap that finishes the day
+plays `confirm` only, not `check` then `confirm`. A request within 80 ms of the
+last one is dropped unless it outranks it. A sheet's check and its Kaydet are
+two gestures: checking in the habit log sheet plays `check`, saving it plays
+`confirm` (the analysis's §8.9 scenario 2 counted one; the test pins the two,
+`test/screens/haptics_test.dart`).
 
-1. **CORS** — Meridian has no rack-cors; keep running `flutter run -d chrome --web-browser-flag=--disable-web-security` (current workflow) or add rack-cors dev-only. Any teammate who forgets the flag sees every request fail — document it in the app README.
-2. **`10.0.2.2` default is emulator-only** — unreachable from the browser. The `kIsWeb → http://localhost:3000` prefill in §4.2 is mandatory, not cosmetic (already the pattern in `config.dart`).
-3. **`flutter_secure_storage` on web** is an experimental WebCrypto/localStorage shim — token persistence across hard reloads can be flaky, and the Keychain "uninstall survival wipe" logic is meaningless there (spec already skips it on `kIsWeb`). Accept lower security in dev preview.
-4. **Haptics** — all `HapticFeedback` calls are silent no-ops on web. The check-off and keypad interactions will feel flatter than they will on the phone; judge them on the APK, not Chrome.
-5. **Predictive back / `PopScope`** — Android-only; on web the browser back button drives go_router instead. Test push/pop behavior separately on the phone.
-6. **Native splash** — `flutter_native_splash` web output differs (or is absent); the zero-flicker handoff can only be verified on Android.
-7. **Autofill** — `AutofillGroup`/`TextInput.finishAutofillContext()` map to browser password-manager heuristics on web; Chrome may overlay its own save-password UI over the obscured field. Behavior differs from Android's autofill service.
-8. **Tabular figures** — `FontFeature.tabularFigures()` requires the CanvasKit/Skwasm renderer (current default). If the HTML renderer is ever forced, money columns will wobble.
-9. **Debug-mode jank** — web debug (dartdevc, no WASM opt) makes the 50ms staggered entrances, count-ups, and donut animate-ins stutter. Do not tune animation timings in Chrome; tune on a profile/release Android build.
-10. **Sheets and swipe gestures with a mouse** — modal-bottom-sheet drag-to-dismiss and the swipe-to-delete row are awkward with mouse input and may feel broken in preview; both are tap-reachable too (detail sheet has Sil), so functionality is never gesture-only.
-11. **dio timeouts** — the browser fetch adapter can't distinguish DNS/connect failures; the login field's 1.5s-debounced health ping may report "unreachable" more slowly or generically on web than on Android.
-12. **`flutter_widget_from_html_core`** renders fine on web, but Trix-generated `body_html` with attachments/embeds may lay out differently between web preview and the phone — verify journal detail on both.
-13. **Scroll physics** — `RefreshIndicator` pull-to-refresh does not trigger with a mouse wheel; add nothing web-specific, just know refresh is testable only via the retry buttons in preview.
+**Never from data.** No haptic for navigation, scrolling, a refresh landing,
+un-checking, undo, sign-out, routine deletes or archives, or any widget's
+`didUpdateWidget`. Every haptic has a visual twin; it is never the only
+signal. (Pinned by `test/core/haptics_unit_test.dart` and
+`test/screens/haptics_test.dart`.)
 
-The web preview is a layout/data-correctness tool; anything involving haptics, gestures, splash, back navigation, autofill, or animation feel gets final judgment on the sideloaded APK.
+---
+
+## 7. Component inventory
+
+All in `lib/ui/widgets/` unless noted. Screens compose these; a screen does
+not re-implement a component locally.
+
+**Surfaces and rows**
+
+| Component | File | What it is |
+|---|---|---|
+| `NokturnCard` | `nokturn_card.dart` | The card: a `Material` (so ripples show) on s1 with a hairline; `list`, `hero`, `notice` variants; forwards tap and long press |
+| `GhostCard` | `nokturn_card.dart` | Dashed stand-in for a card that does not exist yet, with one action and "Gizle"; above 1.3× text the actions move under a message that wraps whole |
+| `PressableScale`, `PressableClaim` | `pressable_scale.dart` | Press feedback from pointer-down (0.98 / 0.95), long press with platform feedback; a `PressableClaim` control inside keeps its touches to itself |
+| `SectionHeader` | `section_header.dart` | 48 dp section title (a semantic header) with "Tümü ›" and/or "+" targets |
+| `NokturnRow`, `LeadingCircle` | `nokturn_row.dart` | The list row (min height, merged semantics, custom actions); the 40 dp record/transfer/uncategorised lead |
+| `TodoRow`, `EventRow` | `agenda_rows.dart` | The agenda family: 56 dp lead slot, check area, time column, priority edge |
+| `DayHeader` | `day_header.dart` | Mixed-case day heading in lists (semantic header) |
+| `SettingsRow` | `settings_row.dart` | Icon · title · value · switch/chevron; the value moves below when wider than 40 % (measured); above 1.3× text the row stacks so long words wrap whole |
+| `SwipeAction`, `SwipeSpec` | `swipe_action.dart` | A row's swipe actions: label legible to the threshold, one tick on crossing, each swipe also a semantics action |
+| `RowEnter`, `RowExit`, `HighlightWash`, `RowMotion`, `RemovalAwareList`, `FinishedSummaryRow` | `row_motion.dart` | List insert/remove motion and the "what changed" wash |
+
+**Controls and inputs**
+
+| Component | File | What it is |
+|---|---|---|
+| `PrimaryButton` | `primary_button.dart` | Full-width stadium filled button; loading keeps its colour and shows a spinner after 150 ms (loading ≠ disabled) |
+| `CollapsingFab`, `CollapsingFabScope` | `collapsing_fab.dart` | Labelled extended FAB that collapses on scroll and never covers a row's control |
+| `CaptureBar`, `CaptureBarLayout` | `capture_bar.dart` | The thumb-zone "Ekle: görev, harcama, etkinlik…" bar of Today and Agenda — a labelled stand-in for a FAB |
+| `NokChip` | `nok_chip.dart` | Filter / choice chip (stadium, tick when selected, tick haptic) |
+| `ChoiceWrap`, `Choice` | `choice_wrap.dart` | Wrapping single-choice chips (mutually exclusive semantics) |
+| `SegmentedPill` | `segmented_pill.dart` | 40 / 32 dp segmented control with a sliding thumb |
+| `ColorSwatchRow` | `color_swatches.dart` | Record colours as 36 dp swatches in 48 dp targets; `nextSwatch`, `rotatingSwatch` |
+| `AmountKeypad`, `AmountDraft`, `RejectShake` | `amount_keypad.dart` | The 4×3 money keypad (56/64 dp keys, grows with text), the typed amount's model, the refused-digit shake |
+| `AmountField`, `showAmountSheet` | `amount_field.dart` | A form row that opens the amount sheet |
+| `FormScaffold`, `FormLabel`, `FormPickerRow`, `FormFieldBox`, `FormInlineError`, `confirmDiscard` | `form_scaffold.dart` | Full-screen form chrome: Save above the keyboard, `revealInvalid` scroll + REJECT, discard prompt only for dirty forms |
+| `SlideUpPageRoute` | `slide_up_route.dart` | The form route (400/300, gesture-following back) |
+| `ServerUrlField` | `server_url_field.dart` | Server address input with a debounced ping |
+
+**Sheets, dialogs, feedback**
+
+| Component | File | What it is |
+|---|---|---|
+| `showNokSheet`, `SheetHeader`, `SheetActions`, `SheetStepSwitcher` | `nok_sheet.dart` | The one sheet: root navigator, theme scrim, drag handle, visible close, keyboard-aware; never a sheet over a sheet |
+| `showPickerSheet`, `PickerOption` | `picker_sheet.dart` | Single-choice list in a sheet |
+| `showConfirmDialog`, `showInfoDialog` | `confirm_dialog.dart` | The dialog — only for the five cases in §8.6 |
+| `showAppSnack`, `deleteWithUndo`, `deleteNow`, `SnackTone` | `app_snackbar.dart` | Snackbars above the FAB and CaptureBar; 6 s undo; error tone plays REJECT; persistent under accessible navigation |
+| `EmptyState` | `empty_state.dart` | page / inline / all-done / error variants; one filled CTA or starter chips |
+| `OfflineBanner`, `OfflineBannerSlot` | `offline_banner.dart` | "Çevrimdışı · son güncelleme HH:mm" live region with a 48 dp retry |
+| `SyncHint` | `sync_hint.dart` | 2 dp gold line for a background refetch, after 1 s |
+| `NokSkeleton`, `Bone` | `skeletons.dart` | Layout-true skeleton bones with a slow pulse |
+| `LoadPhaseSwitcher` | `load_phase_switcher.dart` | waiting → skeleton → content/error with the delays of §5.5 |
+| `Entrance`, `EntranceGate`, `EntranceHost` | `entrance.dart` | The once-only first-load entrance |
+| `StatusBarScrim` | `status_bar_scrim.dart` | bg → transparent fade under the status bar |
+| `CelebrationLayer`, `ConfettiBurst` | `celebration_layer.dart` | Tier 2 (day done: 14-particle burst from the finishing control + "Hepsi tamam" pill, once per day; `forget(day)` gives it back when the write is refused) and tier 3 (milestone card) over every route |
+
+**Numbers, progress, charts**
+
+| Component | File | What it is |
+|---|---|---|
+| `MoneyText` | `money_text.dart` | Money in its variants (hero/display/title/row/meta) with the full signed amount for screen readers |
+| `RollingNumber`, `DigitSlots` | `rolling_number.dart` | Slot-aligned Fraunces digits that roll on a user change, count up once, cross-fade on refresh |
+| `HeroStat`, `HeroStatSupport` | `hero_stat.dart` | A screen's hero: overline, value, support, footnote, insight |
+| `StatTile`, `StatTileRow` | `stat_tile.dart` | 64 dp tiles, three across (two above 1.3×), every tile of a line equally tall |
+| `MoneyGlance` | `money_glance.dart` | Today's one-line month-net chip (`MoneyDecimals.auto`), or "open a cash account" |
+| `StreakFlame` | `streak_flame.dart` | Flame + days, or "Yeni seri · Rekor n" — never a flame beside 0 |
+| `ProgressRing` | `progress_ring.dart` | Ring with sweep on mount and spring retarget; value semantics |
+| `PacedProgressBar` | `paced_progress_bar.dart` | Budget/goal bar with a pace mark |
+| `AnimatedFraction` | `animated_fraction.dart` | The spring-driven 0…1 that rings and bars share |
+| `CheckPop` | `check_pop.dart` | The one check control (circle or rounded square): fill, tick, pop, `check()` haptic from the finger only |
+| `CounterPill` | `lib/ui/screens/habits/widgets/counter_pill.dart` | Multi-count habit control: ± steps, odometer digits, swell at the target, never "9/8" |
+| `HabitDayCell`, `HabitMonthCalendar`, `HabitDayCellBox`, `HabitDayEditor` | `lib/ui/screens/habits/widgets/` | Chain, perfect day, heatmap and calendar cells (told by shape, not colour alone); the month calendar's out-of-range days stay tappable and readable (inkLow); the editor under it logs or explains a day |
+| `SixMonthBars`, `ChartLegendDot` | `charts.dart` | Income (hollow) vs expense (filled) for six months with the average line; drawn only with ≥ 2 months of data |
+| `CategoryBars` | `category_bars.dart` | Sorted category bars with amount and share, laid out by measurement (no cut amounts) — replaces the donut |
+| `PaceLine` | `pace_line.dart` | This month's cumulative spend vs last month, scrub to read a day |
+| `Monogram` | `monogram.dart` | Initials avatar |
+
+---
+
+## 8. Navigation and interaction
+
+### 8.1 Tabs
+
+Five tabs: **Bugün** `/today` · **Ajanda** `/agenda` · **Finans** `/finance` ·
+**Alışkanlık** `/habits` (screen title "Alışkanlıklar") · **Günlük**
+`/journal`. Hedefler is a pushed page (`/goals`), reached from Today's goals
+section, the Habits overflow, a habit's "tracked by" chips, an account's
+linked goals and Profil › Veri. Back on a tab root goes to Today; back on
+Today leaves the app. A tab tap is silent; re-tapping the current tab scrolls
+to the top, or refreshes when already there. Ajanda carries the overdue-task
+badge ("Ajanda, 3 gecikmiş görev"). Nav labels grow to 1.3× and no further —
+the only text-scale clamp in the app.
+
+### 8.2 Routes
+
+Shell branches use `NoTransitionPage` inside `FadeThroughBranches`; pushed
+pages are `MaterialPage` on the root navigator (predictive back):
+`/agenda/lists`, `/finance/transactions`, `/finance/account/:id`,
+`/finance/accounts` (`?archived=1`), `/finance/categories`,
+`/finance/subscriptions`, `/habits/archived`, `/journal/:id`, `/goals`,
+`/goals/:id` (the goal passed as `extra` so the ring Hero has its first
+frame), `/profile`, `/profile/server`, `/search`. One-shot queries:
+`/today?capture=1` (quick add), `/finance?new=tx` (transaction form),
+`/journal?new=1` (editor). Old `/todos…` links redirect to the agenda. A 401
+goes to `/login?from=<where you were>` and returns there after sign-in.
+
+### 8.3 Which surface
+
+| Surface | For |
+|---|---|
+| Inline | Checking, counting, the inbox's date chips, "+ Bugün için görev ekle" |
+| Sheet (`showNokSheet`) | ≤ 3 inputs + 1 decision; viewing a record and its actions; pickers. Handle, visible ✕ when it has inputs, back closes it, never a sheet over a sheet |
+| Full-screen form (`SlideUpPageRoute` + `FormScaffold`) | 4+ inputs or a keypad: transaction, account, habit, goal, event, subscription, journal entry |
+| Confirmation sheet | A recurring event's scope, sign-out |
+| Dialog | Only §8.6's five cases |
+| Pushed page | Management lists, detail pages, Hedefler, Arama |
+
+### 8.4 One interaction grammar
+
+"Tap the row = open it, tap the control = change it", in every list:
+
+| Row | Tap | Control | Long press | Swipe |
+|---|---|---|---|---|
+| Task | Task sheet | 76×56 check area, undoable | Edit · Tomorrow · Pick date · Priority · Delete | → Done, ← Tomorrow |
+| Habit (Today, Habits) | Detail sheet | Ring / pill logs (+1) | Log sheet | — |
+| Event | Event sheet | — | — | — |
+| Transaction | Detail sheet | — | Edit · Copy to today · Delete | ← Delete (undo) |
+| Goal | Detail | — | Add progress (manual) · Edit · Abandon | — |
+| Account tile | Detail | — | Edit · Archive | — |
+| Journal card | Detail | — | Edit · Delete | — |
+| Subscription | Sheet | "Ödendi" inline when due | Edit · Skip · Pause · Delete | — |
+| Category | Edit sheet | — | — | — |
+
+Every swipe and long-press action is also a TalkBack `CustomSemanticsAction`.
+Detail surfaces show Edit plainly (full-width primary in a sheet, a pencil in
+a page's app bar); destructive actions come last (≥ 24 dp below, an error
+`TextButton`, or the overflow menu). A pushed page's title is the record
+itself (the account's name, the goal's name, the entry's date).
+
+### 8.5 Where creating lives
+
+Today and Agenda: the `CaptureBar` (+ a secondary "İşlem ekle" / "Etkinlik
+ekle"), plus Today's inline task row. Finance, Transactions, account detail:
+extended FAB "İşlem". Accounts: "Hesap". Subscriptions / Categories:
+"Abonelik" / "Kategori". Habits and Goals: an app-bar "Yeni" (Habits adds a
+dashed "+ Yeni alışkanlık" row; empty, they show starter chips / the three
+goal kinds). Journal: extended FAB "Yaz". The same create action never shows
+twice on one screen; when an empty state or setup card carries the CTA, the
+FAB hides. Never an icon-only FAB, never a FAB menu, never Save in the app
+bar.
+
+### 8.6 Delete, archive, undo
+
+Routine deletes (transaction, task, single event, journal entry, goal,
+budget, subscription, an empty account or unused category) disappear at once
+with a 6 s "… silindi · Geri al" and a deferred `DELETE`
+(`lib/data/deferred_deletes.dart`). Archiving an account or a habit is
+immediate with undo and is not red. Abandoning a goal, "Ödendi" on a
+subscription and "Hepsini bugüne al" are undoable. Dialogs remain for exactly
+five things: deleting a category in use (with counts and where to move them),
+deleting an account with consequences, deleting a list that has tasks (keep
+or delete them), archiving a habit that feeds a goal, and deleting a habit for
+good (with its day count). Each names the object and the outcome and its
+button is a verb.
+
+### 8.7 Two homes for management pages
+
+Every management or archive page is reachable from its own area's menu and
+from Profil › Veri: Hesaplar (+ archive), Kategoriler, Abonelikler, Görev
+listeleri, Arşivlenmiş alışkanlıklar, Hedefler.
+
+---
+
+## 9. Screen patterns
+
+| Screen | Hero | Structure |
+|---|---|---|
+| Splash, Giriş, Sunucu | The sign-in card | Two-step login (server, then account) with a live server ping; FadeThrough into Today |
+| **Bugün** | Today's habits (first ring ≤ 260 dp from the top) | Greeting header with the `MoneyGlance` chip and one nudge slot (or the first-run card) → habits → the Today card (agenda + inline add) → goals; `CaptureBar` at the thumb |
+| Hızlı ekle | The line being typed | Sheet: type chips with the app's guess ("Otomatik · Harcama"), one verb button naming the result and the account, steps inside the same sheet |
+| **Ajanda** | The next things to do | Upcoming / inbox / overdue / done views, day groups with `DayHeader`, list filter, `CaptureBar`; overdue chip only when there is something |
+| **Finans** | This month's net (`HeroStat`) with its sentence | Present first: hero → setup → accounts (tiles) → upcoming payments → budgets → recent transactions → categories (`CategoryBars`) → six months (`SixMonthBars`); FAB "İşlem" |
+| Hesaplar, hesap detayı | Totals per currency / the balance (Hero from the tile) | Grouped by type, archive group; reconcile sheet; linked goals |
+| İşlemler, işlem formu | The list / the amount | Search (`q`), filter chips, pinned day headers, ← delete with undo; the form is bottom-up — amount, keypad, category chips between the digits and Save |
+| Abonelikler, kategoriler, bütçeler | Monthly total / the list / the limit | Inline "Ödendi" when due; category sheet with move-on-delete; budget sheet with the keypad |
+| **Alışkanlıklar** | Today's count ("2 / 5 tamamlandı"), then "Hepsi tamam" with the perfect-day streak | Habit cards: dot, name, streak (`StreakFlame`), 30-day rate once there is a day of history, `CheckPop` / `CounterPill`, period pill; detail sheet with heatmap and stats; log sheet for past days |
+| Hedefler, hedef detayı | The ring | Grid of goal cards (one column from 1.55×), detail with ring Hero, manual stepper (sends after 400 ms), stat tiles |
+| **Günlük** | Today's card (mood buttons) | Entry count and week streak (only when there is one), mood distribution filter, month groups; editor saves on leave, drafts encrypted |
+| Profil | The user | Account, app (theme, language, reduce motion as sheets/switches), Veri centre, server, sign-out sheet |
+| Arama | The results | Grouped by type, recent searches, opens each record's own surface |
+
+---
+
+## 10. First run, empty states and the zero rules
+
+| Where | When | Shows |
+|---|---|---|
+| Bugün | New account | The start card "Başlayalım · 0/4" in the nudge slot: open a cash account (one tap) · pick a habit · add the first task · write today; "Gizle" remembers; at 4/4 "Hepsi tamam" for 2 s, then it folds |
+| Finans | No account · setup incomplete · no budget or subscription | First-run card · "Kurulum n/4" · `GhostCard` + "Gizle" |
+| İşlemler | None ever · none for the filter | "Henüz işlem yok" + "İşlem ekle" · "Bu filtreyle işlem yok" + "Filtreleri temizle" |
+| Kategoriler | None | "Hazır kategorileri ekle" |
+| Ajanda | Inbox or overdue empty · nothing upcoming | Chip hidden (no 0) · "Önümüzdeki günler sakin" + CaptureBar |
+| Alışkanlıklar | None | Starter chips |
+| Hedefler | None | The three goal kinds |
+| Günlük | Nothing today · empty range | Today card · "Bu aralıkta kayıt yok" + "Tüm kayıtlar" |
+| Archives | Empty | Calm text, no CTA |
+| Anywhere | Server unreachable, nothing cached | `EmptyState.error` (the Tailscale hint) |
+
+"Nothing planned" and "everything done" differ: the first invites an action,
+the second shows the gold "Hepsi tamam" with no CTA.
+
+**Zero rules** — never on screen: a signed zero ("+0,00", "−₺0"), "🔥 0",
+"0 seri", "%0 hafta", a 30-day rate before a habit has a day of history
+("%0 (30g)"), "0 kayıt" over an empty journal, "₺0 gelir · ₺0 gider" over an
+empty transaction list, a record of "0" (shown as "–"), or a chart with
+nothing on its axis (six-month bars need two months of data; the pace line
+and category bars need something spent). `test/screens/zero_rule_test.dart`
+walks every page and the habit sheet with the fixtures, a brand-new account
+and an all-zero account, in both languages.
+
+---
+
+## 11. Accessibility and performance gates
+
+- **Contrast:** token pairs in `test/theme/contrast_test.dart` and
+  `entity_tone_test.dart`; on real screens `test/widgets/a11y_sweep_test.dart`
+  runs Flutter's `textContrastGuideline` on every tab root, Hedefler, Profil
+  and the main sheets and forms (quick add, transaction form, task sheet,
+  event form, habit detail, habit log, habit form, goal form, journal editor,
+  account form, budget sheet), in both themes, every screenful. That
+  guideline only reaches a text whose semantics node carries it alone —
+  text inside merged rows, tiles, cards and calendar cells is skipped — so
+  the sweep also checks every visible paragraph itself: its style colour
+  (with any opacity above it) against the most frequent pixel around it,
+  disabled controls and icon glyphs exempt.
+- **Targets and labels:** the same sweep runs `androidTapTargetGuideline`
+  (48×48 dp) and `labeledTapTargetGuideline`. A FAB never covers a row's
+  control at any scroll position. Inside a sheet's scrollable the stock tap
+  target check skips content below the fold (it compares rects in different
+  spaces); the habit calendar's 44 dp-wide cells are the one allowed
+  exception there.
+- **Text to 200 %:** no overflow, no fixed-height rows, amounts never cut;
+  goal grid one column from 1.55×, stat tiles two across and settings rows
+  stacked above 1.3×. The only clamp is the nav label (1.3×).
+- **Semantics:** `CheckPop` is a checked button with the habit's name;
+  `CounterPill` has value / increase / decrease; single-choice chips and
+  segments are mutually exclusive; money reads as a full signed amount with
+  the digit cells excluded; rings read "%62"; charts read their sentence;
+  rows merge and expose swipe/long-press actions; the offline banner is a
+  live region; section and day headers are headers. Focus goes into a sheet
+  and back to its trigger. Under accessible navigation the undo snackbar
+  stays until dismissed.
+- **Language:** every string in TR and EN (`AppL10n` is abstract — a missing
+  one fails the build); every glyph is in the bundled Inter
+  (`test/l10n/glyph_coverage_test.dart`); no `toUpperCase()` on Turkish text.
+- **Performance budgets (§8.7 of the analysis)**, on the Android 16 phone,
+  120 Hz, profile build: tab switch, a 500-row transaction fling, sheet open,
+  check-off on Today and Habits and eight keypad keys a second all keep every
+  frame within budget — p90 build ≤ 4 ms, p99 build ≤ 8 ms, p99 raster
+  ≤ 8 ms, worst build and raster ≤ 16 ms. Today's content within 1 s of a cold
+  start (LAN, token cached), the skeleton only after 400 ms, press feedback
+  within 16 ms of pointer-down, an unreachable server reported within ≈ 6 s.
+- **Rebuild discipline:** watch only the field you read
+  (`ref.watch(provider.select(...))`); a habit tap rebuilds its card and the
+  header only; a keypad key rebuilds only the amount display
+  (`ValueNotifier<AmountDraft>`); `MediaQuery.sizeOf` / `viewInsetsOf`, not
+  `MediaQuery.of`.
+
+---
+
+## 12. Tests, goldens and QA
+
+| What | Where | Run |
+|---|---|---|
+| Unit and widget suites | `test/` | `flutter test` (use `--concurrency=2` on an 8 GB machine) |
+| Motion tokens (mandatory literal scan) | `test/theme/motion_tokens_test.dart` | part of `flutter test` |
+| Reduced motion and motion regressions | `test/widgets/motion_test.dart` | part of `flutter test` |
+| Haptic regressions | `test/core/haptics_unit_test.dart`, `test/screens/haptics_test.dart` | part of `flutter test` |
+| Accessibility sweep | `test/widgets/a11y_sweep_test.dart` | part of `flutter test` |
+| Zero rules | `test/screens/zero_rule_test.dart` | part of `flutter test` |
+| Large text | `test/screens/large_text_test.dart`, `keypad_sheets_test.dart`, component tests | part of `flutter test` |
+| Goldens | `test/golden/<area>_golden_test.dart` + `golden_harness.dart` | `flutter test test/golden --run-skipped` (compare) · `… --update-goldens` (refresh) |
+| Live API conformance | `test/live/` | `flutter test test/live --run-skipped` (needs a throwaway server account) |
+| Performance | `integration_test/perf_test.dart` + `test_driver/perf_driver.dart` | `flutter drive --profile --driver=test_driver/perf_driver.dart --target=integration_test/perf_test.dart -d <device>` |
+| Device checklist | `docs/qa-2026-10.md` | by hand on the phone |
+
+**Golden matrix.** Every screen in `tr-dark-1.0`, `en-dark-1.0` and
+`tr-light-1.0`; main screens also in `tr-dark-2.0` (and `tr-light-2.0` where an
+area adds it). The clock is pinned to Sunday 4 October 2026, 09:41; real
+fonts at 360×780 dp, 3×. Images live in
+`test/golden/images/<lang>-<theme>-<scale>/<screen>.png`. Goldens are tagged
+`golden` and skipped by default because pixels depend on the host's font
+rasteriser.
+
+**Anti-patterns rejected in review** (the full list is in the design
+analysis): a spinner or a disabled control while a toggle is in flight;
+haptics or celebrations from data; skeletons, gaps or replayed entrances over
+known data; confirm dialogs for routine, undoable work; showing ✓ before a
+record exists; losing input after a 422 or a 401; overshooting curves on a
+clipping tween; widget-type swaps after the first frame; `CustomTransitionPage`
+on a push; a sheet on a sheet; swipe-only actions; icon-only or menu FABs;
+Save in the app bar; the system keyboard for money; a lone "₺"; "…" in an
+amount; proportional Fraunces digits in a changing number; text below 4.5:1;
+state told by opacity; fixed row heights; `toUpperCase()` on Turkish; red for
+a negative net; a flame beside 0; celebrating a past-day log, a refresh or an
+undo; donut charts or charts without a sentence; blur, translucency, shimmer,
+or loops that ignore reduced motion.

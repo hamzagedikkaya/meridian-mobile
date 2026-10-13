@@ -261,7 +261,8 @@ void main() {
 
     expect(tester.takeException(), isNull);
     expect(find.text('Günlük'), findsOneWidget);
-    expect(find.text('0 kayıt'), findsOneWidget);
+    // No "0 kayıt" over the empty range (§7.15): its empty state says it.
+    expect(find.text('0 kayıt'), findsNothing);
     expect(find.text('Bugün nasıldı?'), findsOneWidget); // today card
     expect(find.text('Bu aralıkta kayıt yok'), findsOneWidget);
     expect(find.text('Tüm kayıtlar'), findsOneWidget);

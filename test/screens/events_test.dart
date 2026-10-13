@@ -10,12 +10,12 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:intl/date_symbol_data_local.dart';
 import 'package:meridian_mobile/models/event.dart';
+import 'package:meridian_mobile/theme/entity_color.dart';
 import 'package:meridian_mobile/ui/screens/agenda/event_form.dart';
 import 'package:meridian_mobile/ui/screens/agenda/event_sheet.dart';
 import 'package:meridian_mobile/ui/screens/today/today_screen.dart';
 import 'package:meridian_mobile/ui/widgets/check_pop.dart';
 import 'package:meridian_mobile/ui/widgets/choice_wrap.dart';
-import 'package:meridian_mobile/ui/widgets/color_swatches.dart';
 
 import '../support/app_harness.dart';
 import '../support/fake_api.dart';

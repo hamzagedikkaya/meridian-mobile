@@ -86,9 +86,8 @@ class SyncHint extends StatefulWidget {
 }
 
 class _SyncHintState extends State<SyncHint> {
-  /// The hint's fade in: a local alias of [Motion.pressOut] (same 150 ms)
-  /// until WP-1/WP-17 add a token named for it (`Motion.hintIn`).
-  static const _hintIn = Motion.pressOut;
+  /// The hint's fade in.
+  static const _hintIn = Motion.hintIn;
 
   Timer? _delay;
 

@@ -329,10 +329,6 @@ abstract class AppL10n {
   String get todayStatStreak;
   String get todayStatOpenTodos;
   String get todayStatWeek;
-  String get todayQuickCapture;
-  String get todayQuickCaptureHint;
-  String get todayQuickCaptureAdd;
-  String get todayQuickCaptureFailed;
   String get todayEmptyDay;
   String get todayAllHabitsDone;
   String get todayNoHabitsYet;
@@ -1027,6 +1023,10 @@ abstract class AppL10n {
   /// The Hesaplar page's totals card.
   String get accountsTotalsTitle;
 
+  /// A currency's name in the totals card: the ISO code, except gram gold
+  /// (`GAU`), which reads as a word ("Altın").
+  String accountsCurrencyLabel(String currency);
+
   /// The FAB and the last tile: add an account.
   String get accountFab;
 
@@ -1446,10 +1446,6 @@ abstract class AppL10n {
   String get goalsFormColor;
   String get goalsFormTargetValue;
   String get goalsFormTargetRequired;
-
-  /// A goal number that reads two ways ("1.500"): [mark] is the language's
-  /// decimal mark.
-  String goalsNumberAmbiguous(String mark);
   String get goalsFormUnit;
   String get goalsFormUnitHint;
   String get goalsFormEndDate;

@@ -222,7 +222,7 @@ class _AccountFormScreenState extends ConsumerState<AccountFormScreen> {
     final l = context.l10n;
     final name = _name.text.trim();
     if (name.isEmpty) {
-      Haptics.danger();
+      Haptics.reject();
       setState(() => _nameError = l.accountFormNameRequired);
       return;
     }
@@ -246,7 +246,7 @@ class _AccountFormScreenState extends ConsumerState<AccountFormScreen> {
           : await repo.updateAccount(existing, input);
       if (!mounted) return;
       _applyDefault(saved.id);
-      Haptics.success();
+      Haptics.confirm();
       Navigator.of(context).pop(saved);
       showAppSnack(
         context,
@@ -254,7 +254,7 @@ class _AccountFormScreenState extends ConsumerState<AccountFormScreen> {
       );
     } catch (e) {
       if (!mounted) return;
-      Haptics.danger();
+      Haptics.reject();
       final refusal = e is ApiException ? e : null;
       final currencyLocked = refusal?.code == 'currency_locked';
       final nameError = refusal?.fieldMessage(l, 'name');

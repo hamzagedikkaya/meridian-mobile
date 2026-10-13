@@ -1,7 +1,7 @@
-import 'package:flutter/gestures.dart' show kTouchSlop;
 import 'package:flutter/material.dart';
 
 import '../../../l10n/app_l10n.dart';
+import '../../../models/date_utils.dart';
 import '../../../models/habit.dart';
 import '../../../theme/app_colors.dart';
 import '../../../theme/app_metrics.dart';
@@ -10,6 +10,7 @@ import '../../../theme/app_typography.dart';
 import '../../../theme/entity_color.dart';
 import '../../widgets/check_pop.dart';
 import '../../widgets/nokturn_card.dart';
+import '../../widgets/pressable_scale.dart';
 import '../../widgets/streak_flame.dart';
 import 'widgets/counter_pill.dart';
 import 'widgets/habit_day_cell.dart';
@@ -18,7 +19,8 @@ import 'widgets/habit_day_cell.dart';
 ///
 /// * **Top row** (at least 48 dp): the habit's 12 dp colour dot, its name
 ///   (up to two lines) over its streak — a flame and the days, or "Yeni seri
-///   · Rekor 21" once broken — and its 30-day rate; on the right the
+///   · Rekor 21" once broken — and its 30-day rate once it has a day of
+///   history (a habit made today shows no "%0 (30g)"); on the right the
 ///   control that logs today.
 /// * **The control**: a `CheckPop` for a habit done once a day; the
 ///   [CounterPill] for one done several times a day; for a weekly or
@@ -54,6 +56,16 @@ class HabitCard extends StatelessWidget {
       ? (habit.completionRate30d * 100).round()
       : habit.completionRate30d.round();
 
+  /// Whether [habit] has lived through a day before today — what its 30-day
+  /// rate needs to mean anything. A habit made today has none: its rate
+  /// would read "%0" (§7.15: no zero that is not one), so it is not shown.
+  static bool hasHistory(Habit habit) {
+    final today = dateOnly(habit.today.date);
+    final start = habit.startDate;
+    if (start != null && dateOnly(start).isBefore(today)) return true;
+    return habit.chain.any((d) => dateOnly(d.date).isBefore(today));
+  }
+
   @override
   Widget build(BuildContext context) {
     final c = context.nok;
@@ -62,19 +74,21 @@ class HabitCard extends StatelessWidget {
     final tone = entityTone(habit.color, c);
     final periodic = !habit.isDaily;
 
+    final rate = hasHistory(habit);
     final meta = Wrap(
       crossAxisAlignment: WrapCrossAlignment.center,
       spacing: Gap.xs,
       runSpacing: Gap.xxs,
       children: [
         StreakFlame(days: habit.currentStreak, record: habit.longestStreak),
-        if (habit.currentStreak > 0 || habit.longestStreak > 0)
+        if (rate && (habit.currentStreak > 0 || habit.longestStreak > 0))
           // A separator for the eye: a screen reader would say "dot".
           ExcludeSemantics(child: Text('·', style: text.bodySmall)),
-        Text(
-          l.habitsRate30d(rateOf(habit)),
-          style: context.nokText.numMeta.copyWith(color: c.inkMid),
-        ),
+        if (rate)
+          Text(
+            l.habitsRate30d(rateOf(habit)),
+            style: context.nokText.numMeta.copyWith(color: c.inkMid),
+          ),
       ],
     );
 
@@ -88,30 +102,40 @@ class HabitCard extends StatelessWidget {
         onTap: onOpen,
         onLongPress: onLongPress,
         onLongPressHint: onLongPress == null ? null : l.habitLogHint,
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              habit.name,
-              maxLines: 2,
-              overflow: TextOverflow.ellipsis,
-              style: text.titleMedium,
-            ),
-            const SizedBox(height: Gap.xxs),
-            meta,
-            // A weekly or monthly habit's period, under its streak: beside
-            // the check it would squeeze the name on a phone.
-            if (period != null) ...[const SizedBox(height: Gap.xs), period],
-          ],
+        // A screen reader's target is at least 48 dp tall (§8.2), also for
+        // a one-line name over a short meta line.
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(minHeight: Hit.min),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            mainAxisAlignment: MainAxisAlignment.center,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                habit.name,
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                style: text.titleMedium,
+              ),
+              const SizedBox(height: Gap.xxs),
+              meta,
+              // A weekly or monthly habit's period, under its streak: beside
+              // the check it would squeeze the name on a phone.
+              if (period != null) ...[const SizedBox(height: Gap.xs), period],
+            ],
+          ),
         ),
       ),
     );
 
-    return _CardPress(
+    // The card presses under the finger (a screen reader reaches it through
+    // its info column, so the gesture stays out of the semantics tree); a
+    // touch on the control is the control's alone.
+    return PressableScale(
       onTap: onOpen,
       onLongPress: onLongPress,
-      builder: (claim) => NokturnCard(
+      excludeFromSemantics: true,
+      child: NokturnCard(
         padding: const EdgeInsets.symmetric(
           horizontal: Insets.card,
           vertical: Gap.lg,
@@ -134,7 +158,7 @@ class HabitCard extends StatelessWidget {
                   const SizedBox(width: Gap.md),
                   Expanded(child: info),
                   const SizedBox(width: Gap.sm),
-                  claim(_control(context, tone)),
+                  PressableClaim(child: _control(context, tone)),
                 ],
               ),
             ),
@@ -229,114 +253,6 @@ class _PeriodPill extends StatelessWidget {
             ),
           ),
         ],
-      ),
-    );
-  }
-}
-
-/// The card's press: the whole card scales to [Motion.pressScale] the
-/// moment a finger lands (as `PressableScale` does), except a finger that
-/// lands on a control [builder] wraps with its `claim` — the check or the
-/// counter works alone, the card stays still. A screen reader reaches the
-/// card through its info column, so the gesture here stays out of the
-/// semantics tree.
-///
-/// Local to the Habits screen: `PressableScale` cannot tell a control's
-/// touch from the card's (WP-17 note: an `ignore` hook there would replace
-/// this).
-class _CardPress extends StatefulWidget {
-  final VoidCallback onTap;
-  final VoidCallback? onLongPress;
-  final Widget Function(Widget Function(Widget control) claim) builder;
-
-  const _CardPress({
-    required this.onTap,
-    required this.onLongPress,
-    required this.builder,
-  });
-
-  @override
-  State<_CardPress> createState() => _CardPressState();
-}
-
-class _CardPressState extends State<_CardPress>
-    with SingleTickerProviderStateMixin {
-  late final AnimationController _press = AnimationController(vsync: this)
-    ..addStatusListener(_onStatus);
-  late final Animation<double> _scale = _press.drive(
-    Tween(begin: 1.0, end: Motion.pressScale),
-  );
-
-  /// Pointers that landed on a control.
-  final _claimed = <int>{};
-  Offset? _downAt;
-
-  @override
-  void dispose() {
-    _press.dispose();
-    super.dispose();
-  }
-
-  void _onStatus(AnimationStatus status) {
-    if (status == AnimationStatus.completed && _downAt == null) _release();
-  }
-
-  void _down(PointerDownEvent event) {
-    // The control's own listener ran first (it is deeper in the tree).
-    if (_claimed.contains(event.pointer)) return;
-    _downAt = event.position;
-    if (Motion.reduced(context)) return;
-    _press.animateTo(1, duration: Motion.pressIn, curve: Curves.easeOut);
-  }
-
-  void _move(PointerMoveEvent event) {
-    final at = _downAt;
-    if (at != null && (event.position - at).distance > kTouchSlop) _up();
-  }
-
-  void _up([PointerEvent? event]) {
-    if (event != null) _claimed.remove(event.pointer);
-    if (_downAt == null) return;
-    _downAt = null;
-    if (_press.isAnimating && _press.status == AnimationStatus.forward) return;
-    _release();
-  }
-
-  void _release() {
-    if (_press.value == 0) return;
-    _press.animateBack(0, duration: Motion.pressOut, curve: Motion.enter);
-  }
-
-  void _longPress() {
-    Feedback.forLongPress(context);
-    widget.onLongPress!();
-  }
-
-  /// A touch on [control] is the control's alone: the card neither presses
-  /// nor opens — also where the control is off (a counter at its target).
-  Widget _claim(Widget control) => Listener(
-    onPointerDown: (e) => _claimed.add(e.pointer),
-    child: GestureDetector(
-      behavior: HitTestBehavior.opaque,
-      excludeFromSemantics: true,
-      onTap: () {},
-      child: control,
-    ),
-  );
-
-  @override
-  Widget build(BuildContext context) {
-    return Listener(
-      onPointerDown: _down,
-      onPointerMove: _move,
-      onPointerUp: _up,
-      onPointerCancel: _up,
-      child: GestureDetector(
-        behavior: HitTestBehavior.opaque,
-        excludeFromSemantics: true,
-        onTap: widget.onTap,
-        onLongPress: widget.onLongPress == null ? null : _longPress,
-        child: ScaleTransition(scale: _scale, child: widget.builder(_claim)),
       ),
     );
   }

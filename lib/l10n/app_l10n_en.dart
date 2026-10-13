@@ -528,15 +528,6 @@ class AppL10nEn extends AppL10n {
   @override
   String get todayStatWeek => 'this week';
   @override
-  String get todayQuickCapture => 'Quick capture';
-  @override
-  String get todayQuickCaptureHint =>
-      'What happened? (-250 coffee, +1,500 salary, habit: run, buy milk)';
-  @override
-  String get todayQuickCaptureAdd => 'Add';
-  @override
-  String get todayQuickCaptureFailed => 'Couldn\'t capture that';
-  @override
   String get todayEmptyDay => 'Nothing planned — a quiet day';
   @override
   String get todayAllHabitsDone => 'All done';
@@ -1501,6 +1492,9 @@ class AppL10nEn extends AppL10n {
   @override
   String get accountsTotalsTitle => 'Totals by currency';
   @override
+  String accountsCurrencyLabel(String currency) =>
+      currency.toUpperCase() == 'GAU' ? 'Gold' : currency;
+  @override
   String get accountFab => 'Account';
   @override
   String accountTileSemantics(String name, String type, String balance) =>
@@ -2284,9 +2278,6 @@ class AppL10nEn extends AppL10n {
   String get goalsFormTargetValue => 'Target value';
   @override
   String get goalsFormTargetRequired => 'Enter a valid target value';
-  @override
-  String goalsNumberAmbiguous(String mark) =>
-      'Ambiguous number: use “$mark” for decimals and no thousands separator';
   @override
   String get goalsFormUnit => 'Unit';
   @override

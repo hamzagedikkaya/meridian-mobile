@@ -16,6 +16,7 @@ import '../../../data/data_scope.dart';
 import '../../../data/recent_changes.dart';
 import '../../../data/sync.dart';
 import '../../../theme/app_metrics.dart';
+import '../../../theme/entity_color.dart';
 import '../../widgets/choice_wrap.dart';
 import '../../widgets/color_swatches.dart';
 import '../../widgets/form_scaffold.dart';

@@ -11,165 +11,6 @@ import '../../theme/app_motion.dart';
 import '../../theme/app_typography.dart';
 import 'entrance.dart';
 
-/// A single donut slice.
-class DonutSection {
-  final double value;
-  final Color color;
-  const DonutSection({required this.value, required this.color});
-}
-
-/// Noktürn-themed donut (design §4.4 Kategoriler). 160dp, centerSpaceRadius 56,
-/// sectionsSpace 2. Sweeps its sections in from 0 over ~600ms on first build
-/// only (subtle, no re-sweep on refresh — §5). [center] renders inside the
-/// hole; provide [centerTotalCents] (+ [centerCurrency]/[centerSubunitToUnit]/
-/// [centerLabel]) instead to get a first-load count-up total. [onSliceTap]
-/// fires with the tapped section index.
-class DonutChart extends StatefulWidget {
-  final List<DonutSection> sections;
-  final Widget? center;
-  final double size;
-  final ValueChanged<int>? onSliceTap;
-  final int? centerTotalCents;
-  final String? centerCurrency;
-  final int? centerSubunitToUnit;
-  final String? centerLabel;
-
-  const DonutChart({
-    super.key,
-    required this.sections,
-    this.center,
-    this.size = 160,
-    this.onSliceTap,
-    this.centerTotalCents,
-    this.centerCurrency,
-    this.centerSubunitToUnit,
-    this.centerLabel,
-  });
-
-  @override
-  State<DonutChart> createState() => _DonutChartState();
-}
-
-class _DonutChartState extends State<DonutChart> {
-  bool _swept = false;
-  bool _counted = false;
-
-  List<PieChartSectionData> _slices(double radius, double t) {
-    final real = [
-      for (final s in widget.sections)
-        PieChartSectionData(
-          value: s.value * t,
-          color: s.color,
-          radius: radius,
-          showTitle: false,
-        ),
-    ];
-    if (t >= 1) return real;
-    final total = widget.sections.fold<double>(0, (a, s) => a + s.value);
-    return [
-      ...real,
-      PieChartSectionData(
-        value: total * (1 - t),
-        color: Colors.transparent,
-        radius: radius,
-        showTitle: false,
-      ),
-    ];
-  }
-
-  Widget? _buildCenter(BuildContext context) {
-    if (widget.centerTotalCents == null) return widget.center;
-    final c = context.nok;
-    final text = Theme.of(context).textTheme;
-    final target = widget.centerTotalCents!.abs().toDouble();
-
-    Widget amount(int cents) => Text(
-          formatMoney(cents, widget.centerCurrency ?? '',
-              widget.centerSubunitToUnit ?? 1),
-          style: text.titleLarge!.copyWith(fontFeatures: tabularFigures),
-        );
-
-    return Column(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        if (_counted)
-          amount(widget.centerTotalCents!)
-        else
-          TweenAnimationBuilder<double>(
-            tween: Tween(begin: 0, end: target),
-            duration: Motion.sweep,
-            curve: Motion.enter,
-            onEnd: () {
-              if (mounted && !_counted) setState(() => _counted = true);
-            },
-            builder: (context, v, _) => amount(v.round()),
-          ),
-        if (widget.centerLabel != null)
-          Text(widget.centerLabel!,
-              style: text.labelSmall!.copyWith(color: c.inkMid)),
-      ],
-    );
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final c = context.nok;
-    final radius = widget.size / 2 - 56;
-    final total = widget.sections.fold<double>(0, (a, s) => a + s.value);
-
-    return SizedBox(
-      width: widget.size,
-      height: widget.size,
-      child: Stack(
-        alignment: Alignment.center,
-        children: [
-          if (total <= 0)
-            SizedBox(
-              width: widget.size,
-              height: widget.size,
-              child: DecoratedBox(
-                decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  border: Border.all(color: c.surface2, width: radius),
-                ),
-              ),
-            )
-          else
-            TweenAnimationBuilder<double>(
-              tween: _swept ? Tween(begin: 1, end: 1) : Tween(begin: 0, end: 1),
-              duration: Motion.sweep,
-              curve: Motion.enter,
-              onEnd: () {
-                if (mounted && !_swept) setState(() => _swept = true);
-              },
-              builder: (context, t, _) => PieChart(
-                PieChartData(
-                  centerSpaceRadius: 56,
-                  sectionsSpace: 2,
-                  startDegreeOffset: -90,
-                  pieTouchData: PieTouchData(
-                    enabled: widget.onSliceTap != null && t >= 1,
-                    touchCallback: (event, response) {
-                      if (event is! FlTapUpEvent) return;
-                      final idx =
-                          response?.touchedSection?.touchedSectionIndex ?? -1;
-                      if (idx >= 0 && idx < widget.sections.length) {
-                        widget.onSliceTap?.call(idx);
-                      }
-                    },
-                  ),
-                  sections: _slices(radius, t),
-                ),
-                duration: Duration.zero,
-              ),
-            ),
-          ?_buildCenter(context),
-        ],
-      ),
-    );
-  }
-}
-
 /// Six months of income and expense (design-analysis §4.24): no left axis,
 /// 10 dp bars 4 dp apart with 3 dp top corners, expense filled
 /// (`chartExpense`), income hollow with a 1.5 dp `chartIncome` outline —
@@ -228,10 +69,8 @@ class SixMonthBars extends StatefulWidget {
 }
 
 class _SixMonthBarsState extends State<SixMonthBars> {
-  /// How long the bars grow or retarget: a local alias of [Motion.sheetIn]
-  /// (same 350 ms) until WP-1/WP-17 add a token named for it
-  /// (`Motion.barGrow`).
-  static const _barGrow = Motion.sheetIn;
+  /// How long the bars grow or retarget.
+  static const _barGrow = Motion.barGrow;
 
   /// The first frame draws the bars at zero when the entrance plays; the
   /// next frame gives fl_chart the real values, which it animates to.
@@ -490,7 +329,7 @@ double chartLabelLineHeight(TextStyle style, TextScaler scaler) {
   return scaler.scale(size) * (style.height ?? 1.2);
 }
 
-/// Legend swatch used beside the donut / six-month chart. [hollow] draws a
+/// Legend swatch used beside the six-month chart. [hollow] draws a
 /// 1.5 dp ring, matching [SixMonthBars]' outlined income bars (§4.24).
 class ChartLegendDot extends StatelessWidget {
   final Color color;

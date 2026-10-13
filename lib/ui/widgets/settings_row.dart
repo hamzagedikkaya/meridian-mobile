@@ -23,6 +23,10 @@ enum ValuePlacement {
 ///   most 40 % of the row; a value that is wider — measured, not guessed —
 ///   moves [ValuePlacement.below]. Above 1.3× text every value goes below.
 ///   A value is never cut.
+/// * Above 1.3× text the row stacks: the icon and the end control share
+///   the first line and the title, subtitle and value get the full width
+///   under them, so a long word ("değerlendirme") wraps whole instead of
+///   breaking mid-word in a narrow column (§4.7, §8.3).
 /// * The end: [trailing] (a `Switch`), else a chevron when the row opens
 ///   something ([onTap] and [chevron]).
 ///
@@ -63,8 +67,18 @@ class SettingsRow extends StatelessWidget {
   });
 
   /// The 1 dp divider between settings rows, inset past the icon
-  /// (20 + 24 + 16 = 60 dp).
-  static Widget divider() => const Divider(height: 1, thickness: 1, indent: 60);
+  /// (20 + 24 + 16 = 60 dp) — or by the row's own inset when the rows stack
+  /// ([stacks]), where the title starts under the icon.
+  static Widget divider() => Builder(
+    builder: (context) => Divider(
+      height: 1,
+      thickness: 1,
+      indent: stacks(MediaQuery.textScalerOf(context)) ? Insets.rowH : 60,
+    ),
+  );
+
+  /// Above 1.3× text the row stacks: the icon line, then the title.
+  static bool stacks(TextScaler scaler) => scaler.scale(1) > 1.3;
 
   /// The widest a trailing value may be, as a share of the row.
   static const trailingShare = 0.4;
@@ -80,7 +94,7 @@ class SettingsRow extends StatelessWidget {
 
     final row = LayoutBuilder(
       builder: (context, constraints) {
-        final large = scaler.scale(1) > 1.3;
+        final large = stacks(scaler);
         var below = valuePlacement == ValuePlacement.below || large;
         if (!below && value != null && constraints.hasBoundedWidth) {
           final painter = TextPainter(
@@ -96,9 +110,8 @@ class SettingsRow extends StatelessWidget {
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // Two lines at most — except in large text, where a long word
-            // breaks over more and must not be cut (§8.3). A WP-14 seam:
-            // WP-2/WP-17 to carry it into §4.7 ("en çok 2 satır").
+            // Two lines at most (§4.7) — except in large text, where the
+            // stacked title has the row's width and wraps as it needs.
             Text(title, style: titleStyle, maxLines: large ? null : 2),
             if (subtitle != null) Text(subtitle!, style: text.bodySmall),
             if (below && value != null) Text(value, style: valueStyle),
@@ -108,6 +121,35 @@ class SettingsRow extends StatelessWidget {
             (chevron && onTap != null
                 ? Icon(Icons.chevron_right_rounded, size: 20, color: c.inkLow)
                 : null);
+        final leading = SizedBox(
+          width: 24,
+          child: Icon(icon, size: 22, color: iconColor ?? c.inkMid),
+        );
+        if (large) {
+          return ConstrainedBox(
+            constraints: const BoxConstraints(minHeight: 64),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(
+                horizontal: Insets.rowH,
+                vertical: Insets.rowV,
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Row(
+                    children: [
+                      leading,
+                      const Spacer(),
+                      ?end,
+                    ],
+                  ),
+                  const SizedBox(height: Gap.xs),
+                  titleBlock,
+                ],
+              ),
+            ),
+          );
+        }
         return ConstrainedBox(
           constraints: BoxConstraints(
             minHeight: below && value != null ? 64 : 56,
@@ -119,10 +161,7 @@ class SettingsRow extends StatelessWidget {
             ),
             child: Row(
               children: [
-                SizedBox(
-                  width: 24,
-                  child: Icon(icon, size: 22, color: iconColor ?? c.inkMid),
-                ),
+                leading,
                 const SizedBox(width: Gap.lg),
                 Expanded(child: titleBlock),
                 if (!below && value != null) ...[

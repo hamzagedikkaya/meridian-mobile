@@ -1,9 +1,11 @@
 /// Motion tokens (design-analysis §5.1).
 ///
-/// The literal scan is in REPORT mode: it lists every `Duration(…)` literal
-/// left outside `lib/theme/app_motion.dart` but does not fail. The Phase B
-/// and screen work packages move them onto `Motion` tokens; WP-17 flips
-/// [enforce] to true, with [allowed] as the only exceptions.
+/// The literal scan is MANDATORY (WP-17): a `Duration(…)` or a curve literal
+/// (`Curves.…`, `Cubic(…)`) anywhere in [scanned] outside
+/// `lib/theme/app_motion.dart` fails, unless [allowed] names it below with
+/// its reason. A new timing goes into `Motion` under a name that says what
+/// it is for; a new non-motion timer (a debounce, a data horizon) is added
+/// to [allowed] with one line saying why it is not motion.
 library;
 
 import 'dart:io';
@@ -13,49 +15,97 @@ import 'package:flutter/physics.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:meridian_mobile/theme/app_motion.dart';
 
-const enforce = false;
-
-/// Files that keep literals on purpose: snackbar lengths (4 s / 6 s) and the
-/// server-address ping debounce (1500 ms).
-const allowed = {
-  'lib/ui/widgets/app_snackbar.dart',
-  'lib/ui/widgets/server_url_field.dart',
+/// The documented exceptions: file → the snippets on its allowed lines (an
+/// empty list allows the whole file). None of these is motion.
+const allowed = <String, List<String>>{
+  // Snackbar lengths (4 s / 6 s / 8 s): reading time, not animation.
+  'lib/ui/widgets/app_snackbar.dart': [],
+  // The server-address ping debounce (1500 ms).
+  'lib/ui/widgets/server_url_field.dart': [],
+  // How often the journal editor puts a draft aside.
+  'lib/ui/screens/journal/journal_editor.dart': ['journalDraftInterval ='],
+  // How long after a tap the server's answer may still earn a milestone.
+  'lib/ui/screens/habits/habits_screen.dart': ['_milestoneWindow ='],
+  // The clock's wake-up at the next minute.
+  'lib/ui/screens/today/widgets/today_clock.dart': [
+    'Duration(milliseconds: 50)',
+    'Duration(seconds: 1)',
+  ],
+  // How long the app must be away before a resume refreshes it.
+  'lib/ui/screens/shell/freshness_gate.dart': ['Duration(seconds: 30)'],
+  // When retired scroll controllers are disposed (long after the fade).
+  'lib/ui/screens/finance/transactions_screen.dart': ['_retireTimer = Timer('],
 };
 
 /// Where motion lives. Network timeouts and retry back-offs in `lib/core`
 /// and `lib/data` are not motion and keep their own constants.
-const scanned = ['lib/ui', 'lib/router', 'lib/theme'];
+const scanned = ['lib/ui', 'lib/router', 'lib/theme', 'lib/main.dart'];
 
-final _literal = RegExp(r'Duration\(\s*(milliseconds|microseconds)\s*:');
+/// Sub-minute literals: days, hours and minutes are calendar arithmetic
+/// (an event's default hour, a 30-day range), never motion.
+final _duration =
+    RegExp(r'Duration\(\s*(seconds|milliseconds|microseconds)\s*:');
+final _curve = RegExp(r'\bCurves\.\w+|\bCubic\(');
 
-void main() {
-  test('Duration literals outside app_motion.dart (report)', () {
-    final hits = <String>[];
-    final files = [
-      for (final dir in scanned) ...Directory(dir).listSync(recursive: true),
+/// Never anywhere, app_motion.dart included (§5.1 rule 3: one overshoot).
+final _overshoot = RegExp(r'easeOutBack|elasticOut|elasticIn|bounceOut');
+
+List<File> _dartFiles() => [
+      for (final entry in scanned)
+        if (FileSystemEntity.isDirectorySync(entry))
+          ...Directory(entry).listSync(recursive: true)
+        else
+          File(entry),
     ]
         .whereType<File>()
         .where((f) => f.path.endsWith('.dart'))
         .toList()
       ..sort((a, b) => a.path.compareTo(b.path));
-    for (final file in files) {
+
+void main() {
+  test('no Duration or curve literal outside app_motion.dart', () {
+    final hits = <String>[];
+    for (final file in _dartFiles()) {
       final path = file.path.replaceAll(r'\', '/');
-      if (path == 'lib/theme/app_motion.dart' || allowed.contains(path)) {
-        continue;
-      }
+      if (path == 'lib/theme/app_motion.dart') continue;
+      final exempt = allowed[path];
+      if (exempt != null && exempt.isEmpty) continue;
       final lines = file.readAsLinesSync();
       for (var i = 0; i < lines.length; i++) {
         final line = lines[i].trimLeft();
         if (line.startsWith('//')) continue;
-        if (_literal.hasMatch(line)) hits.add('$path:${i + 1}: $line');
+        if (!_duration.hasMatch(line) && !_curve.hasMatch(line)) continue;
+        if (exempt != null && exempt.any(line.contains)) continue;
+        hits.add('$path:${i + 1}: $line');
       }
     }
-    if (hits.isNotEmpty) {
-      // ignore: avoid_print
-      print('motion_tokens_test: ${hits.length} Duration literal(s) still '
-          'outside app_motion.dart (report mode):\n  ${hits.join('\n  ')}');
+    expect(hits, isEmpty,
+        reason: 'Move these onto Motion tokens (lib/theme/app_motion.dart) '
+            'or document them in `allowed`:\n  ${hits.join('\n  ')}');
+  });
+
+  test('every documented exception still exists', () {
+    for (final MapEntry(key: path, value: snippets) in allowed.entries) {
+      final file = File(path);
+      expect(file.existsSync(), isTrue, reason: '$path is gone');
+      final source = file.readAsStringSync();
+      for (final snippet in snippets) {
+        expect(source.contains(snippet), isTrue,
+            reason: '$path no longer has `$snippet`: drop it from allowed');
+      }
     }
-    if (enforce) expect(hits, isEmpty);
+  });
+
+  test('no overshooting curve anywhere', () {
+    for (final file in _dartFiles()) {
+      final lines = file.readAsLinesSync();
+      for (var i = 0; i < lines.length; i++) {
+        final line = lines[i].trimLeft();
+        if (line.startsWith('//')) continue;
+        expect(_overshoot.hasMatch(line), isFalse,
+            reason: '${file.path}:${i + 1}: $line');
+      }
+    }
   });
 
   test('the token values of §5.1', () {

@@ -90,19 +90,6 @@ abstract final class Haptics {
   static void confirm() => request(HapticKind.confirm);
   static void reject() => request(HapticKind.reject);
 
-  // --- Older names (until WP-17) -----------------------------------------------
-  // Screens rename their calls by meaning as they are redesigned.
-
-  /// Was `lightImpact` on any success; now [check].
-  static void success() => check();
-
-  /// Was `mediumImpact` for the day done, a goal at 100 % (and pull to
-  /// refresh); now [confirm].
-  static void celebrate() => confirm();
-
-  /// Was `heavyImpact` for errors and deletes; now [reject].
-  static void danger() => reject();
-
   // --- The coalescer -----------------------------------------------------------
 
   /// Queues [kind]; the strongest request of this event plays once.

@@ -139,6 +139,31 @@ void main() {
       await tester.pump();
       expect(find.text('İlk hesabını ekle'), findsNothing);
     });
+
+    testWidgets('2.0x on 360 dp: the whole message wraps, nothing is cut', (
+      tester,
+    ) async {
+      const message = 'Bütçe yok — bir kategoriye aylık sınır koy, '
+          'harcadıkça burada dolsun';
+      await pumpComponent(
+        tester,
+        const SingleChildScrollView(
+          padding: EdgeInsets.all(16),
+          child: GhostCard(
+            icon: Icons.savings_outlined,
+            message: message,
+            actionLabel: 'Bütçe ekle',
+            dismissKey: 'wrap',
+          ),
+        ),
+        textScale: 2.0,
+      );
+      expect(tester.takeException(), isNull);
+      final text = tester.widget<Text>(find.text(message));
+      expect(text.maxLines, isNull);
+      final paragraph = tester.renderObject<RenderParagraph>(find.text(message));
+      expect(paragraph.didExceedMaxLines, isFalse);
+    });
   });
 
   group('PressableScale', () {
@@ -171,6 +196,50 @@ void main() {
       await gesture.up();
       await tester.pumpAndSettle();
       expect(_scaleOf(tester, target), 1.0);
+    });
+
+    testWidgets('a touch on a PressableClaim is the control\'s alone: the '
+        'card neither presses nor opens', (tester) async {
+      var opened = 0;
+      var controlTaps = 0;
+      await pumpComponent(
+        tester,
+        centred(
+          PressableScale(
+            onTap: () => opened++,
+            child: SizedBox(
+              width: 240,
+              height: 80,
+              child: Row(
+                children: [
+                  const Expanded(child: Text('kart')),
+                  PressableClaim(
+                    child: IconButton(
+                      tooltip: 'İşaretle',
+                      onPressed: () => controlTaps++,
+                      icon: const Icon(Icons.check),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      );
+      final card = find.byType(PressableScale);
+      final gesture =
+          await tester.startGesture(tester.getCenter(find.byIcon(Icons.check)));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 100));
+      expect(_scaleOf(tester, card), 1.0, reason: 'the card stays still');
+      await gesture.up();
+      await tester.pumpAndSettle();
+      expect(controlTaps, 1);
+      expect(opened, 0);
+      // Elsewhere on the card, it presses and opens as before.
+      await tester.tap(find.text('kart'));
+      await tester.pumpAndSettle();
+      expect(opened, 1);
     });
 
     testWidgets('a 20 ms tap still shows the whole press before releasing', (
@@ -459,6 +528,63 @@ void main() {
         greaterThan(tester.getTopLeft(find.text('Tema')).dy),
       );
       expect(tester.takeException(), isNull);
+    });
+
+    testWidgets('2.0x on 360 dp: the row stacks and a long word stays whole',
+        (tester) async {
+      const title = 'Haftalık değerlendirme';
+      await pumpComponent(
+        tester,
+        Padding(
+          // A settings group card's margins, as on Profile.
+          padding: const EdgeInsets.symmetric(horizontal: 16),
+          child: SettingsRow(
+            icon: Icons.event_repeat_outlined,
+            title: title,
+            value: 'Pazar',
+            onTap: () {},
+          ),
+        ),
+        textScale: 2.0,
+      );
+      expect(tester.takeException(), isNull);
+      final icon = tester.getRect(find.byIcon(Icons.event_repeat_outlined));
+      final chevron = tester.getRect(find.byIcon(Icons.chevron_right_rounded));
+      final titleRect = tester.getRect(find.text(title));
+      expect(titleRect.top, greaterThanOrEqualTo(icon.bottom),
+          reason: 'the title goes under the icon line');
+      expect(chevron.center.dy, closeTo(icon.center.dy, 1),
+          reason: 'the chevron shares the icon line');
+      // Two words → two lines at most: no word was broken in two.
+      final paragraph = tester.renderObject<RenderParagraph>(find.text(title));
+      final lines = paragraph
+          .getBoxesForSelection(
+            const TextSelection(baseOffset: 0, extentOffset: title.length),
+          )
+          .map((b) => b.top.round())
+          .toSet();
+      expect(lines.length, lessThanOrEqualTo(2));
+    });
+
+    testWidgets('the divider lines up with the title: past the icon, or at '
+        'the row inset once the rows stack', (tester) async {
+      for (final scale in [1.0, 2.0]) {
+        await pumpComponent(
+          tester,
+          Column(
+            children: [
+              SettingsRow(icon: Icons.translate, title: 'Dil', onTap: () {}),
+              SettingsRow.divider(),
+              SettingsRow(icon: Icons.palette_outlined, title: 'Tema'),
+            ],
+          ),
+          textScale: scale,
+        );
+        final divider = tester.widget<Divider>(find.byType(Divider));
+        final row = tester.getTopLeft(find.byType(SettingsRow).first).dx;
+        final title = tester.getTopLeft(find.text('Dil')).dx - row;
+        expect(divider.indent, title, reason: '${scale}x');
+      }
     });
 
     testWidgets('one button that reads the title with its value', (

@@ -411,11 +411,17 @@ class _HabitDetailSheetState extends ConsumerState<_HabitDetailSheet> {
                       : l.streakNewRecord(habit.longestStreak),
                 ),
                 StatTile(
-                  value: '${habit.longestStreak}',
+                  // No record yet is not a record of 0 (§7.15).
+                  value: habit.longestStreak > 0
+                      ? '${habit.longestStreak}'
+                      : '–',
                   label: l.habitsStatRecord,
                 ),
                 StatTile(
-                  value: l.percent(HabitCard.rateOf(habit)),
+                  // A habit made today has no rate yet, not a rate of 0.
+                  value: HabitCard.hasHistory(habit)
+                      ? l.percent(HabitCard.rateOf(habit))
+                      : '–',
                   label: l.habitsStatRate30d,
                 ),
               ],

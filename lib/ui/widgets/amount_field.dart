@@ -211,7 +211,7 @@ class _AmountSheetState extends State<_AmountSheet> {
 
   void _digit(String d) {
     final limit = _draft.wouldPassLimit(d, widget.subunitToUnit);
-    if (limit) Haptics.danger();
+    if (limit) Haptics.reject();
     setState(() {
       _atLimit = limit;
       if (limit) _refused++;

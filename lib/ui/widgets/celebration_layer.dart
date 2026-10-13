@@ -50,7 +50,17 @@ abstract interface class CelebrationController {
   /// Tier 2: today's habits are all done. [origin] is the global centre of
   /// the control that finished the day (`RenderBox.localToGlobal(
   /// size.center(Offset.zero))`); [day] the account's today.
-  void allDone({required Offset origin, required DateTime day});
+  ///
+  /// Returns whether this call claimed the day: false when the day was
+  /// already celebrated, so the caller has nothing to give back.
+  bool allDone({required Offset origin, required DateTime day});
+
+  /// Gives [day]'s tier-2 celebration back: the write that earned it was
+  /// refused or taken back, so the day's real completion later may still
+  /// celebrate. What already played stays played. Only for a day this
+  /// caller's [allDone] claimed — a day an earlier, accepted write
+  /// celebrated stays celebrated (once a day, §5.7).
+  void forget(DateTime day);
 
   /// Tier 3: a milestone, shown once per [key] ever (`habit.<id>.<n>`,
   /// `goal.<id>`, `perfect-week`). [text] is the card's line
@@ -108,14 +118,23 @@ class _CelebrationLayerState extends ConsumerState<CelebrationLayer>
   }
 
   @override
-  void allDone({required Offset origin, required DateTime day}) {
+  bool allDone({required Offset origin, required DateTime day}) {
     final key = celebratedDayKey(day);
-    if (_celebrated(key)) return;
+    if (_celebrated(key) || _pendingDay?.key == key) return false;
     // In this event, so it merges with the CheckPop's [Haptics.check]: the
     // tap that finishes the day plays confirm only (§5.8).
     Haptics.confirm();
     _pendingDay = (origin: origin, key: key);
     _queue();
+    return true;
+  }
+
+  @override
+  void forget(DateTime day) {
+    final key = celebratedDayKey(day);
+    if (_pendingDay?.key == key) _pendingDay = null;
+    _seen.remove(key);
+    unawaited(_prefs?.remove(key));
   }
 
   @override
@@ -228,9 +247,8 @@ class _AllDonePillState extends State<_AllDonePill>
   // Delay (120 ms) + in (250 ms) in one controller.
   static const _delay = Motion.pillDelay;
 
-  /// The pill's way in: a local alias of [Motion.collapse] (same 250 ms)
-  /// until WP-1/WP-17 add a token named for it (`Motion.pillIn`).
-  static const _pillIn = Motion.collapse;
+  /// The pill's way in.
+  static const _pillIn = Motion.pillIn;
   static final _total = _delay + _pillIn;
 
   late final AnimationController _in = AnimationController(

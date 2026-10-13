@@ -188,7 +188,11 @@ class _CategoriesScreenState extends ConsumerState<CategoriesScreen> {
                 active: async.isRefetching || _seeding,
                 child: RefreshIndicator.adaptive(
                   color: c.gold,
-                  onRefresh: _refresh,
+                  // Armed (§5.8): the pull let go past its threshold.
+                  onRefresh: () {
+                    Haptics.armed();
+                    return _refresh();
+                  },
                   child: LoadPhaseSwitcher(
                     phase: async.isFirstLoad
                         ? LoadPhase.waiting

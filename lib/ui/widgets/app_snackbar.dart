@@ -17,6 +17,10 @@ const actionSnackDuration = Duration(seconds: 6);
 /// How long a plain message stays (the Material default).
 const _plainSnackDuration = Duration(milliseconds: 4000);
 
+/// How long a notice the user did not ask for stays — the sign-in screen's
+/// "your session ended" line — long enough to read it once at large text.
+const noticeSnackDuration = Duration(seconds: 8);
+
 /// What a snackbar says about how things went (design-analysis §4.17).
 enum SnackTone {
   /// A plain message, or an undo offer: no icon.
@@ -168,7 +172,7 @@ ScaffoldFeatureController<SnackBar, SnackBarClosedReason> showAppSnack(
   bool? persist,
 }) {
   final effectiveTone = tone ?? (isError ? SnackTone.error : SnackTone.plain);
-  if (effectiveTone == SnackTone.error) Haptics.danger();
+  if (effectiveTone == SnackTone.error) Haptics.reject();
   final hasAction = actionLabel != null;
   final messenger = ScaffoldMessenger.of(context)..hideCurrentSnackBar();
   return messenger.showSnackBar(
@@ -211,7 +215,7 @@ void _sayRefused(
   DeleteRecovery? recover,
   DeleteRefusal? explain,
 }) {
-  Haptics.danger();
+  Haptics.reject();
   if (!messenger.mounted) return;
   final action = recover?.call(error);
   messenger

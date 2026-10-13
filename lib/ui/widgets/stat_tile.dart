@@ -99,7 +99,9 @@ class StatTile extends StatelessWidget {
 }
 
 /// [tiles] side by side, 8 dp apart and equally wide — three across; in two
-/// columns above 1.3× text so the figures keep their size (§8.3).
+/// columns above 1.3× text so the figures keep their size (§8.3). The tiles
+/// of a line are equally tall too: a date ("26 Kasım") beside a two-line
+/// caption does not leave its tile short.
 class StatTileRow extends StatelessWidget {
   final List<Widget> tiles;
 
@@ -110,19 +112,28 @@ class StatTileRow extends StatelessWidget {
     if (tiles.isEmpty) return const SizedBox.shrink();
     final most = MediaQuery.textScalerOf(context).scale(1) > 1.3 ? 2 : 3;
     final columns = tiles.length < most ? tiles.length : most;
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        final width =
-            ((constraints.maxWidth - Gap.sm * (columns - 1)) / columns)
-                .floorToDouble();
-        return Wrap(
-          spacing: Gap.sm,
-          runSpacing: Gap.sm,
-          children: [
-            for (final tile in tiles) SizedBox(width: width, child: tile),
-          ],
-        );
-      },
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        for (var i = 0; i < tiles.length; i += columns) ...[
+          if (i > 0) const SizedBox(height: Gap.sm),
+          IntrinsicHeight(
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                for (var j = 0; j < columns; j++) ...[
+                  if (j > 0) const SizedBox(width: Gap.sm),
+                  Expanded(
+                    child: i + j < tiles.length
+                        ? tiles[i + j]
+                        : const SizedBox.shrink(),
+                  ),
+                ],
+              ],
+            ),
+          ),
+        ],
+      ],
     );
   }
 }

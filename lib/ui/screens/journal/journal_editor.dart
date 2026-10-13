@@ -813,13 +813,19 @@ class _JournalEditorScreenState extends ConsumerState<JournalEditorScreen> {
               hintStyle: text.headlineMedium!.copyWith(color: c.inkLow),
             ),
           ),
-          AnimatedSize(
-            key: _moodKey,
-            duration: Motion.orInstant(context, Motion.quick),
-            curve: Motion.enter,
-            alignment: Alignment.topCenter,
-            child: _moodSection(context),
-          ),
+          // AnimatedSize cannot take zero time (it would re-lay itself out
+          // mid-layout): under reduced motion the section just takes its
+          // size.
+          if (Motion.reduced(context))
+            KeyedSubtree(key: _moodKey, child: _moodSection(context))
+          else
+            AnimatedSize(
+              key: _moodKey,
+              duration: Motion.quick,
+              curve: Motion.enter,
+              alignment: Alignment.topCenter,
+              child: _moodSection(context),
+            ),
           if (_weather != null) _weatherChip(context),
           const SizedBox(height: Gap.sm),
           TextField(

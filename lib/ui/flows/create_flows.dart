@@ -3,7 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../models/habit.dart';
 import '../../models/quick_capture.dart';
-import '../screens/events/event_form.dart';
+import '../screens/agenda/event_form.dart';
 import '../screens/finance/account_form.dart';
 import '../screens/habits/habit_form.dart';
 

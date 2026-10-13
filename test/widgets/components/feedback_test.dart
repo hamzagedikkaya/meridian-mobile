@@ -226,6 +226,28 @@ void main() {
       expect(c.top, greaterThan(a.top), reason: 'two columns');
       expect(tester.takeException(), isNull);
     });
+
+    testWidgets('the tiles of a line share one height', (tester) async {
+      await pumpComponent(
+        tester,
+        const Padding(
+          padding: EdgeInsets.all(20),
+          child: StatTileRow(
+            tiles: [
+              StatTile(value: '26 Kas', label: 'Bitiş'),
+              StatTile(value: '₺1.200', label: 'Hedefe kalan, bu hızla'),
+              StatTile(value: '%40', label: 'İlerleme'),
+            ],
+          ),
+        ),
+      );
+      final heights = [
+        for (var i = 0; i < 3; i++)
+          tester.getSize(find.byType(StatTile).at(i)).height,
+      ];
+      expect(heights.toSet(), hasLength(1), reason: '$heights');
+      expect(heights.first, greaterThanOrEqualTo(64));
+    });
   });
 
   group('HeroStat', () {
@@ -291,6 +313,8 @@ void main() {
       final ctx = tester.element(find.byType(MoneyGlance));
       final amount = tester.widget<Text>(find.textContaining('42.750'));
       expect(amount.style!.color, ctx.nok.income);
+      expect(find.textContaining(',00'), findsNothing,
+          reason: 'a chip drops ",00" by default (§3.7)');
       await tester.tap(find.byType(MoneyGlance));
       await tester.pumpAndSettle();
       expect(opened, 1);

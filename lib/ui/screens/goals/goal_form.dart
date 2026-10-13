@@ -14,6 +14,7 @@ import '../../../models/habit.dart';
 import '../../../theme/app_colors.dart';
 import '../../../theme/app_metrics.dart';
 import '../../../theme/app_motion.dart';
+import '../../../theme/entity_color.dart';
 import '../../../data/current_day.dart';
 import '../../../data/providers.dart';
 import '../../widgets/amount_field.dart';

@@ -144,18 +144,21 @@ class _HabitsScreenState extends ConsumerState<HabitsScreen>
     final nowAllDone =
         after.totalActive > 0 && after.completedToday >= after.totalActive;
     final becameComplete = log.completed && !habit.today.completed;
+    final celebratesDay = nowAllDone && !wasAllDone;
 
     if (log.completed != habit.today.completed) _holdPlace(habit.id);
 
-    if (nowAllDone && !wasAllDone) {
+    // Whether this tap claimed the day's celebration: only then is there a
+    // key to give back.
+    var claimedDay = false;
+    if (celebratesDay) {
       // Tier 2, from the control that finished the day — with the tap, not
-      // the answer (§4.30: the burst is the tap's). Trade-off: a write the
-      // server refuses has still burst and used up the day's key, so the
-      // day's real completion later does not burst again. WP-3/WP-17 note:
-      // a `CelebrationController.forget(day)` would let a failure here
-      // give the key back.
+      // the answer (§4.30: the burst is the tap's). A write that is then
+      // refused or taken back gives the day's key back (below), so the
+      // day's real completion later still celebrates.
       if (celebrations != null) {
-        celebrations.allDone(origin: origin, day: habit.today.date);
+        claimedDay =
+            celebrations.allDone(origin: origin, day: habit.today.date);
       } else {
         Haptics.confirm();
       }
@@ -167,6 +170,7 @@ class _HabitsScreenState extends ConsumerState<HabitsScreen>
         count,
         day: habit.today.date,
       );
+      if (!sent && claimedDay) celebrations?.forget(habit.today.date);
       if (!sent || !becameComplete || celebrations == null || !mounted) return;
       if (started.elapsed > _milestoneWindow) return;
       // Tier 3, from the server's answer to this tap.
@@ -187,6 +191,7 @@ class _HabitsScreenState extends ConsumerState<HabitsScreen>
         );
       }
     } catch (e) {
+      if (claimedDay) celebrations?.forget(habit.today.date);
       if (!mounted) return;
       showAppSnack(
         context,
@@ -814,29 +819,41 @@ class _HeroCard extends ConsumerWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           if (large)
-            // Large text: the count, then the streak (or the pill) under it,
+            // Large text: the count, then the pill and the streak under it,
             // each with the card's whole width.
             Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 count,
-                if (allDone || streak != null) ...[
+                if (allDone) ...[
                   const SizedBox(height: Gap.xs),
-                  allDone ? const _AllDonePill() : streak!,
+                  const _AllDonePill(),
+                ],
+                if (streak != null) ...[
+                  const SizedBox(height: Gap.xs),
+                  streak,
                 ],
               ],
             )
           else if (allDone)
-            // Once the day is done its pill takes the streak's place (the
-            // dots below show the streak growing). It is never cut: at its
-            // own width on the right, or under the count when both do not
-            // fit on one line.
+            // Once the day is done its pill joins the perfect-day streak —
+            // the day just done is what the streak counts. Neither is ever
+            // cut: at their own width on the right, or under the count when
+            // they do not fit on one line.
             Wrap(
               alignment: WrapAlignment.spaceBetween,
               crossAxisAlignment: WrapCrossAlignment.center,
               spacing: Gap.sm,
               runSpacing: Gap.xs,
-              children: [count, const _AllDonePill()],
+              children: [
+                count,
+                Wrap(
+                  crossAxisAlignment: WrapCrossAlignment.center,
+                  spacing: Gap.sm,
+                  runSpacing: Gap.xs,
+                  children: [const _AllDonePill(), ?streak],
+                ),
+              ],
             )
           else
             Row(

@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../../core/formats.dart';
+import '../../../core/haptics.dart';
 import '../../../core/session.dart';
 import '../../../data/current_day.dart';
 import '../../../data/data_scope.dart';
@@ -644,7 +645,8 @@ class _TransactionsScreenState extends ConsumerState<TransactionsScreen> {
   /// The filtered income and expense, in the currency the amounts are in:
   /// the filtered account's, else the user's (the server adds the stored
   /// minor units of every account as they are). Rows deleted a moment ago
-  /// are taken out at once, before the refetch says so.
+  /// are taken out at once, before the refetch says so. Two zeros are not
+  /// shown.
   Widget _summary(
     BuildContext context,
     TransactionsFeed feed,
@@ -666,6 +668,9 @@ class _TransactionsScreenState extends ConsumerState<TransactionsScreen> {
       if (tx.kind == 'income') income -= tx.amountCents;
       if (tx.kind == 'expense') expense -= tx.amountCents;
     }
+    // Nothing in or out: no "₺0 gelir · ₺0 gider" over an empty list
+    // (§7.15) — the empty state says it in words.
+    if (income == 0 && expense == 0) return const SizedBox(height: Gap.sm);
     String money(int cents) => formatMoney(cents, currency, subunit,
         decimals: MoneyDecimals.auto);
     return Padding(
@@ -777,7 +782,11 @@ class _TransactionsScreenState extends ConsumerState<TransactionsScreen> {
 
     return RefreshIndicator.adaptive(
       color: c.gold,
-      onRefresh: _refresh,
+      // Armed (§5.8): the pull let go past its threshold.
+      onRefresh: () {
+        Haptics.armed();
+        return _refresh();
+      },
       child: CustomScrollView(
         controller: _scroll,
         physics: const AlwaysScrollableScrollPhysics(),
@@ -789,7 +798,11 @@ class _TransactionsScreenState extends ConsumerState<TransactionsScreen> {
   /// An empty state that still pulls to refresh.
   Widget _scrollableEmpty(Widget empty) => RefreshIndicator.adaptive(
         color: context.nok.gold,
-        onRefresh: _refresh,
+        // Armed (§5.8): the pull let go past its threshold.
+        onRefresh: () {
+          Haptics.armed();
+          return _refresh();
+        },
         child: CustomScrollView(
           physics: const AlwaysScrollableScrollPhysics(),
           slivers: [
@@ -903,8 +916,8 @@ class _CrossFadeOpacity extends Animation<double>
   @override
   final Animation<double> parent;
 
-  static const _incoming = Interval(0.3, 1, curve: Curves.easeOut);
-  static const _outgoing = Interval(0.5, 1, curve: Curves.easeIn);
+  static const _incoming = Interval(0.3, 1, curve: Motion.fadeIn);
+  static const _outgoing = Interval(0.5, 1, curve: Motion.fadeOut);
 
   @override
   double get value {

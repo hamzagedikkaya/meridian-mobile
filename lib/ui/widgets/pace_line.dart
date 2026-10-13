@@ -75,9 +75,8 @@ class _PaceLineState extends State<PaceLine> with TickerProviderStateMixin {
     duration: _hintFade,
   );
 
-  /// The scrub cursor's fade: a local alias of [Motion.pressOut] (same
-  /// 150 ms) until WP-1/WP-17 add a token named for it (`Motion.hintIn`).
-  static const _hintFade = Motion.pressOut;
+  /// The scrub cursor's fade.
+  static const _hintFade = Motion.hintIn;
   bool _decided = false;
   int? _day;
 

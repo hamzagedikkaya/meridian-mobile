@@ -15,6 +15,7 @@ import 'package:meridian_mobile/models/event.dart';
 import 'package:meridian_mobile/models/todo.dart';
 import 'package:meridian_mobile/theme/app_motion.dart';
 import 'package:meridian_mobile/theme/app_theme.dart';
+import 'package:meridian_mobile/ui/screens/habits/widgets/counter_pill.dart';
 import 'package:meridian_mobile/ui/widgets/agenda_rows.dart';
 import 'package:meridian_mobile/ui/widgets/animated_fraction.dart';
 import 'package:meridian_mobile/ui/widgets/celebration_layer.dart';
@@ -730,7 +731,7 @@ void main() {
         (tester) async {
       final layer = await host(tester);
       final day = DateTime(2026, 10, 4);
-      layer.allDone(origin: const Offset(100, 200), day: day);
+      expect(layer.allDone(origin: const Offset(100, 200), day: day), isTrue);
       await tester.pump();
       expect(find.byType(ConfettiBurst), findsOneWidget);
       await tester.pump(const Duration(milliseconds: 400));
@@ -740,10 +741,43 @@ void main() {
       await tester.pumpAndSettle();
       expect(find.byType(ConfettiBurst), findsNothing);
       expect(find.text('Hepsi tamam'), findsNothing);
-      // Unchecked and checked again: not again.
+      // Unchecked and checked again: not again, and nothing claimed for
+      // the caller to give back.
+      expect(layer.allDone(origin: const Offset(100, 200), day: day), isFalse);
+      await tester.pump(); // the layer's microtask
+      await tester.pump(); // its frame
+      expect(find.byType(ConfettiBurst), findsNothing);
+    });
+
+    testWidgets('a refused write gives the day back: the real finish still '
+        'celebrates', (tester) async {
+      final layer = await host(tester);
+      final day = DateTime(2026, 10, 4);
       layer.allDone(origin: const Offset(100, 200), day: day);
       await tester.pump();
+      expect(find.byType(ConfettiBurst), findsOneWidget);
+      await tester.pumpAndSettle();
+      await tester.pump(Motion.milestoneHold);
+      await tester.pumpAndSettle();
+      // The server refused the tap that finished the day.
+      layer.forget(day);
+      layer.allDone(origin: const Offset(100, 200), day: day);
+      await tester.pump(); // the layer's microtask
+      await tester.pump(); // its frame
+      expect(find.byType(ConfettiBurst), findsOneWidget);
+      await tester.pumpAndSettle();
+      await tester.pump(Motion.milestoneHold);
+      await tester.pumpAndSettle();
+    });
+
+    testWidgets('forgotten in the same event: nothing plays', (tester) async {
+      final layer = await host(tester);
+      final day = DateTime(2026, 10, 4);
+      layer.allDone(origin: Offset.zero, day: day);
+      layer.forget(day);
+      await tester.pump();
       expect(find.byType(ConfettiBurst), findsNothing);
+      expect(find.text('Hepsi tamam'), findsNothing);
     });
 
     testWidgets('one gesture plays its highest tier only', (tester) async {
@@ -1075,6 +1109,55 @@ void main() {
   });
 
   group('the app\'s own "Reduce motion" switch (§8.5)', () {
+    /// A CounterPill one step from its target under [wrap]: the step to the
+    /// target lands in one frame — the new count, no roll, no swell, the
+    /// complete shape — and nothing is left to animate.
+    Future<void> expectCounterPillStill(
+      WidgetTester tester,
+      Widget Function(Widget child) wrap,
+    ) async {
+      var count = 2;
+      const tone = (
+        fill: Colors.green,
+        text: Colors.lightGreen,
+        tint: Color(0x3300FF00),
+        onFill: Colors.white,
+      );
+      await tester.pumpWidget(wrap(Center(
+        child: StatefulBuilder(
+          builder: (context, setState) => CounterPill(
+            count: count,
+            target: 3,
+            tone: tone,
+            onDelta: (delta, _) => setState(() => count += delta),
+          ),
+        ),
+      )));
+      await tester.tap(find.byIcon(Icons.add_rounded));
+      await tester.pump();
+      expect(count, 3);
+      expect(find.text('3/3'), findsOneWidget);
+      expect(find.text('2/3'), findsNothing, reason: 'no digit roll');
+      final scale = tester.widget<ScaleTransition>(find
+          .descendant(
+              of: find.byType(CounterPill),
+              matching: find.byType(ScaleTransition))
+          .first);
+      expect(scale.scale.value, 1.0, reason: 'no swell');
+      final shape = tester.widget<DecoratedBox>(
+          find.byKey(const ValueKey('counter-pill-shape')));
+      expect((shape.decoration as ShapeDecoration).color, tone.tint);
+      await tester.pumpAndSettle();
+      expect(tester.binding.hasScheduledFrame, isFalse);
+      expect(scale.scale.value, 1.0);
+    }
+
+    testWidgets('CounterPill under disableAnimations: the step and the '
+        'target land in one frame', (tester) async {
+      await expectCounterPillStill(
+          tester, (child) => app(child, reduced: true));
+    });
+
     testWidgets('folds into disableAnimations: a number and a check show '
         'their end state in one frame', (tester) async {
       SharedPreferences.setMockInitialValues(
@@ -1164,6 +1247,11 @@ void main() {
           expect(tester.binding.hasScheduledFrame, isFalse, reason: '$cause');
           await tester.pumpWidget(const SizedBox());
         }
+      });
+
+      testWidgets('CounterPill: the step and the target in one frame',
+          (tester) async {
+        await expectCounterPillStill(tester, viaSwitch);
       });
 
       testWidgets('CheckPop: filled at once, no scale', (tester) async {

@@ -22,6 +22,10 @@ import '../../theme/app_motion.dart';
 /// * **Long press** plays the platform's long-press feedback
 ///   (`Feedback.forLongPress`) before [onLongPress].
 ///
+/// * **Controls inside** ([PressableClaim]): a touch that lands on a
+///   control the card holds (a habit's check, its counter) is the
+///   control's alone — the card neither presses nor opens.
+///
 /// Rows do not scale — they show the theme's gold ripple instead (§4.4).
 /// With neither [onTap] nor [onLongPress] it ignores the finger, but keeps
 /// the same tree: a child that turns tappable or not (a chip just chosen)
@@ -68,6 +72,9 @@ class _PressableScaleState extends State<PressableScale>
   /// Where the finger landed, while it is down; null otherwise.
   Offset? _downAt;
 
+  /// Pointers that landed on a [PressableClaim] inside.
+  final _claimed = <int>{};
+
   Animation<double> _scaleFor(double pressed) =>
       _press.drive(Tween(begin: 1.0, end: pressed));
 
@@ -104,10 +111,11 @@ class _PressableScaleState extends State<PressableScale>
   }
 
   void _down(PointerDownEvent event) {
-    if (!_enabled) return;
+    // A control's claim ran first (it is deeper in the tree).
+    if (!_enabled || _claimed.contains(event.pointer)) return;
     _downAt = event.position;
     if (Motion.reduced(context)) return;
-    _press.animateTo(1, duration: Motion.pressIn, curve: Curves.easeOut);
+    _press.animateTo(1, duration: Motion.pressIn, curve: Motion.press);
   }
 
   void _move(PointerMoveEvent event) {
@@ -116,7 +124,8 @@ class _PressableScaleState extends State<PressableScale>
     if ((event.position - at).distance > kTouchSlop) _up();
   }
 
-  void _up([PointerEvent? _]) {
+  void _up([PointerEvent? event]) {
+    if (event != null) _claimed.remove(event.pointer);
     if (_downAt == null) return;
     _downAt = null;
     // Still pressing in: the status listener releases once it is done.
@@ -126,7 +135,7 @@ class _PressableScaleState extends State<PressableScale>
 
   void _release() {
     if (_press.value == 0) return;
-    _press.animateBack(0, duration: Motion.pressOut, curve: Curves.easeOutCubic);
+    _press.animateBack(0, duration: Motion.pressOut, curve: Motion.enter);
   }
 
   void _longPress() {
@@ -153,4 +162,29 @@ class _PressableScaleState extends State<PressableScale>
       ),
     );
   }
+}
+
+/// A control inside a [PressableScale] whose touches are its own: the
+/// pressable around it neither presses nor taps for a finger that lands
+/// here — also where the control is off (a counter at its target). The
+/// control keeps its own gestures and semantics.
+class PressableClaim extends StatelessWidget {
+  final Widget child;
+
+  const PressableClaim({super.key, required this.child});
+
+  @override
+  Widget build(BuildContext context) => Listener(
+        onPointerDown: (e) => context
+            .findAncestorStateOfType<_PressableScaleState>()
+            ?._claimed
+            .add(e.pointer),
+        child: GestureDetector(
+          behavior: HitTestBehavior.opaque,
+          excludeFromSemantics: true,
+          // Wins the tap over the pressable's, so the card does not open.
+          onTap: () {},
+          child: child,
+        ),
+      );
 }

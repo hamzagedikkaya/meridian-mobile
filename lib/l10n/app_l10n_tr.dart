@@ -518,15 +518,6 @@ class AppL10nTr extends AppL10n {
   @override
   String get todayStatWeek => 'hafta';
   @override
-  String get todayQuickCapture => 'Hızlı kayıt';
-  @override
-  String get todayQuickCaptureHint =>
-      'Ne oldu? (-250 kahve, +1.500 maaş, alışkanlık: koşu, süt al)';
-  @override
-  String get todayQuickCaptureAdd => 'Ekle';
-  @override
-  String get todayQuickCaptureFailed => 'Kayıt eklenemedi';
-  @override
   String get todayEmptyDay => 'Bugün plan yok — sakin bir gün';
   @override
   String get todayAllHabitsDone => 'Hepsi tamam';
@@ -1483,6 +1474,9 @@ class AppL10nTr extends AppL10n {
   @override
   String get accountsTotalsTitle => 'Para birimine göre toplam';
   @override
+  String accountsCurrencyLabel(String currency) =>
+      currency.toUpperCase() == 'GAU' ? 'Altın' : currency;
+  @override
   String get accountFab => 'Hesap';
   @override
   String accountTileSemantics(String name, String type, String balance) =>
@@ -2237,9 +2231,6 @@ class AppL10nTr extends AppL10n {
   String get goalsFormTargetValue => 'Hedef değer';
   @override
   String get goalsFormTargetRequired => 'Geçerli bir hedef değer gir';
-  @override
-  String goalsNumberAmbiguous(String mark) =>
-      'Belirsiz sayı: ondalık için “$mark” kullan, binlik ayırıcı koyma';
   @override
   String get goalsFormUnit => 'Birim';
   @override

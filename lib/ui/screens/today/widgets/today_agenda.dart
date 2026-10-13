@@ -26,10 +26,10 @@ import '../../../widgets/nokturn_card.dart';
 import '../../../widgets/row_motion.dart';
 import '../../../widgets/section_header.dart';
 import '../../../widgets/swipe_action.dart';
-import '../../events/agenda_screen.dart';
-import '../../events/event_sheet.dart';
-import '../../todos/todo_flows.dart';
-import '../../todos/todo_sheet.dart';
+import '../../agenda/agenda_days.dart' show Occurrence, occurrencesIn;
+import '../../agenda/event_sheet.dart';
+import '../../agenda/todo_flows.dart';
+import '../../agenda/todo_sheet.dart';
 import 'today_clock.dart';
 import 'today_common.dart';
 

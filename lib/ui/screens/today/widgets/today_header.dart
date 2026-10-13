@@ -14,8 +14,8 @@ import '../../../../theme/app_metrics.dart';
 import '../../../widgets/money_glance.dart';
 import '../../../widgets/pressable_scale.dart';
 import '../../../widgets/skeletons.dart';
-import '../../events/agenda_screen.dart';
-import '../../events/event_sheet.dart';
+import '../../agenda/agenda_days.dart' show Occurrence, occurrencesIn;
+import '../../agenda/event_sheet.dart';
 import '../../search/search_entry_button.dart';
 import 'start_card.dart';
 import 'today_clock.dart';
@@ -146,8 +146,6 @@ class _HeaderChips extends ConsumerWidget {
         netCents: noAccount ? null : money.net,
         currency: money.currency,
         subunitToUnit: money.subunit,
-        // A chip drops ",00" (§3.7).
-        decimals: MoneyDecimals.auto,
         onTap: () => context.go('/finance'),
         onStart: () => openTodayCashAccount(context, ref),
       );

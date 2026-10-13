@@ -13,11 +13,11 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:intl/date_symbol_data_local.dart';
 import 'package:meridian_mobile/ui/screens/finance/account_card.dart';
 import 'package:meridian_mobile/ui/screens/finance/accounts_screen.dart';
-import 'package:meridian_mobile/ui/screens/finance/finance_category_bars.dart';
 import 'package:meridian_mobile/ui/screens/finance/finance_screen.dart';
 import 'package:meridian_mobile/ui/screens/finance/subscriptions_screen.dart';
 import 'package:meridian_mobile/ui/screens/finance/transaction_form_screen.dart';
 import 'package:meridian_mobile/ui/widgets/amount_field.dart';
+import 'package:meridian_mobile/ui/widgets/category_bars.dart';
 import 'package:meridian_mobile/ui/widgets/nokturn_row.dart';
 
 import '../support/app_fonts.dart';
@@ -362,7 +362,7 @@ void main() {
             expect(tester.takeException(), isNull);
             // The six-figure amount, whole and on screen.
             final big = find.descendant(
-              of: find.byType(FinanceCategoryBars),
+              of: find.byType(CategoryBars),
               matching: find.textContaining(RegExp(r'123[.,]456')),
             );
             expect(big, findsOneWidget);

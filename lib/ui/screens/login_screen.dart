@@ -149,7 +149,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen>
       _noticeShown = true;
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (mounted) {
-          showAppSnack(context, notice, duration: const Duration(seconds: 8));
+          showAppSnack(context, notice, duration: noticeSnackDuration);
         }
       });
     }

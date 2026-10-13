@@ -192,15 +192,16 @@ class _GhostCardState extends ConsumerState<GhostCard> {
           child: Text(l.actionHide),
         ),
     ];
+    // Above 1.3x text the actions move under the message, which then wraps
+    // over as many lines as it needs: at 2.0x on a 360 dp phone two lines
+    // cut it (§8.3: text grows, it is never cut).
+    final large = MediaQuery.textScalerOf(context).scale(1) > 1.3;
     final message = Text(
       widget.message,
-      maxLines: 2,
-      overflow: TextOverflow.ellipsis,
+      maxLines: large ? null : 2,
+      overflow: large ? null : TextOverflow.ellipsis,
       style: text.bodyMedium!.copyWith(color: c.inkMid),
     );
-    // Above 1.3x text the actions move under the message, which keeps its
-    // two lines' worth of width.
-    final large = MediaQuery.textScalerOf(context).scale(1) > 1.3;
     return CustomPaint(
       painter: _DashedBorderPainter(color: c.inkFaint),
       child: Padding(

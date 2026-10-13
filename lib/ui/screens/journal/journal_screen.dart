@@ -87,7 +87,6 @@ class _JournalScreenState extends ConsumerState<JournalScreen>
   }
 
   Future<void> _refresh() async {
-    Haptics.armed();
     refreshTab(ref, AppTab.journal);
     await settleRefresh([ref.read(journalProvider(_range).future)]);
   }
@@ -311,7 +310,11 @@ class _JournalScreenState extends ConsumerState<JournalScreen>
   Widget _scroll(BuildContext context, List<Widget> slivers) {
     return RefreshIndicator.adaptive(
       color: context.nok.gold,
-      onRefresh: _refresh,
+      // The pull's own tick; retry calls [_refresh] silently.
+      onRefresh: () {
+        Haptics.armed();
+        return _refresh();
+      },
       child: CustomScrollView(
         primary: true,
         physics: const AlwaysScrollableScrollPhysics(),
@@ -466,7 +469,7 @@ class _JournalScreenState extends ConsumerState<JournalScreen>
         SliverAnimatedOpacity(
           opacity: _listHidden ? 0 : 1,
           duration: _listHidden ? Motion.filterOut : Motion.filterIn,
-          curve: _listHidden ? Curves.easeIn : Curves.easeOut,
+          curve: _listHidden ? Motion.fadeOut : Motion.fadeIn,
           sliver: SliverPadding(
             padding: const EdgeInsets.only(top: Gap.sm),
             sliver: entries.isEmpty
@@ -548,7 +551,8 @@ class _JournalScreenState extends ConsumerState<JournalScreen>
 
   /// "12 kayıt · 6 haftadır yazıyorsun" — the streak only while there is
   /// one; the day streak ([StreakFlame]) from a server without the week
-  /// count (WP-15). Never a flame by a zero.
+  /// count (WP-15). Never a flame by a zero, and no "0 kayıt" over an empty
+  /// range (§7.15): its empty state says so in words.
   Widget _metaLine(BuildContext context, JournalBundle bundle) {
     final c = context.nok;
     final text = Theme.of(context).textTheme;
@@ -556,6 +560,10 @@ class _JournalScreenState extends ConsumerState<JournalScreen>
     final meta = text.bodySmall!.copyWith(color: c.inkMid);
     final weeks = bundle.journalStreakWeeks;
     final days = bundle.journalStreak;
+    final streak = (weeks != null && weeks > 0) || (weeks == null && days > 0);
+    if (bundle.entriesCount == 0 && !streak) {
+      return const SizedBox(height: Gap.xs + Gap.lg);
+    }
     return Padding(
       padding: const EdgeInsets.fromLTRB(
         Insets.gutter,
@@ -566,9 +574,10 @@ class _JournalScreenState extends ConsumerState<JournalScreen>
       child: Wrap(
         crossAxisAlignment: WrapCrossAlignment.center,
         children: [
-          Text(l.journalEntriesCount(bundle.entriesCount), style: meta),
+          if (bundle.entriesCount > 0)
+            Text(l.journalEntriesCount(bundle.entriesCount), style: meta),
           if (weeks != null && weeks > 0) ...[
-            Text('  ·  ', style: meta),
+            if (bundle.entriesCount > 0) Text('  ·  ', style: meta),
             // The week streak in words, led by the app's one flame.
             Row(
               mainAxisSize: MainAxisSize.min,
@@ -585,7 +594,7 @@ class _JournalScreenState extends ConsumerState<JournalScreen>
               ],
             ),
           ] else if (weeks == null && days > 0) ...[
-            Text('  ·  ', style: meta),
+            if (bundle.entriesCount > 0) Text('  ·  ', style: meta),
             StreakFlame(days: days, color: c.inkMid),
           ],
         ],

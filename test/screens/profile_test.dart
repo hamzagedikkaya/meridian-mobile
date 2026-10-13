@@ -994,6 +994,10 @@ void main() {
             200,
             scrollable: find.byType(Scrollable).first,
           );
+          // At 2.0x the row stacks (icon line, then the title): bring the
+          // whole row clear of the navigation bar before tapping it.
+          await tester.ensureVisible(find.text('Çıkış yap'));
+          await _settle(tester);
           await tester.tap(find.text('Çıkış yap'));
           await _settle(tester);
           expect(tester.takeException(), isNull);

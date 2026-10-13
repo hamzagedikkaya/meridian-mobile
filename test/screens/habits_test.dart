@@ -367,6 +367,19 @@ void main() {
     expect(_labelled('1 / 1 tamamlandı'), findsOneWidget);
     expect(find.text('Hepsi tamam'), findsOneWidget);
     expect(find.byType(ConfettiBurst), findsNothing);
+    // The perfect-day streak stays beside the pill: the day just done is
+    // what it counts.
+    expect(find.textContaining('Mükemmel seri 1'), findsOneWidget);
+    // Made today (no day before today in its chain, no start date): no
+    // "%100 (30g)" or "%0 (30g)" yet.
+    expect(find.textContaining('(30g)'), findsNothing);
+  });
+
+  testWidgets('a habit with a day of history shows its 30-day rate', (t) async {
+    await t.pumpWidget(_app(_bundle(_populatedJson)));
+    await t.pumpAndSettle();
+    expect(find.textContaining('(30g)'), findsWidgets);
+    expect(t.takeException(), isNull);
   });
 
   testWidgets('the tap that finishes the day bursts from its check (tier 2), '
@@ -417,6 +430,61 @@ void main() {
     await t.pumpAndSettle();
     expect(find.byType(ConfettiBurst), findsNothing);
     expect(place(), top, reason: 'both are done: the order is the server\'s');
+    expect(t.takeException(), isNull);
+  });
+
+  testWidgets('a refused re-check after a celebrated day does not give the '
+      'day back: the accepted one after it does not burst again', (t) async {
+    _phone(t);
+    const key = 'PUT /habits/7/logs/2026-10-04';
+    final api = FakeApi()
+      ..on('GET /habits', {
+        'habits': [habitJson()],
+        'meta': habitsMeta(totalActive: 1),
+      });
+    void accept() => api.onRequest(key, (request) {
+          final body = request.data is String
+              ? jsonDecode(request.data as String)
+              : request.data;
+          final count = (body as Map)['count'] as int;
+          return {
+            ...logAnswer(7, '2026-10-04', count),
+            'meta': habitsMeta(completedToday: count, totalActive: 1),
+          };
+        });
+    accept();
+    await t.pumpWidget(_live(api));
+    await _settle(t);
+    final check = find.descendant(
+      of: find.byKey(const ValueKey('habit-7')),
+      matching: find.byType(CheckPop),
+    );
+    var bursts = 0;
+    Future<void> tapAndCount() async {
+      await t.tap(check);
+      var shown = false;
+      for (var i = 0; i < 160; i++) {
+        await t.pump(const Duration(milliseconds: 16));
+        final now = find.byType(ConfettiBurst).evaluate().isNotEmpty;
+        if (now && !shown) bursts++;
+        shown = now;
+      }
+      await t.pumpAndSettle();
+    }
+
+    // (1) The day finished, the write accepted: the day's burst.
+    await tapAndCount();
+    expect(bursts, 1);
+    // (2) Unchecked.
+    await tapAndCount();
+    // (3) Checked again, the write refused.
+    api.fail(key, 500);
+    await tapAndCount();
+    // (4) Checked again, accepted: the day was celebrated in (1).
+    accept();
+    await tapAndCount();
+    expect(api.requests.where((r) => r == key), hasLength(4));
+    expect(bursts, 1, reason: 'once a day (§5.7)');
     expect(t.takeException(), isNull);
   });
 

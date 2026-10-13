@@ -29,10 +29,8 @@ class MoneyGlance extends StatelessWidget {
   /// Opens a cash account; used when [netCents] is null.
   final VoidCallback? onStart;
 
-  /// Whether the net keeps ",00" ([MoneyDecimals.auto] drops it from a
-  /// whole amount, as a chip should — §3.7).
-  // TODO(WP-2): §3.7 makes auto the chip's default; WP-5 passes it from
-  // Today until then.
+  /// Whether the net keeps ",00": by default ([MoneyDecimals.auto]) a whole
+  /// amount drops it, as a chip should (§3.7).
   final MoneyDecimals decimals;
 
   const MoneyGlance({
@@ -42,7 +40,7 @@ class MoneyGlance extends StatelessWidget {
     required this.subunitToUnit,
     required this.onTap,
     this.onStart,
-    this.decimals = MoneyDecimals.always,
+    this.decimals = MoneyDecimals.auto,
   });
 
   @override

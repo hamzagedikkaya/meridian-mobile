@@ -4,6 +4,7 @@ import 'package:go_router/go_router.dart';
 
 import '../../../core/api.dart';
 import '../../../core/formats.dart';
+import '../../../core/haptics.dart';
 import '../../../data/current_day.dart';
 import '../../../data/data_scope.dart';
 import '../../../data/deferred_deletes.dart';
@@ -356,7 +357,11 @@ class _AccountDetailScreenState extends ConsumerState<AccountDetailScreen> {
         active: feedAsync.isRefetching || accountsAsync.isRefetching,
         child: RefreshIndicator.adaptive(
           color: c.gold,
-          onRefresh: _refresh,
+          // The pull's own tick; the retry buttons call [_refresh] silently.
+          onRefresh: () {
+            Haptics.armed();
+            return _refresh();
+          },
           child: CustomScrollView(
             controller: _scroll,
             physics: const AlwaysScrollableScrollPhysics(),

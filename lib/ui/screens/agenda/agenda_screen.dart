@@ -6,6 +6,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../../core/api.dart';
+import '../../../core/haptics.dart';
 import '../../../data/current_day.dart';
 import '../../../data/data_scope.dart';
 import '../../../data/deferred_deletes.dart';
@@ -410,7 +411,11 @@ class _AgendaTabScreenState extends ConsumerState<AgendaTabScreen>
           Expanded(
             child: RefreshIndicator.adaptive(
               color: c.gold,
-              onRefresh: _refresh,
+              // Armed (§5.8): the pull let go past its threshold.
+              onRefresh: () {
+                Haptics.armed();
+                return _refresh();
+              },
               child: view,
             ),
           ),

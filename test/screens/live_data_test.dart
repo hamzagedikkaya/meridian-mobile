@@ -17,7 +17,7 @@ import 'package:meridian_mobile/ui/screens/habits/habit_form.dart';
 import 'package:meridian_mobile/ui/screens/habits/habits_screen.dart';
 import 'package:meridian_mobile/ui/screens/today/today_screen.dart';
 import 'package:meridian_mobile/ui/screens/today/widgets/today_skeleton.dart';
-import 'package:meridian_mobile/ui/screens/today/widgets/todo_row.dart';
+import 'package:meridian_mobile/ui/widgets/agenda_rows.dart';
 import 'package:meridian_mobile/ui/screens/agenda/agenda_screen.dart';
 import 'package:meridian_mobile/ui/widgets/check_pop.dart';
 import 'package:meridian_mobile/ui/widgets/offline_banner.dart';
